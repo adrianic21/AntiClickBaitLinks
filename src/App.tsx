@@ -748,7 +748,7 @@ const handleUnlock = async () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start pt-28 sm:justify-center sm:pt-0 p-6 sm:p-12">
+    <div className={cn("min-h-screen flex flex-col items-center justify-start pt-28 sm:justify-center sm:pt-0 p-6 sm:p-12", showInfo && !dontShowAgain && "overflow-hidden")}>
       {/* Background Decoration */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-white via-white to-emerald-100" />
@@ -790,7 +790,7 @@ const handleUnlock = async () => {
                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="absolute right-0 mt-2 w-64 glass rounded-2xl p-4 shadow-2xl space-y-3 z-50"
+                className="fixed top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-xs glass rounded-2xl p-4 shadow-2xl space-y-3 z-50"
               >
                 <div className="flex items-center justify-between">
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
@@ -995,12 +995,7 @@ const handleUnlock = async () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[25]"
-                onClick={() => {
-                  setShowInfo(false);
-                  setDontShowAgain(true);
-                  localStorage.setItem('dont_show_onboarding', 'true');
-                }}
+                className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[25] overflow-y-auto"
               />
             )}
             <motion.div
@@ -1011,7 +1006,7 @@ const handleUnlock = async () => {
                 "z-[30] glass rounded-3xl p-6 shadow-2xl space-y-5",
                 dontShowAgain 
                   ? "fixed top-20 left-1/2 -translate-x-1/2 w-80" 
-                  : "fixed top-[14%] left-1/2 -translate-x-1/2 w-[90%] max-w-md"
+                  : "absolute top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md my-8"
               )}
             >
               <div className="flex items-center justify-between pb-2">

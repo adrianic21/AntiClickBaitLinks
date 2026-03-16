@@ -740,12 +740,15 @@ const handleUnlock = async () => {
     <div className="min-h-screen flex flex-col items-center justify-start pt-28 sm:justify-center sm:pt-0 p-6 sm:p-12">
       {/* Background Decoration */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-100/50 rounded-full blur-3xl" />
-        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-blue-100/50 rounded-full blur-3xl" />
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-100 via-white to-white" />
+        <div className="absolute top-0 left-0 w-full h-[60%] bg-gradient-to-b from-emerald-200/60 via-emerald-50/30 to-transparent" />
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-emerald-300/20 rounded-full blur-3xl" />
+        <div className="absolute top-[10%] right-[5%] w-[30%] h-[30%] bg-teal-200/20 rounded-full blur-3xl" />
+        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-white rounded-full blur-2xl" />
       </div>
 
       {/* Top Bar Controls */}
-      <div className="fixed top-6 right-6 z-40 flex items-center gap-2">
+      <div className="fixed top-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
         {/* Account Status Indicator */}
         <div className="relative">
           <button
@@ -993,11 +996,11 @@ const handleUnlock = async () => {
               className={cn(
                 "z-[30] glass rounded-3xl p-6 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto",
                 dontShowAgain 
-                  ? "fixed top-20 right-6 w-80" 
+                  ? "fixed top-20 left-1/2 -translate-x-1/2 w-80" 
                   : "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-md"
               )}
             >
-              <div className="flex items-center justify-between sticky top-0 bg-white/50 backdrop-blur-sm pb-2 z-10">
+              <div className="flex items-center justify-between sticky top-0 pb-2 z-10">
                 <h3 className="font-bold text-zinc-900 flex items-center gap-2">
                   <Info size={18} /> {t.infoTitle}
                 </h3>
@@ -1151,7 +1154,7 @@ const handleUnlock = async () => {
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-20 right-6 z-20 w-80 glass rounded-3xl p-6 shadow-2xl space-y-4"
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-20 w-80 glass rounded-3xl p-6 shadow-2xl space-y-4"
           >
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-zinc-900 flex items-center gap-2">

@@ -98,6 +98,9 @@ async function startServer() {
   // Raw body needed for PayPal webhook signature verification
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));
   app.use(express.json());
+  app.get('/api/ping', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
 

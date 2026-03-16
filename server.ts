@@ -255,18 +255,24 @@ async function startServer() {
 
   // ── Vite / Static ─────────────────────────────────────────────────────────
 
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.join(process.cwd(), 'dist');
+  const distExists = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (distExists) {
+    // Producción: servir el frontend compilado
+    console.log('Serving static files from dist/');
+    app.use(express.static(distPath));
+    app.get(/^(?!\/api\/).*$/, (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    // Desarrollo: usar Vite dev server
+    console.log('Starting Vite dev server...');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get(/^(?!\/api\/).*$/, (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {

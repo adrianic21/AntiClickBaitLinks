@@ -1,0 +1,5 @@
+{
+  "name": "AntiClickBaitLinks",
+  "description": "Get the real story behind any link. Direct, factual summaries in seconds, avoiding clickbait traps.",
+  "requestFramePermissions": ["clipboard-read", "clipboard-write"]
+}

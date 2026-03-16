@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Link as LinkIcon, Loader2, ShieldCheck, Globe, ArrowRight, AlertCircle, Settings, Key, X, Check, Languages, Volume2, VolumeX, Info, Copy, CopyCheck, Lock, Clipboard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { summarizeUrl, type Provider } from './services/geminiService';
+import { summarizeUrl, type Provider, type ApiKeys } from './services/geminiService';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -359,7 +359,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   
   // API Key state
-  const [userApiKey, setUserApiKey] = useState<string>('');
+  const [userApiKey, setUserApiKey] = useState<string>(''); // current input field
+  const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [showSettings, setShowSettings] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
@@ -423,14 +424,21 @@ export default function App() {
 
   // Load key and UI lang from localStorage on mount
   useEffect(() => {
-    const savedKey = localStorage.getItem('gemini_api_key');
-    if (savedKey) {
-      setUserApiKey(savedKey);
-      setIsKeySaved(true);
-    }
     const savedProvider = localStorage.getItem('api_provider') as Provider;
     if (savedProvider) {
       setProvider(savedProvider);
+    }
+    const savedKeys: ApiKeys = {
+      gemini: localStorage.getItem('api_key_gemini') || undefined,
+      openrouter: localStorage.getItem('api_key_openrouter') || undefined,
+      grok: localStorage.getItem('api_key_grok') || undefined,
+    };
+    setApiKeys(savedKeys);
+    // Load current provider key into input field
+    const currentKey = savedKeys[savedProvider || 'gemini'];
+    if (currentKey) {
+      setUserApiKey(currentKey);
+      setIsKeySaved(true);
     }
     const savedUiLang = localStorage.getItem('ui_language');
     if (savedUiLang && UI_TRANSLATIONS[savedUiLang as keyof typeof UI_TRANSLATIONS]) {
@@ -493,16 +501,19 @@ if (savedPremium) {
   }, []);
 
   const saveApiKey = () => {
+    const newKeys = { ...apiKeys };
     if (userApiKey) {
-      localStorage.setItem('gemini_api_key', userApiKey);
-      localStorage.setItem('api_provider', provider);
-      setIsKeySaved(true);
-      setShowSettings(false);
+      newKeys[provider] = userApiKey;
+      localStorage.setItem(`api_key_${provider}`, userApiKey);
     } else {
-      localStorage.removeItem('gemini_api_key');
-      localStorage.removeItem('api_provider');
-      setIsKeySaved(false);
+      delete newKeys[provider];
+      localStorage.removeItem(`api_key_${provider}`);
     }
+    setApiKeys(newKeys);
+    localStorage.setItem('api_provider', provider);
+    const hasAnyKey = Object.values(newKeys).some(k => k && k !== 'undefined');
+    setIsKeySaved(hasAnyKey);
+    setShowSettings(false);
   };
 
   const changeUiLanguage = (lang: string) => {
@@ -655,7 +666,7 @@ const handleUnlock = async () => {
     }
 
     try {
-      const result = await summarizeUrl(url, uiLanguage, userApiKey, length, provider);
+      const result = await summarizeUrl(url, uiLanguage, apiKeys, length, provider);
       setSummary(result);
       
       // Update search history on success
@@ -668,7 +679,7 @@ const handleUnlock = async () => {
       let message = t.genericError;
       
       // Handle Quota Exceeded (429)
-      if (err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED') || err.message?.includes('Quota exceeded')) {
+      if (err.message === 'quota_exceeded_all' || err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED') || err.message?.includes('Quota exceeded')) {
         message = t.quotaError;
         
         // Try to extract retry delay if present
@@ -740,11 +751,10 @@ const handleUnlock = async () => {
     <div className="min-h-screen flex flex-col items-center justify-start pt-28 sm:justify-center sm:pt-0 p-6 sm:p-12">
       {/* Background Decoration */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-emerald-100 via-white to-white" />
-        <div className="absolute top-0 left-0 w-full h-[60%] bg-gradient-to-b from-emerald-200/60 via-emerald-50/30 to-transparent" />
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-emerald-300/20 rounded-full blur-3xl" />
-        <div className="absolute top-[10%] right-[5%] w-[30%] h-[30%] bg-teal-200/20 rounded-full blur-3xl" />
-        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-white rounded-full blur-2xl" />
+        <div className="absolute inset-0 bg-gradient-to-b from-white via-white to-emerald-100" />
+        <div className="absolute bottom-0 left-0 w-full h-[50%] bg-gradient-to-t from-emerald-200/70 via-emerald-100/40 to-transparent" />
+        <div className="absolute -bottom-[20%] -left-[10%] w-[50%] h-[50%] bg-emerald-300/25 rounded-full blur-3xl" />
+        <div className="absolute -bottom-[10%] right-[5%] w-[35%] h-[35%] bg-teal-200/25 rounded-full blur-3xl" />
       </div>
 
       {/* Top Bar Controls */}
@@ -1176,7 +1186,7 @@ const handleUnlock = async () => {
                   {(['gemini', 'openrouter', 'grok'] as Provider[]).map((p) => (
                     <button
                       key={p}
-                      onClick={() => setProvider(p)}
+                      onClick={() => { setProvider(p); setUserApiKey(apiKeys[p] || ''); }}
                       className={cn(
                         "px-2 py-2 text-[10px] font-bold rounded-lg border transition-all",
                         provider === p 

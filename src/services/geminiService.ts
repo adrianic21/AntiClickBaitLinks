@@ -3,16 +3,121 @@ import OpenAI from "openai";
 
 export type Provider = 'gemini' | 'openrouter' | 'grok';
 
+export interface ApiKeys {
+  gemini?: string;
+  openrouter?: string;
+  grok?: string;
+}
+
+// ─── Detectar si el error es de cuota/límite ─────────────────────────────────
+
+function isQuotaError(error: any): boolean {
+  const msg = (error?.message || error?.toString() || '').toLowerCase();
+  return (
+    msg.includes('quota') ||
+    msg.includes('rate limit') ||
+    msg.includes('rate_limit') ||
+    msg.includes('too many requests') ||
+    msg.includes('429') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('exhausted')
+  );
+}
+
+// ─── Llamada a Gemini ─────────────────────────────────────────────────────────
+
+async function callGemini(apiKey: string, url: string, language: string, systemPrompt: string, lengthInstruction: string): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey });
+  const model = "gemini-2.0-flash";
+  const prompt = `Analyze the headline and content of this URL. 
+    ${lengthInstruction}
+    Do not include labels like 'Hook:', 'Answer:', 'Reveal:', or 'Gancho:'. 
+    Do not explain the clickbait strategy. 
+    The response must be in ${language}.
+    URL: ${url}`;
+
+  const response = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    config: {
+      tools: [{ urlContext: {} }],
+      systemInstruction: systemPrompt,
+    },
+  });
+
+  return response.text || "No summary available.";
+}
+
+// ─── Llamada a OpenRouter o Grok ──────────────────────────────────────────────
+
+async function callOpenAICompatible(provider: 'openrouter' | 'grok', apiKey: string, url: string, language: string, systemPrompt: string, lengthInstruction: string): Promise<string> {
+  const fetchResponse = await fetch('/api/fetch-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+
+  if (!fetchResponse.ok) {
+    throw new Error("Failed to fetch article content for this provider.");
+  }
+
+  const { text: articleContent } = await fetchResponse.json();
+
+  const baseURL = provider === 'openrouter'
+    ? "https://openrouter.ai/api/v1"
+    : "https://api.x.ai/v1";
+
+  const model = provider === 'openrouter'
+    ? "google/gemini-2.0-flash-001"
+    : "grok-2-latest";
+
+  const openai = new OpenAI({
+    apiKey,
+    baseURL,
+    dangerouslyAllowBrowser: true
+  });
+
+  const completion = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `Analyze this content from ${url}. 
+          ${lengthInstruction}
+          The response must be in ${language}.
+          
+          CONTENT:
+          ${articleContent}`
+      }
+    ],
+  });
+
+  return completion.choices[0].message.content || "No summary available.";
+}
+
+// ─── Función principal con fallback automático ────────────────────────────────
+
 export async function summarizeUrl(
-  url: string, 
-  language: string = "Spanish", 
-  userApiKey?: string, 
+  url: string,
+  language: string = "Spanish",
+  userApiKeys?: ApiKeys | string,
   length: 'short' | 'medium' | 'long' | 'child' = 'short',
   provider: Provider = 'gemini'
 ) {
-  const apiKey = userApiKey || process.env.GEMINI_API_KEY;
-  
-  if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey === "undefined") {
+  // Compatibilidad con llamadas antiguas que pasan un string
+  let keys: ApiKeys;
+  if (typeof userApiKeys === 'string') {
+    keys = { [provider]: userApiKeys } as ApiKeys;
+  } else {
+    keys = userApiKeys || {};
+  }
+
+  const hasGemini = keys.gemini && keys.gemini !== "undefined";
+  const hasOpenRouter = keys.openrouter && keys.openrouter !== "undefined";
+  const hasGrok = keys.grok && keys.grok !== "undefined";
+
+  if (!hasGemini && !hasOpenRouter && !hasGrok) {
     throw new Error("API Key no configurada. Por favor, introduce tu propia API Key en la configuración.");
   }
 
@@ -29,70 +134,41 @@ export async function summarizeUrl(
 
   const systemPrompt = "You are an anti-clickbait spoiler. Your ONLY task is to provide the direct factual answer to the mystery posed by a clickbait headline. You must NOT include any labels, introductory text, or explanations of the clickbait. Output ONLY the factual reveal found in the article.";
 
-  if (provider === 'gemini') {
-    const ai = new GoogleGenAI({ apiKey });
-    const model = "gemini-3-flash-preview";
-    const prompt = `Analyze the headline and content of this URL. 
-    ${lengthInstruction}
-    Do not include labels like 'Hook:', 'Answer:', 'Reveal:', or 'Gancho:'. 
-    Do not explain the clickbait strategy. 
-    The response must be in ${language}.
-    URL: ${url}`;
+  // Orden de prioridad: provider elegido primero, luego los demás
+  const allProviders: Provider[] = ['gemini', 'openrouter', 'grok'];
+  const orderedProviders: Provider[] = [
+    provider,
+    ...allProviders.filter(p => p !== provider)
+  ];
 
-    const response = await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        tools: [{ urlContext: {} }],
-        systemInstruction: systemPrompt,
-      },
-    });
+  const availableProviders = orderedProviders.filter(p => {
+    if (p === 'gemini') return hasGemini;
+    if (p === 'openrouter') return hasOpenRouter;
+    if (p === 'grok') return hasGrok;
+    return false;
+  });
 
-    return response.text || "No summary available.";
-  } else {
-    // For OpenRouter and Grok, we need to fetch the content first
-    const fetchResponse = await fetch('/api/fetch-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
+  let lastError: any;
 
-    if (!fetchResponse.ok) {
-      throw new Error("Failed to fetch article content for this provider.");
+  for (const p of availableProviders) {
+    const key = keys[p]!;
+    try {
+      console.log(`🔄 Trying provider: ${p}`);
+      if (p === 'gemini') {
+        return await callGemini(key, url, language, systemPrompt, lengthInstruction);
+      } else {
+        return await callOpenAICompatible(p, key, url, language, systemPrompt, lengthInstruction);
+      }
+    } catch (error: any) {
+      lastError = error;
+      if (isQuotaError(error)) {
+        console.warn(`⚠️ Quota exceeded for ${p}, trying next provider...`);
+        continue; // Probar el siguiente
+      }
+      throw error; // Error distinto a cuota, lanzarlo
     }
-
-    const { text: articleContent } = await fetchResponse.json();
-
-    const baseURL = provider === 'openrouter' 
-      ? "https://openrouter.ai/api/v1" 
-      : "https://api.x.ai/v1";
-    
-    const model = provider === 'openrouter' 
-      ? "google/gemini-2.0-flash-001" 
-      : "grok-2-latest";
-
-    const openai = new OpenAI({
-      apiKey,
-      baseURL,
-      dangerouslyAllowBrowser: true
-    });
-
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { 
-          role: "user", 
-          content: `Analyze this content from ${url}. 
-          ${lengthInstruction}
-          The response must be in ${language}.
-          
-          CONTENT:
-          ${articleContent}` 
-        }
-      ],
-    });
-
-    return completion.choices[0].message.content || "No summary available.";
   }
+
+  // Todos los providers fallaron por cuota
+  throw new Error("quota_exceeded_all");
 }

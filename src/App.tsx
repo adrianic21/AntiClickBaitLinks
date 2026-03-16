@@ -748,7 +748,7 @@ const handleUnlock = async () => {
   };
 
   return (
-    <div className={cn("min-h-screen flex flex-col items-center justify-start pt-28 sm:justify-center sm:pt-0 p-6 sm:p-12", showInfo && !dontShowAgain && "overflow-hidden")}>
+    <div className="min-h-screen flex flex-col items-center justify-start pt-36 sm:justify-center sm:pt-0 p-6 sm:p-12">
       {/* Background Decoration */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-white via-white to-emerald-100" />
@@ -990,14 +990,24 @@ const handleUnlock = async () => {
       <AnimatePresence>
         {showInfo && (
           <>
-            {!dontShowAgain && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[25] overflow-y-auto"
-              />
-            )}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className={cn(
+                "fixed inset-0 z-[25]",
+                dontShowAgain ? "" : "bg-black/40 backdrop-blur-sm overflow-y-auto"
+              )}
+              onClick={(e) => {
+                if (!dontShowAgain && e.target === e.currentTarget) {
+                  setShowInfo(false);
+                  setDontShowAgain(true);
+                  localStorage.setItem('dont_show_onboarding', 'true');
+                }
+              }}
+            >
+              {!dontShowAgain && <div className="min-h-full py-20 px-4 flex justify-center pointer-events-none" />}
+            </motion.div>
             <motion.div
               initial={dontShowAgain ? { opacity: 0, y: -20, scale: 0.95 } : { opacity: 0, scale: 0.9, y: 20 }}
               animate={dontShowAgain ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, scale: 1, y: 0 }}
@@ -1006,8 +1016,9 @@ const handleUnlock = async () => {
                 "z-[30] glass rounded-3xl p-6 shadow-2xl space-y-5",
                 dontShowAgain 
                   ? "fixed top-20 left-1/2 -translate-x-1/2 w-80" 
-                  : "absolute top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md my-8"
+                  : "fixed top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md"
               )}
+              style={!dontShowAgain ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
             >
               <div className="flex items-center justify-between pb-2">
                 <h3 className="font-bold text-zinc-900 flex items-center gap-2">

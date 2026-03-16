@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-"scripts": {
+  "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
     "postinstall": "npm run build",
@@ -40,8 +40,8 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
-"engines": {
-  "node": ">=20.0.0"
-}
 }

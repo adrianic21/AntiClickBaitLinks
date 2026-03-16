@@ -1008,13 +1008,13 @@ const handleUnlock = async () => {
               animate={dontShowAgain ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, scale: 1, y: 0 }}
               exit={dontShowAgain ? { opacity: 0, y: -20, scale: 0.95 } : { opacity: 0, scale: 0.9, y: 20 }}
               className={cn(
-                "z-[30] glass rounded-3xl p-6 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto",
+                "z-[30] glass rounded-3xl p-6 shadow-2xl space-y-5",
                 dontShowAgain 
                   ? "fixed top-20 left-1/2 -translate-x-1/2 w-80" 
-                  : "fixed top-[8%] left-1/2 -translate-x-1/2 w-[90%] max-w-md"
+                  : "fixed top-[14%] left-1/2 -translate-x-1/2 w-[90%] max-w-md"
               )}
             >
-              <div className="flex items-center justify-between sticky top-0 pb-2 z-10">
+              <div className="flex items-center justify-between pb-2">
                 <h3 className="font-bold text-zinc-900 flex items-center gap-2">
                   <Info size={18} /> {t.infoTitle}
                 </h3>
@@ -1023,7 +1023,10 @@ const handleUnlock = async () => {
                 </button>
               </div>
               
-              <div className="space-y-6">
+              <div className="space-y-5">
+                <section>
+                  <p className="text-sm text-zinc-600 leading-relaxed">{t.infoDesc}</p>
+                </section>
                 <section className="space-y-3">
                   <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.infoHowToTitle}</h4>
                   

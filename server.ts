@@ -56,7 +56,7 @@ async function sendPremiumEmail(toEmail: string, token: string) {
         </div>
         <p>Para activar tu cuenta:</p>
         <ol>
-          <li>Abre <a href="https://anticlickbaitlinks.vercel.app">AntiClickBaitLinks</a></li>
+          <li>Abre <a href="https://anticlickbaitlinks.up.railway.app">AntiClickBaitLinks</a></li>
           <li>Pulsa el candado 🔒 o el botón "¿Ya eres Premium?"</li>
           <li>Pega tu token y pulsa "Activar"</li>
         </ol>

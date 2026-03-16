@@ -996,7 +996,11 @@ const handleUnlock = async () => {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[25]"
-                onClick={() => setShowInfo(false)}
+                onClick={() => {
+                  setShowInfo(false);
+                  setDontShowAgain(true);
+                  localStorage.setItem('dont_show_onboarding', 'true');
+                }}
               />
             )}
             <motion.div
@@ -1007,7 +1011,7 @@ const handleUnlock = async () => {
                 "z-[30] glass rounded-3xl p-6 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto",
                 dontShowAgain 
                   ? "fixed top-20 left-1/2 -translate-x-1/2 w-80" 
-                  : "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-md"
+                  : "fixed top-[8%] left-1/2 -translate-x-1/2 w-[90%] max-w-md"
               )}
             >
               <div className="flex items-center justify-between sticky top-0 pb-2 z-10">
@@ -1145,7 +1149,11 @@ const handleUnlock = async () => {
                   </label>
 
                   <button
-                    onClick={() => setShowInfo(false)}
+                    onClick={() => {
+                      setShowInfo(false);
+                      setDontShowAgain(true);
+                      localStorage.setItem('dont_show_onboarding', 'true');
+                    }}
                     className="w-full py-3 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all active:scale-[0.98]"
                   >
                     {t.closeBtn}

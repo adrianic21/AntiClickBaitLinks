@@ -43,7 +43,7 @@ const UI_TRANSLATIONS = {
     expandLong: "Full summary",
     explainChild: "Explain to a 10-year-old",
     infoTitle: "About AntiClickBaitLinks",
-    infoDesc: "AntiClickBaitLinks uses AI to reveal the truth behind sensationalist headlines, saving you from clicking on clickbait.",
+    infoDesc: "AntiClickBaitLinks uses AI to reveal the truth behind sensationalist headlines, saving you from clickbait. Paste any link and get an instant summary.",
     infoHowToTitle: "How to use",
     infoStep1Title: "1. Get your API Key",
     infoStep1Desc: "Request your FREE key from Gemini (Google), Grok (xAI), or OpenRouter.",
@@ -98,7 +98,7 @@ const UI_TRANSLATIONS = {
     expandLong: "Mucho más amplia",
     explainChild: "Explicar a un niño de 10 años",
     infoTitle: "Sobre AntiClickBaitLinks",
-    infoDesc: "AntiClickBaitLinks utiliza IA para revelar la verdad tras los titulares sensacionalistas, evitándote caer en el clickbait.",
+    infoDesc: "AntiClickBaitLinks utiliza IA para revelar la verdad tras titulares sensacionalistas, evitándote caer en el clickbait. Pega cualquier enlace de internet y recibe un resumen instantáneo.",
     infoHowToTitle: "¿Cómo usarlo?",
     infoStep1Title: "1. Consigue tu API Key",
     infoStep1Desc: "Solicita tu clave GRATUITA en Gemini (Google), Grok (xAI) o OpenRouter.",
@@ -153,7 +153,7 @@ const UI_TRANSLATIONS = {
     expandLong: "Resumo completo",
     explainChild: "Explicar para uma criança de 10 anos",
     infoTitle: "Sobre AntiClickBaitLinks",
-    infoDesc: "O AntiClickBaitLinks usa IA para revelar a verdade por trás de manchetes sensacionalistas, evitando que você caia em clickbaits.",
+    infoDesc: "O AntiClickBaitLinks usa IA para revelar a verdade por trás de manchetes sensacionalistas, evitando que você caia em clickbaits. Cole qualquer link e receba um resumo instantâneo.",
     infoHowToTitle: "Como usar",
     infoStep1Title: "1. Obtenha sua API Key",
     infoStep1Desc: "Solicite sua chave GRATUITA no Gemini (Google), Grok (xAI) ou OpenRouter.",
@@ -208,7 +208,7 @@ const UI_TRANSLATIONS = {
     expandLong: "Résumé complet",
     explainChild: "Expliquer à un enfant de 10 ans",
     infoTitle: "À propos d'AntiClickBaitLinks",
-    infoDesc: "AntiClickBaitLinks utilise l'IA pour révéler la vérité derrière les titres sensationnalistes, vous évitant ainsi de cliquer sur des pièges à clics.",
+    infoDesc: "AntiClickBaitLinks utilise l'IA pour révéler la vérité derrière les titres sensationnalistes, vous évitant de tomber dans le piège du clickbait. Collez n'importe quel lien et recevez un résumé instantané.",
     infoHowToTitle: "Comment utiliser",
     infoStep1Title: "1. Obtenez votre clé API",
     infoStep1Desc: "Demandez votre clé GRATUITE auprès de Gemini (Google), Grok (xAI) ou OpenRouter.",
@@ -263,7 +263,7 @@ const UI_TRANSLATIONS = {
     expandLong: "Vollständige Zusammenfassung",
     explainChild: "Einem 10-Jährigen erklären",
     infoTitle: "Über AntiClickBaitLinks",
-    infoDesc: "AntiClickBaitLinks nutzt KI, um die Wahrheit hinter reißerischen Schlagzeilen zu enthüllen und Sie vor Clickbait zu schützen.",
+    infoDesc: "AntiClickBaitLinks nutzt KI, um die Wahrheit hinter reißerischen Schlagzeilen zu enthüllen und Sie vor Clickbait zu schützen. Fügen Sie einen beliebigen Link ein und erhalten Sie sofort eine Zusammenfassung.",
     infoHowToTitle: "Bedienung",
     infoStep1Title: "1. API-Schlüssel anfordern",
     infoStep1Desc: "Fordern Sie Ihren KOSTENLOSEN Schlüssel bei Gemini (Google), Grok (xAI) oder OpenRouter an.",
@@ -318,7 +318,7 @@ const UI_TRANSLATIONS = {
     expandLong: "Riassunto completo",
     explainChild: "Spiega a un bambino di 10 anni",
     infoTitle: "Informazioni su AntiClickBaitLinks",
-    infoDesc: "AntiClickBaitLinks usa l'IA per svelare la verità dietro i titoli sensazionalistici, evitandoti di cadere nel clickbait.",
+    infoDesc: "AntiClickBaitLinks usa l'IA per svelare la verità dietro i titoli sensazionalistici, evitandoti di cadere nel clickbait. Incolla qualsiasi link e ricevi un riassunto istantaneo.",
     infoHowToTitle: "Come si usa",
     infoStep1Title: "1. Ottieni la tua API Key",
     infoStep1Desc: "Richiedi la tua chiave GRATUITA da Gemini (Google), Grok (xAI) o OpenRouter.",
@@ -760,7 +760,6 @@ const handleUnlock = async () => {
       {/* Top Bar Controls */}
       <div className="fixed top-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
         {/* Account Status Indicator */}
-        <div className="relative">
           <button
             onClick={() => togglePopup('status')}
             className={cn(
@@ -784,58 +783,8 @@ const handleUnlock = async () => {
             )}
           </button>
 
-          <AnimatePresence>
-            {showStatusPopover && (
-              <motion.div
-                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="fixed top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-xs glass rounded-2xl p-4 shadow-2xl space-y-3 z-50"
-              >
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    {isPremium ? t.statusPremium : t.statusFree}
-                  </h4>
-                  <button onClick={() => setShowStatusPopover(false)} className="text-zinc-400 hover:text-zinc-600">
-                    <X size={14} />
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
-                    <span className="text-xs text-zinc-500">{t.remainingSearches}</span>
-                    <span className="text-sm font-bold text-zinc-900">
-                      {isPremium ? t.unlimited : `${remainingSearches}/5`}
-                    </span>
-                  </div>
-
-                  {!isPremium && nextResetTime && (
-                    <div className="flex justify-between items-center bg-red-50/50 p-2 rounded-xl border border-red-100">
-                      <span className="text-xs text-red-500">{t.limitReset}</span>
-                      <span className="text-sm font-bold text-red-600 font-mono">
-                        {timeLeft || "--:--:--"}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {!isPremium && (
-                  <button
-                    onClick={() => {
-                      openLockModal();
-                    }}
-                    className="w-full py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98]"
-                  >
-                    {t.buyBtn}
-                  </button>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
 
         {/* Language Selector */}
-        <div className="relative">
           <button
             onClick={() => togglePopup('lang')}
             className={cn(
@@ -849,34 +798,6 @@ const handleUnlock = async () => {
             </span>
           </button>
 
-          <AnimatePresence>
-            {showLangMenu && (
-              <motion.div
-                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="absolute right-0 mt-2 w-48 glass rounded-2xl p-2 shadow-2xl space-y-1"
-              >
-                <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                  {t.uiLang}
-                </p>
-                {LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    onClick={() => changeUiLanguage(lang.code)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors",
-                      uiLanguage === lang.code ? "bg-emerald-50 text-emerald-700 font-bold" : "text-zinc-600 hover:bg-zinc-50"
-                    )}
-                  >
-                    <span>{lang.flag}</span>
-                    <span>{lang.name}</span>
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
 
         {/* Info Toggle */}
         <button
@@ -901,6 +822,84 @@ const handleUnlock = async () => {
           <Settings size={20} className={cn(showSettings && "animate-spin-slow")} />
         </button>
       </div>
+
+      {/* Status Popover */}
+      <AnimatePresence>
+        {showStatusPopover && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]" onClick={() => setShowStatusPopover(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-xs glass rounded-2xl p-4 shadow-2xl space-y-3 z-[46]"
+            >
+              <div className="flex items-center justify-between">
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                  {isPremium ? t.statusPremium : t.statusFree}
+                </h4>
+                <button onClick={() => setShowStatusPopover(false)} className="text-zinc-400 hover:text-zinc-600">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
+                  <span className="text-xs text-zinc-500">{t.remainingSearches}</span>
+                  <span className="text-sm font-bold text-zinc-900">
+                    {isPremium ? t.unlimited : `${remainingSearches}/5`}
+                  </span>
+                </div>
+                {!isPremium && nextResetTime && (
+                  <div className="flex justify-between items-center bg-red-50/50 p-2 rounded-xl border border-red-100">
+                    <span className="text-xs text-red-500">{t.limitReset}</span>
+                    <span className="text-sm font-bold text-red-600 font-mono">
+                      {timeLeft || "--:--:--"}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {!isPremium && (
+                <button
+                  onClick={() => openLockModal()}
+                  className="w-full py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98]"
+                >
+                  {t.buyBtn}
+                </button>
+              )}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Language Menu */}
+      <AnimatePresence>
+        {showLangMenu && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]" onClick={() => setShowLangMenu(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-xs glass rounded-2xl p-4 shadow-2xl space-y-1 z-[46]"
+            >
+              <p className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t.uiLang}</p>
+              {LANGUAGES.map((lang) => (
+                <button
+                  key={lang.code}
+                  onClick={() => changeUiLanguage(lang.code)}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors",
+                    uiLanguage === lang.code ? "bg-emerald-50 text-emerald-700 font-bold" : "text-zinc-600 hover:bg-zinc-50"
+                  )}
+                >
+                  <span>{lang.flag}</span>
+                  <span>{lang.name}</span>
+                </button>
+              ))}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Lock Modal */}
       <AnimatePresence>
@@ -990,35 +989,12 @@ const handleUnlock = async () => {
       <AnimatePresence>
         {showInfo && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className={cn(
-                "fixed inset-0 z-[25]",
-                dontShowAgain ? "" : "bg-black/40 backdrop-blur-sm overflow-y-auto"
-              )}
-              onClick={(e) => {
-                if (!dontShowAgain && e.target === e.currentTarget) {
-                  setShowInfo(false);
-                  setDontShowAgain(true);
-                  localStorage.setItem('dont_show_onboarding', 'true');
-                }
-              }}
-            >
-              {!dontShowAgain && <div className="min-h-full py-20 px-4 flex justify-center pointer-events-none" />}
-            </motion.div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]" onClick={() => { setShowInfo(false); setDontShowAgain(true); localStorage.setItem('dont_show_onboarding', 'true'); }} />
             <motion.div
               initial={dontShowAgain ? { opacity: 0, y: -20, scale: 0.95 } : { opacity: 0, scale: 0.9, y: 20 }}
               animate={dontShowAgain ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, scale: 1, y: 0 }}
               exit={dontShowAgain ? { opacity: 0, y: -20, scale: 0.95 } : { opacity: 0, scale: 0.9, y: 20 }}
-              className={cn(
-                "z-[30] glass rounded-3xl p-6 shadow-2xl space-y-5",
-                dontShowAgain 
-                  ? "fixed top-20 left-1/2 -translate-x-1/2 w-80" 
-                  : "fixed top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md"
-              )}
-              style={!dontShowAgain ? { maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' } : {}}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46] w-[90%] max-w-md glass rounded-3xl p-6 shadow-2xl space-y-5 max-h-[85vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between pb-2">
                 <h3 className="font-bold text-zinc-900 flex items-center gap-2">
@@ -1034,7 +1010,7 @@ const handleUnlock = async () => {
                   <p className="text-sm text-zinc-600 leading-relaxed">{t.infoDesc}</p>
                 </section>
                 <section className="space-y-3">
-                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.infoHowToTitle}</h4>
+                  <h4 className="text-sm font-extrabold text-zinc-800">{t.infoHowToTitle}</h4>
                   
                   <div className="space-y-4">
                     <div className="flex gap-3">
@@ -1083,14 +1059,14 @@ const handleUnlock = async () => {
                 </section>
 
                 <section className="space-y-2">
-                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.infoLimitsTitle}</h4>
+                  <h4 className="text-sm font-extrabold text-zinc-800">{t.infoLimitsTitle}</h4>
                   <p className="text-sm text-zinc-600 leading-relaxed">
                     {t.infoLimitsDesc}
                   </p>
                 </section>
 
                 <section className="space-y-3">
-                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.infoPremiumTitle}</h4>
+                  <h4 className="text-sm font-extrabold text-zinc-800">{t.infoPremiumTitle}</h4>
                   <p className="text-sm text-zinc-600 leading-relaxed">
                     {t.infoPremiumDesc}
                   </p>
@@ -1177,12 +1153,14 @@ const handleUnlock = async () => {
       {/* Settings Panel */}
       <AnimatePresence>
         {showSettings && (
-          <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-20 w-80 glass rounded-3xl p-6 shadow-2xl space-y-4"
-          >
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]" onClick={() => setShowSettings(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46] w-[90%] max-w-sm glass rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+            >
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-zinc-900 flex items-center gap-2">
                 <Key size={18} /> {t.settingsTitle}
@@ -1245,7 +1223,8 @@ const handleUnlock = async () => {
             >
               {t.noKeyLink}
             </a>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 

@@ -40,7 +40,7 @@ async function sendPremiumEmail(toEmail: string, token: string) {
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   await resend.emails.send({
-    from: 'AntiClickBaitLinks <noreply@anticlickbaitlinks.com>', // ← actualizar con tu dominio verificado en Resend
+    from: 'AntiClickBaitLinks <noreply@anticlickbaitlinks.com>',
     to: toEmail,
     cc: process.env.YOUR_EMAIL,
     subject: '🎉 Tu acceso Premium a AntiClickBaitLinks',
@@ -53,7 +53,7 @@ async function sendPremiumEmail(toEmail: string, token: string) {
         </div>
         <p>Para activar tu cuenta:</p>
         <ol>
-          <li>Abre <a href="https://anticlickbaitlinks.up.railway.app">AntiClickBaitLinks</a></li>
+          <li>Abre <a href="https://anticlickbaitlinks.com">AntiClickBaitLinks</a></li>
           <li>Pulsa el candado 🔒 o el botón "¿Ya eres Premium?"</li>
           <li>Pega tu token y pulsa "Activar"</li>
         </ol>

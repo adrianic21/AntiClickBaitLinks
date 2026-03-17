@@ -40,7 +40,7 @@ async function sendPremiumEmail(toEmail: string, token: string) {
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   await resend.emails.send({
-    from: 'AntiClickBaitLinks <noreply@tudominio.com>', // ← actualizar con tu dominio verificado en Resend
+    from: 'AntiClickBaitLinks <noreply@anticlickbaitlinks.com>', // ← actualizar con tu dominio verificado en Resend
     to: toEmail,
     cc: process.env.YOUR_EMAIL,
     subject: '🎉 Tu acceso Premium a AntiClickBaitLinks',

@@ -6,9 +6,6 @@ import { Resend } from 'resend';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '.env.local' });
 
 // ─── Token Database (simple JSON file) ───────────────────────────────────────
 

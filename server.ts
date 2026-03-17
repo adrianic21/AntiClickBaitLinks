@@ -9,7 +9,6 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
-dotenv.config(); // también carga .env si existe
 
 // ─── Token Database (simple JSON file) ───────────────────────────────────────
 

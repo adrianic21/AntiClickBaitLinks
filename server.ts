@@ -2,10 +2,10 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import * as cheerio from 'cheerio';
+import { Resend } from 'resend';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 
 // ─── Token Database (simple JSON file) ───────────────────────────────────────
 
@@ -37,22 +37,10 @@ function saveTokens(tokens: Record<string, {
 // ─── Email sender ─────────────────────────────────────────────────────────────
 
 async function sendPremiumEmail(toEmail: string, token: string) {
-  console.log('📧 Sending email to:', toEmail);
-  console.log('GMAIL_USER present:', !!process.env.YOUR_EMAIL);
-  console.log('GMAIL_APP_PASSWORD present:', !!process.env.GMAIL_APP_PASSWORD);
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.YOUR_EMAIL,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-  });
-
-  await transporter.sendMail({
-    from: `AntiClickBaitLinks <${process.env.YOUR_EMAIL}>`,
+  await resend.emails.send({
+    from: 'AntiClickBaitLinks <noreply@tudominio.com>', // ← actualizar con tu dominio verificado en Resend
     to: toEmail,
     cc: process.env.YOUR_EMAIL,
     subject: '🎉 Tu acceso Premium a AntiClickBaitLinks',
@@ -73,8 +61,6 @@ const transporter = nodemailer.createTransport({
       </div>
     `,
   });
-
-  console.log('✅ Email sent successfully via Gmail');
 }
 
 // ─── PayPal webhook signature verification ───────────────────────────────────
@@ -109,9 +95,6 @@ async function startServer() {
   // Raw body needed for PayPal webhook signature verification
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));
   app.use(express.json());
-  app.get('/api/ping', (req, res) => {
-  res.json({ status: 'ok' });
-});
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
 
@@ -257,8 +240,7 @@ async function startServer() {
       await sendPremiumEmail(email, token);
       console.log(`📧 Token manual enviado a ${email}: ${token}`);
     } catch (e: any) {
-      console.error("Email failed:", e?.message || e);
-      console.error("Email error detail:", JSON.stringify(e, null, 2));
+      console.error("❌ Email failed:", e?.message || e);
     }
 
     res.json({ token, email });

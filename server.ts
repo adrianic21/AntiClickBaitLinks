@@ -2,10 +2,10 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import * as cheerio from 'cheerio';
-import { Resend } from 'resend';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 
 // ─── Token Database (simple JSON file) ───────────────────────────────────────
 
@@ -37,10 +37,20 @@ function saveTokens(tokens: Record<string, {
 // ─── Email sender ─────────────────────────────────────────────────────────────
 
 async function sendPremiumEmail(toEmail: string, token: string) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  console.log('RESEND_API_KEY present:', !!process.env.RESEND_API_KEY);
-  await resend.emails.send({
-    from: 'AntiClickBait <onboarding@resend.dev>',
+  console.log('📧 Sending email to:', toEmail);
+  console.log('GMAIL_USER present:', !!process.env.YOUR_EMAIL);
+  console.log('GMAIL_APP_PASSWORD present:', !!process.env.GMAIL_APP_PASSWORD);
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.YOUR_EMAIL,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  });
+
+  await transporter.sendMail({
+    from: `AntiClickBaitLinks <${process.env.YOUR_EMAIL}>`,
     to: toEmail,
     cc: process.env.YOUR_EMAIL,
     subject: '🎉 Tu acceso Premium a AntiClickBaitLinks',
@@ -59,8 +69,10 @@ async function sendPremiumEmail(toEmail: string, token: string) {
         </ol>
         <p style="color: #6b7280; font-size: 0.85rem;">Guarda este email. Tu token es personal e intransferible.</p>
       </div>
-    `
+    `,
   });
+
+  console.log('✅ Email sent successfully via Gmail');
 }
 
 // ─── PayPal webhook signature verification ───────────────────────────────────

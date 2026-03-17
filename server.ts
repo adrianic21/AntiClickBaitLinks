@@ -41,8 +41,10 @@ async function sendPremiumEmail(toEmail: string, token: string) {
   console.log('GMAIL_USER present:', !!process.env.YOUR_EMAIL);
   console.log('GMAIL_APP_PASSWORD present:', !!process.env.GMAIL_APP_PASSWORD);
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
+const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
     auth: {
       user: process.env.YOUR_EMAIL,
       pass: process.env.GMAIL_APP_PASSWORD,

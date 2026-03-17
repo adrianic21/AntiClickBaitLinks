@@ -40,9 +40,9 @@ function saveTokens(tokens: Record<string, {
 
 // ─── Email sender ─────────────────────────────────────────────────────────────
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 async function sendPremiumEmail(toEmail: string, token: string) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  console.log('RESEND_API_KEY present:', !!process.env.RESEND_API_KEY);
   await resend.emails.send({
     from: 'AntiClickBait <onboarding@resend.dev>',
     to: toEmail,

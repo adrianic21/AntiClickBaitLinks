@@ -2,10 +2,10 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import * as cheerio from 'cheerio';
-import { Resend } from 'resend';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
+import * as Brevo from '@getbrevo/brevo';
 
 // ─── Token Database (simple JSON file) ───────────────────────────────────────
 
@@ -37,30 +37,33 @@ function saveTokens(tokens: Record<string, {
 // ─── Email sender ─────────────────────────────────────────────────────────────
 
 async function sendPremiumEmail(toEmail: string, token: string) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
+  const apiInstance = new Brevo.TransactionalEmailsApi();
+  apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY || '');
 
-  await resend.emails.send({
-    from: 'AntiClickBaitLinks <noreply@anticlickbaitlinks.com>',
-    to: toEmail,
-    cc: process.env.YOUR_EMAIL,
-    subject: '🎉 Tu acceso Premium a AntiClickBaitLinks',
-    html: `
-      <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 32px;">
-        <h2 style="color: #059669;">¡Gracias por tu compra!</h2>
-        <p>Tu token de acceso Premium es:</p>
-        <div style="background: #f0fdf4; border: 2px solid #059669; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
-          <code style="font-size: 1.2rem; font-weight: bold; color: #065f46; letter-spacing: 2px;">${token}</code>
-        </div>
-        <p>Para activar tu cuenta:</p>
-        <ol>
-          <li>Abre <a href="https://anticlickbaitlinks.com">AntiClickBaitLinks</a></li>
-          <li>Pulsa el candado 🔒 o el botón "¿Ya eres Premium?"</li>
-          <li>Pega tu token y pulsa "Activar"</li>
-        </ol>
-        <p style="color: #6b7280; font-size: 0.85rem;">Guarda este email. Tu token es personal e intransferible.</p>
+  const sendSmtpEmail = new Brevo.SendSmtpEmail();
+  sendSmtpEmail.sender = { name: 'AntiClickBaitLinks', email: 'noreply@anticlickbaitlinks.com' };
+  sendSmtpEmail.to = [{ email: toEmail }];
+  sendSmtpEmail.cc = process.env.YOUR_EMAIL ? [{ email: process.env.YOUR_EMAIL }] : undefined;
+  sendSmtpEmail.subject = '🎉 Tu acceso Premium a AntiClickBaitLinks';
+  sendSmtpEmail.htmlContent = `
+    <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 32px;">
+      <h2 style="color: #059669;">¡Gracias por tu compra!</h2>
+      <p>Tu token de acceso Premium es:</p>
+      <div style="background: #f0fdf4; border: 2px solid #059669; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
+        <code style="font-size: 1.2rem; font-weight: bold; color: #065f46; letter-spacing: 2px;">${token}</code>
       </div>
-    `,
-  });
+      <p>Para activar tu cuenta:</p>
+      <ol>
+        <li>Abre <a href="https://anticlickbaitlinks.com">AntiClickBaitLinks</a></li>
+        <li>Pulsa el candado 🔒 o el botón "¿Ya eres Premium?"</li>
+        <li>Pega tu token y pulsa "Activar"</li>
+      </ol>
+      <p style="color: #6b7280; font-size: 0.85rem;">Guarda este email. Tu token es personal e intransferible.</p>
+    </div>
+  `;
+
+  await apiInstance.sendTransacEmail(sendSmtpEmail);
+  console.log('✅ Email sent via Brevo to:', toEmail);
 }
 
 // ─── PayPal webhook signature verification ───────────────────────────────────

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Link as LinkIcon, Loader2, ShieldCheck, Globe, ArrowRight, AlertCircle, Settings, Key, X, Check, Languages, Volume2, VolumeX, Info, Copy, CopyCheck, Lock, Clipboard } from 'lucide-react';
+import { Search, Link as LinkIcon, Loader2, ShieldCheck, Globe, ArrowRight, AlertCircle, Settings, Key, X, Check, Languages, Volume2, VolumeX, Info, Copy, CopyCheck, Lock, Clipboard, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { summarizeUrl, type Provider, type ApiKeys } from './services/geminiService';
 import { clsx, type ClassValue } from 'clsx';
@@ -411,6 +411,8 @@ export default function App() {
   const [showApiPrivacy, setShowApiPrivacy] = useState(false);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
 
   const openPopup = (popup: string) => {
     setShowStatusPopover(popup === 'status');
@@ -452,6 +454,30 @@ export default function App() {
       window.speechSynthesis.cancel();
     };
   }, []);
+
+  // PWA install prompt
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      setShowInstallButton(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => setShowInstallButton(false));
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallButton(false);
+      setInstallPrompt(null);
+    }
+  };
 
   // Load key and UI lang from localStorage on mount
   useEffect(() => {
@@ -868,6 +894,23 @@ const handleUnlock = async () => {
           {isKeySaved ? <Check size={20} className="text-emerald-500" /> : <Key size={20} />}
           <Settings size={20} className={cn(showSettings && "animate-spin-slow")} />
         </button>
+
+        {/* Install PWA Button */}
+        <AnimatePresence>
+          {showInstallButton && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              onClick={handleInstall}
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-2xl shadow-lg text-xs font-bold hover:bg-emerald-700 transition-all active:scale-95"
+              title="Install app"
+            >
+              <Download size={16} />
+              <span className="hidden sm:inline">Install</span>
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Status Popover */}

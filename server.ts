@@ -5,7 +5,6 @@ import * as cheerio from 'cheerio';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
-import * as Brevo from '@getbrevo/brevo';
 
 // ─── Token Database (simple JSON file) ───────────────────────────────────────
 
@@ -34,43 +33,53 @@ function saveTokens(tokens: Record<string, {
   fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
 }
 
-// ─── Email sender ─────────────────────────────────────────────────────────────
+// ─── Email sender (Brevo REST API) ───────────────────────────────────────────
 
 async function sendPremiumEmail(toEmail: string, token: string) {
-  const apiInstance = new Brevo.TransactionalEmailsApi();
-  apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY || '');
+  const apiKey = process.env.BREVO_API_KEY || '';
 
-  const sendSmtpEmail = new Brevo.SendSmtpEmail();
-  sendSmtpEmail.sender = { name: 'AntiClickBaitLinks', email: 'noreply@anticlickbaitlinks.com' };
-  sendSmtpEmail.to = [{ email: toEmail }];
-  sendSmtpEmail.cc = process.env.YOUR_EMAIL ? [{ email: process.env.YOUR_EMAIL }] : undefined;
-  sendSmtpEmail.subject = '🎉 Tu acceso Premium a AntiClickBaitLinks';
-  sendSmtpEmail.htmlContent = `
-    <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 32px;">
-      <h2 style="color: #059669;">¡Gracias por tu compra!</h2>
-      <p>Tu token de acceso Premium es:</p>
-      <div style="background: #f0fdf4; border: 2px solid #059669; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
-        <code style="font-size: 1.2rem; font-weight: bold; color: #065f46; letter-spacing: 2px;">${token}</code>
-      </div>
-      <p>Para activar tu cuenta:</p>
-      <ol>
-        <li>Abre <a href="https://anticlickbaitlinks.com">AntiClickBaitLinks</a></li>
-        <li>Pulsa el candado 🔒 o el botón "¿Ya eres Premium?"</li>
-        <li>Pega tu token y pulsa "Activar"</li>
-      </ol>
-      <p style="color: #6b7280; font-size: 0.85rem;">Guarda este email. Tu token es personal e intransferible.</p>
-    </div>
-  `;
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: { name: 'AntiClickBaitLinks', email: 'noreply@anticlickbaitlinks.com' },
+      to: [{ email: toEmail }],
+      cc: process.env.YOUR_EMAIL ? [{ email: process.env.YOUR_EMAIL }] : undefined,
+      subject: '🎉 Tu acceso Premium a AntiClickBaitLinks',
+      htmlContent: `
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 32px;">
+          <h2 style="color: #059669;">¡Gracias por tu compra!</h2>
+          <p>Tu token de acceso Premium es:</p>
+          <div style="background: #f0fdf4; border: 2px solid #059669; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
+            <code style="font-size: 1.2rem; font-weight: bold; color: #065f46; letter-spacing: 2px;">${token}</code>
+          </div>
+          <p>Para activar tu cuenta:</p>
+          <ol>
+            <li>Abre <a href="https://anticlickbaitlinks.com">AntiClickBaitLinks</a></li>
+            <li>Pulsa el candado 🔒 o el botón "¿Ya eres Premium?"</li>
+            <li>Pega tu token y pulsa "Activar"</li>
+          </ol>
+          <p style="color: #6b7280; font-size: 0.85rem;">Guarda este email. Tu token es personal e intransferible.</p>
+        </div>
+      `,
+    }),
+  });
 
-  await apiInstance.sendTransacEmail(sendSmtpEmail);
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Brevo error: ${error}`);
+  }
+
   console.log('✅ Email sent via Brevo to:', toEmail);
 }
 
 // ─── PayPal webhook signature verification ───────────────────────────────────
 
 function verifyPaypalWebhook(req: express.Request): boolean {
-  // En sandbox saltamos la verificación estricta
-  // En producción se verifica con la API de PayPal
   if (process.env.NODE_ENV !== 'production') return true;
 
   const webhookId = process.env.PAYPAL_WEBHOOK_ID;
@@ -95,7 +104,6 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
 
-  // Raw body needed for PayPal webhook signature verification
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));
   app.use(express.json());
 
@@ -173,7 +181,6 @@ async function startServer() {
         console.log(`📧 Email sent to ${payerEmail}`);
       } catch (emailError) {
         console.error("❌ Error sending email:", emailError);
-        // El token ya está guardado — se puede reenviar manualmente con /api/admin/generate-token
       }
     }
 
@@ -227,7 +234,6 @@ async function startServer() {
   app.post("/api/admin/generate-token", async (req, res) => {
     const { secret, email } = req.body;
 
-
     if (secret !== process.env.ADMIN_SECRET) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -255,14 +261,12 @@ async function startServer() {
   const distExists = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'));
 
   if (distExists) {
-    // Producción: servir el frontend compilado
     console.log('Serving static files from dist/');
     app.use(express.static(distPath));
     app.get(/^(?!\/api\/).*$/, (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   } else {
-    // Desarrollo: usar Vite dev server
     console.log('Starting Vite dev server...');
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -46,9 +46,9 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks uses AI to reveal the truth behind sensationalist headlines, saving you from clickbait. Paste any link and get an instant summary.",
     infoHowToTitle: "How to use",
     infoStep1Title: "1. Get your API Key",
-    infoStep1Desc: "Request your FREE key from Gemini (Google), Grok (xAI), or OpenRouter.",
-    infoStep2Title: "2. Save it",
-    infoStep2Desc: "Paste your key in the settings (gear icon) and save it.",
+    infoStep1Desc: "Request your FREE key from Gemini (Google), Cohere, or OpenRouter by clicking one of the links below.",
+    infoStep2Title: "2. Copy it and paste it in AntiClickBaitLinks",
+    infoStep2Desc: "Paste your key in the settings (gear icon). You can activate all 3 APIs at the same time for better performance.",
     infoApiPrivacyTitle: "Is my API Key safe?",
     infoApiPrivacyDesc: "Yes. Your key is stored ONLY in your browser's local storage. It is never sent to our servers or shared with anyone.",
     infoLimitsTitle: "Free Version",
@@ -72,6 +72,11 @@ const UI_TRANSLATIONS = {
     unlimited: "Unlimited",
     alreadyPremium: "Already Premium?",
     invalidPass: "Invalid token. Please check and try again.",
+    apiKeyActive: "API Key configured correctly",
+    apiKeyMissing: "No API Key configured",
+    apiKeyGuide1: "Get your FREE key from",
+    apiKeyGuide2: "Paste it in the settings (gear icon ⚙️)",
+    apiKeyOr: "or",
     pasteError: "Clipboard access blocked. Please use Ctrl+V (or Cmd+V) to paste."
   },
   Spanish: {
@@ -101,9 +106,9 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks utiliza IA para revelar la verdad tras titulares sensacionalistas, evitándote caer en el clickbait. Pega cualquier enlace de internet y recibe un resumen instantáneo.",
     infoHowToTitle: "¿Cómo usarlo?",
     infoStep1Title: "1. Consigue tu API Key",
-    infoStep1Desc: "Solicita tu clave GRATUITA en Gemini (Google), Grok (xAI) o OpenRouter.",
-    infoStep2Title: "2. Guárdala",
-    infoStep2Desc: "Pega tu clave en los ajustes (icono de engranaje) y guárdala.",
+    infoStep1Desc: "Solicita tu clave GRATUITA en Gemini (Google), Cohere u OpenRouter haciendo clic en uno de los siguientes enlaces.",
+    infoStep2Title: "2. Cópiala y pégala en AntiClickBaitLinks",
+    infoStep2Desc: "Pega tu clave en los ajustes (icono de engranaje). Puedes activar las 3 APIs al mismo tiempo para un mejor rendimiento.",
     infoApiPrivacyTitle: "¿Es segura mi API Key?",
     infoApiPrivacyDesc: "Sí. Tu clave se guarda ÚNICAMENTE en el almacenamiento local de tu navegador. Nunca se envía a nuestros servidores ni se comparte con nadie.",
     infoLimitsTitle: "Versión Gratuita",
@@ -127,6 +132,11 @@ const UI_TRANSLATIONS = {
     unlimited: "Ilimitado",
     alreadyPremium: "¿Ya eres Premium?",
     invalidPass: "Token inválido. Compruébalo e inténtalo de nuevo.",
+    apiKeyActive: "API Key configurada correctamente",
+    apiKeyMissing: "API Key no configurada",
+    apiKeyGuide1: "Consigue tu clave GRATIS en",
+    apiKeyGuide2: "Pégala en los ajustes (icono de engranaje ⚙️)",
+    apiKeyOr: "o",
     pasteError: "Acceso al portapapeles bloqueado. Por favor, usa Ctrl+V (o Cmd+V) para pegar."
   },
   Portuguese: {
@@ -156,9 +166,9 @@ const UI_TRANSLATIONS = {
     infoDesc: "O AntiClickBaitLinks usa IA para revelar a verdade por trás de manchetes sensacionalistas, evitando que você caia em clickbaits. Cole qualquer link e receba um resumo instantâneo.",
     infoHowToTitle: "Como usar",
     infoStep1Title: "1. Obtenha sua API Key",
-    infoStep1Desc: "Solicite sua chave GRATUITA no Gemini (Google), Grok (xAI) ou OpenRouter.",
-    infoStep2Title: "2. Salve-a",
-    infoStep2Desc: "Cole sua chave nas configurações (ícone de engrenagem) e salve-a.",
+    infoStep1Desc: "Solicite sua chave GRATUITA no Gemini (Google), Cohere ou OpenRouter clicando em um dos links abaixo.",
+    infoStep2Title: "2. Copie e cole no AntiClickBaitLinks",
+    infoStep2Desc: "Cole sua chave nas configurações (ícone de engrenagem). Você pode ativar as 3 APIs ao mesmo tempo para melhor desempenho.",
     infoApiPrivacyTitle: "Minha API Key está segura?",
     infoApiPrivacyDesc: "Sim. Sua chave é armazenada APENAS no armazenamento local do seu navegador. Ela nunca é enviada para nossos servidores ou compartilhada com ninguém.",
     infoLimitsTitle: "Versão Gratuita",
@@ -182,6 +192,11 @@ const UI_TRANSLATIONS = {
     unlimited: "Ilimitado",
     alreadyPremium: "Já é Premium?",
     invalidPass: "Token inválido. Verifique e tente novamente.",
+    apiKeyActive: "API Key configurada corretamente",
+    apiKeyMissing: "API Key não configurada",
+    apiKeyGuide1: "Obtenha sua chave GRÁTIS em",
+    apiKeyGuide2: "Cole nas configurações (ícone de engrenagem ⚙️)",
+    apiKeyOr: "ou",
     pasteError: "Acesso à área de transferência bloqueado. Use Ctrl+V (ou Cmd+V) para colar."
   },
   French: {
@@ -211,9 +226,9 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks utilise l'IA pour révéler la vérité derrière les titres sensationnalistes, vous évitant de tomber dans le piège du clickbait. Collez n'importe quel lien et recevez un résumé instantané.",
     infoHowToTitle: "Comment utiliser",
     infoStep1Title: "1. Obtenez votre clé API",
-    infoStep1Desc: "Demandez votre clé GRATUITE auprès de Gemini (Google), Grok (xAI) ou OpenRouter.",
-    infoStep2Title: "2. Enregistrez-la",
-    infoStep2Desc: "Collez votre clé dans les paramètres (icône d'engrenage) et enregistrez-la.",
+    infoStep1Desc: "Demandez votre clé GRATUITE auprès de Gemini (Google), Cohere ou OpenRouter en cliquant sur l'un des liens ci-dessous.",
+    infoStep2Title: "2. Copiez-la et collez-la dans AntiClickBaitLinks",
+    infoStep2Desc: "Collez votre clé dans les paramètres (icône d'engrenage). Vous pouvez activer les 3 API en même temps pour de meilleures performances.",
     infoApiPrivacyTitle: "Ma clé API est-elle sécurisée ?",
     infoApiPrivacyDesc: "Oui. Votre clé est stockée UNIQUEMENT dans le stockage local de votre navigateur. Elle n'est jamais envoyée à nos serveurs ni partagée avec qui que ce soit.",
     infoLimitsTitle: "Version Gratuite",
@@ -237,6 +252,11 @@ const UI_TRANSLATIONS = {
     unlimited: "Illimité",
     alreadyPremium: "Déjà Premium ?",
     invalidPass: "Token invalide. Veuillez vérifier et réessayer.",
+    apiKeyActive: "Clé API configurée correctement",
+    apiKeyMissing: "Clé API non configurée",
+    apiKeyGuide1: "Obtenez votre clé GRATUITE sur",
+    apiKeyGuide2: "Collez-la dans les paramètres (icône d'engrenage ⚙️)",
+    apiKeyOr: "ou",
     pasteError: "Accès au presse-papiers bloqué. Veuillez utiliser Ctrl+V (ou Cmd+V) pour coller."
   },
   German: {
@@ -266,9 +286,9 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks nutzt KI, um die Wahrheit hinter reißerischen Schlagzeilen zu enthüllen und Sie vor Clickbait zu schützen. Fügen Sie einen beliebigen Link ein und erhalten Sie sofort eine Zusammenfassung.",
     infoHowToTitle: "Bedienung",
     infoStep1Title: "1. API-Schlüssel anfordern",
-    infoStep1Desc: "Fordern Sie Ihren KOSTENLOSEN Schlüssel bei Gemini (Google), Grok (xAI) oder OpenRouter an.",
-    infoStep2Title: "2. Speichern",
-    infoStep2Desc: "Fügen Sie Ihren Schlüssel in den Einstellungen (Zahnrad-Symbol) ein und speichern Sie ihn.",
+    infoStep1Desc: "Fordern Sie Ihren KOSTENLOSEN Schlüssel bei Gemini (Google), Cohere oder OpenRouter an, indem Sie auf einen der folgenden Links klicken.",
+    infoStep2Title: "2. Kopieren und in AntiClickBaitLinks einfügen",
+    infoStep2Desc: "Fügen Sie Ihren Schlüssel in den Einstellungen (Zahnrad-Symbol) ein. Sie können alle 3 APIs gleichzeitig aktivieren für bessere Leistung.",
     infoApiPrivacyTitle: "Ist mein API-Schlüssel sicher?",
     infoApiPrivacyDesc: "Ja. Ihr Schlüssel wird NUR im lokalen Speicher Ihres Browsers gespeichert. Er wird niemals an unsere Server gesendet oder mit anderen geteilt.",
     infoLimitsTitle: "Kostenlose Version",
@@ -292,6 +312,11 @@ const UI_TRANSLATIONS = {
     unlimited: "Unbegrenzt",
     alreadyPremium: "Bereits Premium?",
     invalidPass: "Ungültiger Token. Bitte überprüfen Sie ihn und versuchen Sie es erneut.",
+    apiKeyActive: "API-Schlüssel korrekt konfiguriert",
+    apiKeyMissing: "API-Schlüssel nicht konfiguriert",
+    apiKeyGuide1: "Holen Sie sich Ihren KOSTENLOSEN Schlüssel bei",
+    apiKeyGuide2: "Fügen Sie ihn in den Einstellungen ein (Zahnrad-Symbol ⚙️)",
+    apiKeyOr: "oder",
     pasteError: "Zugriff auf die Zwischenablage blockiert. Bitte verwenden Sie Strg+V (oder Cmd+V) zum Einfügen."
   },
   Italian: {
@@ -321,9 +346,9 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks usa l'IA per svelare la verità dietro i titoli sensazionalistici, evitandoti di cadere nel clickbait. Incolla qualsiasi link e ricevi un riassunto istantaneo.",
     infoHowToTitle: "Come si usa",
     infoStep1Title: "1. Ottieni la tua API Key",
-    infoStep1Desc: "Richiedi la tua chiave GRATUITA da Gemini (Google), Grok (xAI) o OpenRouter.",
-    infoStep2Title: "2. Salvala",
-    infoStep2Desc: "Incolla la tua chiave nelle impostazioni (icona ingranaggio) e salvala.",
+    infoStep1Desc: "Richiedi la tua chiave GRATUITA da Gemini (Google), Cohere o OpenRouter cliccando su uno dei link seguenti.",
+    infoStep2Title: "2. Copiala e incollala in AntiClickBaitLinks",
+    infoStep2Desc: "Incolla la tua chiave nelle impostazioni (icona ingranaggio). Puoi attivare tutte e 3 le API contemporaneamente per prestazioni migliori.",
     infoApiPrivacyTitle: "La mia API Key è sicura?",
     infoApiPrivacyDesc: "Sì. La tua chiave è memorizzata SOLO nella memoria locale del tuo browser. Non viene mai inviata ai nostri server né condivisa con nessuno.",
     infoLimitsTitle: "Versione Gratuita",
@@ -347,6 +372,11 @@ const UI_TRANSLATIONS = {
     unlimited: "Illimitato",
     alreadyPremium: "Già Premium?",
     invalidPass: "Token non valido. Controlla e riprova.",
+    apiKeyActive: "API Key configurata correttamente",
+    apiKeyMissing: "API Key non configurata",
+    apiKeyGuide1: "Ottieni la tua chiave GRATUITA su",
+    apiKeyGuide2: "Incollala nelle impostazioni (icona ingranaggio ⚙️)",
+    apiKeyOr: "o",
     pasteError: "Accesso agli appunti bloccato. Usa Ctrl+V (o Cmd+V) per incollare."
   }
 };
@@ -355,6 +385,7 @@ export default function App() {
   const [url, setUrl] = useState('');
   const [uiLanguage, setUiLanguage] = useState('English');
   const [summary, setSummary] = useState<string | null>(null);
+  const [articleTitle, setArticleTitle] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -431,7 +462,7 @@ export default function App() {
     const savedKeys: ApiKeys = {
       gemini: localStorage.getItem('api_key_gemini') || undefined,
       openrouter: localStorage.getItem('api_key_openrouter') || undefined,
-      grok: localStorage.getItem('api_key_grok') || undefined,
+      grok: localStorage.getItem('api_key_cohere') || undefined,
     };
     setApiKeys(savedKeys);
     // Load current provider key into input field
@@ -633,6 +664,7 @@ const handleUnlock = async () => {
   const handleClear = () => {
     setUrl('');
     setSummary(null);
+    setArticleTitle(null);
     setError(null);
   };
 
@@ -663,11 +695,26 @@ const handleUnlock = async () => {
     // If it's just an expansion, we might want to keep it or show loading
     if (length === 'short') {
       setSummary(null);
+      setArticleTitle(null);
     }
 
     try {
       const result = await summarizeUrl(url, uiLanguage, apiKeys, length, provider);
       setSummary(result);
+      // Fetch page title
+      if (length === 'short') {
+        try {
+          const titleRes = await fetch('/api/fetch-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          if (titleRes.ok) {
+            const { title } = await titleRes.json();
+            if (title) setArticleTitle(title);
+          }
+        } catch { /* ignore */ }
+      }
       
       // Update search history on success
       if (!isPremium) {
@@ -1020,7 +1067,7 @@ const handleUnlock = async () => {
                         <p className="text-xs text-zinc-500 leading-relaxed">{t.infoStep1Desc}</p>
                         <div className="flex flex-wrap gap-2 mt-2">
                           <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Gemini</a>
-                          <a href="https://x.ai/api" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Grok</a>
+                          <a href="https://dashboard.cohere.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Cohere</a>
                           <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">OpenRouter</a>
                         </div>
                       </div>
@@ -1178,7 +1225,7 @@ const handleUnlock = async () => {
                   {t.apiProvider}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(['gemini', 'openrouter', 'grok'] as Provider[]).map((p) => (
+                  {(['gemini', 'openrouter', 'cohere'] as Provider[]).map((p) => (
                     <button
                       key={p}
                       onClick={() => { setProvider(p); setUserApiKey(apiKeys[p] || ''); }}
@@ -1198,7 +1245,7 @@ const handleUnlock = async () => {
               <div className="space-y-2">
                 <input
                   type="password"
-                  placeholder={provider === 'gemini' ? "AIzaSy..." : "sk-..."}
+                  placeholder={provider === 'gemini' ? "AIzaSy..." : provider === 'cohere' ? "Cohere key..." : "sk-or-..."}
                   value={userApiKey}
                   onChange={(e) => setUserApiKey(e.target.value)}
                   className="w-full px-4 py-3 bg-zinc-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all"
@@ -1215,7 +1262,7 @@ const handleUnlock = async () => {
               href={
                 provider === 'gemini' ? "https://aistudio.google.com/app/apikey" :
                 provider === 'openrouter' ? "https://openrouter.ai/keys" :
-                "https://console.x.ai/"
+                "https://dashboard.cohere.com/api-keys"
               }
               target="_blank" 
               rel="noopener noreferrer"
@@ -1291,6 +1338,37 @@ const handleUnlock = async () => {
           </form>
         </div>
 
+        {/* API Key Status Indicator */}
+        {(() => {
+          const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
+          return (
+            <div className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium",
+              hasAnyKey
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-amber-50 text-amber-700"
+            )}>
+              {hasAnyKey ? (
+                <>
+                  <Check size={14} className="shrink-0" />
+                  <span>{Object.entries(apiKeys).filter(([,v]) => v && v !== 'undefined').map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(' · ')} — {t.apiKeyActive}</span>
+                </>
+              ) : (
+                <div className="w-full space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={14} className="shrink-0" />
+                    <span>{t.apiKeyMissing}</span>
+                  </div>
+                  <div className="text-[10px] text-amber-600 space-y-1 pl-5">
+                    <p>1. {t.apiKeyGuide1} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a>, <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a> {t.apiKeyOr} <a href="https://dashboard.cohere.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Cohere</a></p>
+                    <p>2. {t.apiKeyGuide2}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Results Area */}
         <div ref={resultsRef}>
           <AnimatePresence mode="wait">
@@ -1346,6 +1424,7 @@ const handleUnlock = async () => {
                 <button 
                   onClick={() => {
                     setSummary(null);
+                    setArticleTitle(null);
                     setUrl('');
                     window.speechSynthesis.cancel();
                     setIsSpeaking(false);
@@ -1355,15 +1434,23 @@ const handleUnlock = async () => {
                   {t.clear}
                 </button>
               </div>
+              {articleTitle && (
+                <div className="pb-3 border-b border-zinc-100">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Original headline</p>
+                  <p className="text-sm font-semibold text-zinc-600 leading-snug italic">"{articleTitle}"</p>
+                </div>
+              )}
               <div className="relative">
                 {isLoading && currentLength !== 'short' && (
                   <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
                     <Loader2 className="animate-spin text-emerald-600" size={32} />
                   </div>
                 )}
-                <p className="text-xl sm:text-2xl font-medium leading-relaxed text-zinc-800">
-                  {summary}
-                </p>
+                <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 space-y-3">
+                  {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
+                    <p key={i}>{paragraph}</p>
+                  ))}
+                </div>
               </div>
 
               {/* Expansion Buttons */}

@@ -414,6 +414,7 @@ export default function App() {
   const [provider, setProvider] = useState<Provider>('gemini');
   const [currentLength, setCurrentLength] = useState<'short' | 'medium' | 'long' | 'child'>('short');
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [showOnboardingLang, setShowOnboardingLang] = useState(false);
   const [showApiPrivacy, setShowApiPrivacy] = useState(false);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -539,7 +540,13 @@ if (savedPremium) {
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
     if (!savedDontShow) {
-      setShowInfo(true);
+      // First time: show language picker, then info panel
+      const hasChosenLang = localStorage.getItem('ui_language') !== null;
+      if (!hasChosenLang) {
+        setShowOnboardingLang(true);
+      } else {
+        setShowInfo(true);
+      }
     }
     
     const savedHistory = localStorage.getItem('search_history');
@@ -582,7 +589,14 @@ if (savedPremium) {
   const changeUiLanguage = (lang: string) => {
     setUiLanguage(lang);
     localStorage.setItem('ui_language', lang);
-    setShowLangMenu(false);
+    if (showOnboardingLang) {
+      // Onboarding flow: after choosing language, show info panel
+      setShowOnboardingLang(false);
+      setShowLangMenu(false);
+      setTimeout(() => setShowInfo(true), 300);
+    } else {
+      setShowLangMenu(false);
+    }
   };
 
   const checkUsageLimit = () => {
@@ -951,6 +965,39 @@ const handleUnlock = async () => {
         )}
       </AnimatePresence>
 
+      {/* Onboarding Language Picker */}
+      <AnimatePresence>
+        {showOnboardingLang && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[45]" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-xs glass rounded-3xl p-6 shadow-2xl z-[46] space-y-4"
+            >
+              <div className="text-center space-y-1">
+                <div className="text-3xl mb-2">🌍</div>
+                <h3 className="font-bold text-zinc-900 text-lg">Choose your language</h3>
+                <p className="text-xs text-zinc-500">Selecciona tu idioma / Choose your language</p>
+              </div>
+              <div className="space-y-1">
+                {LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => changeUiLanguage(lang.code)}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors hover:bg-emerald-50 hover:text-emerald-700 text-zinc-700"
+                  >
+                    <span className="text-xl">{lang.flag}</span>
+                    <span>{lang.name}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Language Menu */}
       <AnimatePresence>
         {showLangMenu && (
@@ -1192,27 +1239,7 @@ const handleUnlock = async () => {
                   )}
                 </section>
 
-                <div className="pt-4 border-t border-zinc-100 space-y-4">
-                  <label className="flex items-center gap-3 cursor-pointer group">
-                    <div className="relative flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={dontShowAgain}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setDontShowAgain(val);
-                          localStorage.setItem('dont_show_onboarding', val.toString());
-                        }}
-                        className="peer sr-only"
-                      />
-                      <div className="w-5 h-5 border-2 border-zinc-200 rounded-md transition-all peer-checked:bg-emerald-500 peer-checked:border-emerald-500 group-hover:border-emerald-300" />
-                      <Check size={14} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 transition-opacity peer-checked:opacity-100" />
-                    </div>
-                    <span className="text-xs text-zinc-500 font-medium group-hover:text-zinc-700 transition-colors">
-                      {t.dontShowAgain}
-                    </span>
-                  </label>
-
+                <div className="pt-4 border-t border-zinc-100">
                   <button
                     onClick={() => {
                       setShowInfo(false);

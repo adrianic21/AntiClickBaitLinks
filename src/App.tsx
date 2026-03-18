@@ -77,6 +77,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide1: "Get your FREE key from",
     apiKeyGuide2: "Paste it in the settings (gear icon ⚙️)",
     apiKeyOr: "or",
+    installApp: "Install App",
     pasteError: "Clipboard access blocked. Please use Ctrl+V (or Cmd+V) to paste."
   },
   Spanish: {
@@ -137,6 +138,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide1: "Consigue tu clave GRATIS en",
     apiKeyGuide2: "Pégala en los ajustes (icono de engranaje ⚙️)",
     apiKeyOr: "o",
+    installApp: "Instalar App",
     pasteError: "Acceso al portapapeles bloqueado. Por favor, usa Ctrl+V (o Cmd+V) para pegar."
   },
   Portuguese: {
@@ -197,6 +199,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide1: "Obtenha sua chave GRÁTIS em",
     apiKeyGuide2: "Cole nas configurações (ícone de engrenagem ⚙️)",
     apiKeyOr: "ou",
+    installApp: "Instalar App",
     pasteError: "Acesso à área de transferência bloqueado. Use Ctrl+V (ou Cmd+V) para colar."
   },
   French: {
@@ -257,6 +260,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide1: "Obtenez votre clé GRATUITE sur",
     apiKeyGuide2: "Collez-la dans les paramètres (icône d'engrenage ⚙️)",
     apiKeyOr: "ou",
+    installApp: "Installer l'App",
     pasteError: "Accès au presse-papiers bloqué. Veuillez utiliser Ctrl+V (ou Cmd+V) pour coller."
   },
   German: {
@@ -317,6 +321,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide1: "Holen Sie sich Ihren KOSTENLOSEN Schlüssel bei",
     apiKeyGuide2: "Fügen Sie ihn in den Einstellungen ein (Zahnrad-Symbol ⚙️)",
     apiKeyOr: "oder",
+    installApp: "App installieren",
     pasteError: "Zugriff auf die Zwischenablage blockiert. Bitte verwenden Sie Strg+V (oder Cmd+V) zum Einfügen."
   },
   Italian: {
@@ -377,6 +382,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide1: "Ottieni la tua chiave GRATUITA su",
     apiKeyGuide2: "Incollala nelle impostazioni (icona ingranaggio ⚙️)",
     apiKeyOr: "o",
+    installApp: "Installa App",
     pasteError: "Accesso agli appunti bloccato. Usa Ctrl+V (o Cmd+V) per incollare."
   }
 };
@@ -895,22 +901,6 @@ const handleUnlock = async () => {
           <Settings size={20} className={cn(showSettings && "animate-spin-slow")} />
         </button>
 
-        {/* Install PWA Button */}
-        <AnimatePresence>
-          {showInstallButton && (
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              onClick={handleInstall}
-              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-2xl shadow-lg text-xs font-bold hover:bg-emerald-700 transition-all active:scale-95"
-              title="Install app"
-            >
-              <Download size={16} />
-              <span className="hidden sm:inline">Install</span>
-            </motion.button>
-          )}
-        </AnimatePresence>
       </div>
 
       {/* Status Popover */}
@@ -1535,6 +1525,26 @@ const handleUnlock = async () => {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Install App Button */}
+      <AnimatePresence>
+        {showInstallButton && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="w-full max-w-2xl"
+          >
+            <button
+              onClick={handleInstall}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-2xl shadow-lg font-bold text-sm hover:bg-emerald-700 transition-all active:scale-[0.98]"
+            >
+              <Download size={18} />
+              {t.installApp}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
     </div>
   );

@@ -455,6 +455,16 @@ export default function App() {
     ? Math.min(...searchHistory.filter(ts => ts > Date.now() - 24 * 60 * 60 * 1000)) + 24 * 60 * 60 * 1000 
     : null;
 
+  // Load Playfair Display font
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.href = 'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap';
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
+    document.body.style.fontFamily = "'Playfair Display', Georgia, serif";
+    return () => { document.body.style.fontFamily = ''; };
+  }, []);
+
   // Stop speaking on unmount
   useEffect(() => {
     return () => {
@@ -1512,7 +1522,9 @@ const handleUnlock = async () => {
 
               <div className="pt-4 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-sm">
                 <Search size={14} />
-                <span className="truncate max-w-[250px] sm:max-w-md">{url}</span>
+                <a href={url} target="_blank" rel="noopener noreferrer" className="truncate max-w-[250px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors">
+                  {url}
+                </a>
               </div>
             </motion.div>
           )}

@@ -124,10 +124,18 @@ async function startServer() {
 
       const html = await response.text();
       const $ = cheerio.load(html);
+
+      // Extract title
+      const title = 
+        $('meta[property="og:title"]').attr('content') ||
+        $('meta[name="twitter:title"]').attr('content') ||
+        $('title').text() ||
+        '';
+
       $('script, style, nav, footer, header').remove();
       const text = $('body').text().replace(/\s+/g, ' ').trim();
 
-      res.json({ text: text.substring(0, 15000) });
+      res.json({ text: text.substring(0, 15000), title: title.trim() });
     } catch (error: any) {
       console.error("Error fetching URL:", error);
       res.status(500).json({ error: error.message });

@@ -1,12 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 
-export type Provider = 'gemini' | 'openrouter' | 'cohere';
+export type Provider = 'gemini' | 'openrouter';
 
 export interface ApiKeys {
   gemini?: string;
   openrouter?: string;
-  cohere?: string;
 }
 
 // ─── Detectar si el error es de cuota/límite ─────────────────────────────────
@@ -77,37 +76,6 @@ async function callOpenRouter(apiKey: string, url: string, language: string, sys
   return completion.choices[0].message.content || "No summary available.";
 }
 
-// ─── Llamada a Cohere ─────────────────────────────────────────────────────────
-
-async function callCohere(apiKey: string, url: string, language: string, systemPrompt: string, lengthInstruction: string): Promise<string> {
-  const fetchResponse = await fetch('/api/fetch-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
-  });
-
-  if (!fetchResponse.ok) throw new Error("Failed to fetch article content for this provider.");
-  const { text: articleContent } = await fetchResponse.json();
-
-  const response = await fetch('https://api.cohere.com/v2/chat', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'command-r-plus',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Analyze this content from ${url}. ${lengthInstruction} The response must be in ${language}. CONTENT: ${articleContent}` }
-      ],
-    }),
-  });
-
-  if (!response.ok) throw new Error(`Cohere error: ${response.statusText}`);
-  const data = await response.json();
-  return data.message?.content?.[0]?.text || "No summary available.";
-}
 
 // ─── Función principal con fallback automático ────────────────────────────────
 
@@ -128,9 +96,9 @@ export async function summarizeUrl(
 
   const hasGemini = keys.gemini && keys.gemini !== "undefined";
   const hasOpenRouter = keys.openrouter && keys.openrouter !== "undefined";
-  const hasCohere = keys.cohere && keys.cohere !== "undefined";
 
-  if (!hasGemini && !hasOpenRouter && !hasCohere) {
+
+  if (!hasGemini && !hasOpenRouter) {
     throw new Error("API Key no configurada. Por favor, introduce tu propia API Key en la configuración.");
   }
 
@@ -148,7 +116,7 @@ export async function summarizeUrl(
   const systemPrompt = "You are an anti-clickbait spoiler. Your ONLY task is to provide the direct factual answer to the mystery posed by a clickbait headline. You must NOT include any labels, introductory text, or explanations of the clickbait. Output ONLY the factual reveal found in the article.";
 
   // Orden de prioridad: provider elegido primero, luego los demás
-  const allProviders: Provider[] = ['gemini', 'openrouter', 'cohere'];
+  const allProviders: Provider[] = ['gemini', 'openrouter'];
   const orderedProviders: Provider[] = [
     provider,
     ...allProviders.filter(p => p !== provider)
@@ -157,7 +125,6 @@ export async function summarizeUrl(
   const availableProviders = orderedProviders.filter(p => {
     if (p === 'gemini') return hasGemini;
     if (p === 'openrouter') return hasOpenRouter;
-    if (p === 'cohere') return hasCohere;
     return false;
   });
 
@@ -169,10 +136,8 @@ export async function summarizeUrl(
       console.log(`🔄 Trying provider: ${p}`);
       if (p === 'gemini') {
         return await callGemini(key, url, language, systemPrompt, lengthInstruction);
-      } else if (p === 'openrouter') {
-        return await callOpenRouter(key, url, language, systemPrompt, lengthInstruction);
       } else {
-        return await callCohere(key, url, language, systemPrompt, lengthInstruction);
+        return await callOpenRouter(key, url, language, systemPrompt, lengthInstruction);
       }
     } catch (error: any) {
       lastError = error;

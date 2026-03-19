@@ -1147,7 +1147,7 @@ const handleUnlock = async () => {
                         <p className="text-xs text-zinc-500 leading-relaxed">{t.infoStep1Desc}</p>
                         <div className="flex flex-wrap gap-2 mt-2">
                           <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Gemini</a>
-                          <a href="https://dashboard.cohere.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Cohere</a>
+                          
                           <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">OpenRouter</a>
                         </div>
                       </div>
@@ -1285,7 +1285,7 @@ const handleUnlock = async () => {
                   {t.apiProvider}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(['gemini', 'openrouter', 'cohere'] as Provider[]).map((p) => (
+                  {(['gemini', 'openrouter'] as Provider[]).map((p) => (
                     <button
                       key={p}
                       onClick={() => { setProvider(p); setUserApiKey(apiKeys[p] || ''); }}
@@ -1305,7 +1305,7 @@ const handleUnlock = async () => {
               <div className="space-y-2">
                 <input
                   type="password"
-                  placeholder={provider === 'gemini' ? "AIzaSy..." : provider === 'cohere' ? "Cohere key..." : "sk-or-..."}
+                  placeholder={provider === 'gemini' ? "AIzaSy..." : "sk-or-..."}
                   value={userApiKey}
                   onChange={(e) => setUserApiKey(e.target.value)}
                   className="w-full px-4 py-3 bg-zinc-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all"
@@ -1321,8 +1321,7 @@ const handleUnlock = async () => {
             <a 
               href={
                 provider === 'gemini' ? "https://aistudio.google.com/app/apikey" :
-                provider === 'openrouter' ? "https://openrouter.ai/keys" :
-                "https://dashboard.cohere.com/api-keys"
+                "https://openrouter.ai/keys"
               }
               target="_blank" 
               rel="noopener noreferrer"
@@ -1398,37 +1397,6 @@ const handleUnlock = async () => {
           </form>
         </div>
 
-        {/* API Key Status Indicator */}
-        {(() => {
-          const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
-          return (
-            <div className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium",
-              hasAnyKey
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-amber-50 text-amber-700"
-            )}>
-              {hasAnyKey ? (
-                <>
-                  <Check size={14} className="shrink-0" />
-                  <span>{Object.entries(apiKeys).filter(([,v]) => v && v !== 'undefined').map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(' · ')} — {t.apiKeyActive}</span>
-                </>
-              ) : (
-                <div className="w-full space-y-2">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle size={14} className="shrink-0" />
-                    <span>{t.apiKeyMissing}</span>
-                  </div>
-                  <div className="text-[10px] text-amber-600 space-y-1 pl-5">
-                    <p>1. {t.apiKeyGuide1} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a>, <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a> {t.apiKeyOr} <a href="https://dashboard.cohere.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Cohere</a></p>
-                    <p>2. {t.apiKeyGuide2}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
         {/* Results Area */}
         <div ref={resultsRef}>
           <AnimatePresence mode="wait">
@@ -1494,12 +1462,10 @@ const handleUnlock = async () => {
                   {t.clear}
                 </button>
               </div>
-              {articleTitle && (
-                <div className="pb-3 border-b border-zinc-100">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Original headline</p>
-                  <p className="text-sm font-semibold text-zinc-600 leading-snug italic">"{articleTitle}"</p>
-                </div>
-              )}
+              <div className="pb-3 border-b border-zinc-100">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Original headline</p>
+                <p className="text-sm font-semibold text-zinc-600 leading-snug italic">"{articleTitle || url}"</p>
+              </div>
               <div className="relative">
                 {isLoading && currentLength !== 'short' && (
                   <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
@@ -1552,6 +1518,37 @@ const handleUnlock = async () => {
           )}
         </AnimatePresence>
       </div>
+
+        {/* API Key Status Indicator */}
+        {(() => {
+          const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
+          return (
+            <div className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2",
+              hasAnyKey
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-amber-50 text-amber-700"
+            )}>
+              {hasAnyKey ? (
+                <>
+                  <Check size={14} className="shrink-0" />
+                  <span>{Object.entries(apiKeys).filter(([,v]) => v && v !== 'undefined').map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(' · ')} — {t.apiKeyActive}</span>
+                </>
+              ) : (
+                <div className="w-full space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={14} className="shrink-0" />
+                    <span>{t.apiKeyMissing}</span>
+                  </div>
+                  <div className="text-[10px] text-amber-600 space-y-1 pl-5">
+                    <p>1. {t.apiKeyGuide1} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a> {t.apiKeyOr} <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a></p>
+                    <p>2. {t.apiKeyGuide2}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Install App Button */}
       <AnimatePresence>

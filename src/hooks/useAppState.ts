@@ -58,7 +58,6 @@ export function useAppState() {
 
   // Misc
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -467,15 +466,6 @@ export function useAppState() {
     window.speechSynthesis.speak(utterance);
   }, [summary, isSpeaking, uiLanguage]);
 
-  const handleCopy = useCallback(async () => {
-    if (!summary) return;
-    try {
-      await navigator.clipboard.writeText(summary);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
-    } catch { /* ignore */ }
-  }, [summary]);
-
   const handleShare = useCallback(async (shareSummary: string, shareUrl: string, shareTitle: string) => {
   const text = `${shareSummary}\n\nvia anticlickbaitlinks.com`;
   if (navigator.share) {
@@ -511,7 +501,7 @@ export function useAppState() {
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft, resetTimestamp,
     unlockPass, setUnlockPass, lockError, setLockError,
-    dontShowAgain, isSpeaking, isCopied, currentLength,
+    dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef,
     loadingMessage, summaryHistory, showHistory, setShowHistory,
     // derived
@@ -520,6 +510,6 @@ export function useAppState() {
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleCopy, handleInstall, handleShare,
+    handleSpeak, handleInstall, handleShare,
   };
 }

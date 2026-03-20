@@ -18,13 +18,13 @@ export default function App() {
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft, resetTimestamp,
     unlockPass, setUnlockPass, lockError, setLockError,
-    dontShowAgain, isSpeaking, isCopied, currentLength,
+    dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef, t,
     loadingMessage, summaryHistory, showHistory, setShowHistory,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleCopy, handleInstall, handleShare,
+    handleSpeak, handleInstall, handleShare,
   } = state;
 
   // Load a history entry back into the view
@@ -202,14 +202,12 @@ export default function App() {
           loadingMessage={loadingMessage}
           currentLength={currentLength}
           isSpeaking={isSpeaking}
-          isCopied={isCopied}
           apiKeys={apiKeys}
           resultsRef={resultsRef}
           summaryHistory={summaryHistory}
           showHistory={showHistory}
           setShowHistory={setShowHistory}
           onSpeak={handleSpeak}
-          onCopy={handleCopy}
           onExpand={(length) => handleSummarize(undefined, length)}
           onShare={handleShare}
           onSelectHistory={handleSelectHistory}

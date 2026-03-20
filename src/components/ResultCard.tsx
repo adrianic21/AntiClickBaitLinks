@@ -1,4 +1,4 @@
-import { Search, Volume2, VolumeX, Copy, CopyCheck, Loader2, AlertCircle, Check, Share2, History, Clock, X, ChevronRight } from 'lucide-react';
+import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2, History, Clock, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations, SummaryHistoryEntry } from '../translations';
@@ -14,14 +14,12 @@ interface ResultCardProps {
   loadingMessage: string;
   currentLength: 'short' | 'medium' | 'long' | 'child';
   isSpeaking: boolean;
-  isCopied: boolean;
   apiKeys: ApiKeys;
   resultsRef: React.RefObject<HTMLDivElement>;
   summaryHistory: SummaryHistoryEntry[];
   showHistory: boolean;
   setShowHistory: (v: boolean) => void;
   onSpeak: () => void;
-  onCopy: () => void;
   onExpand: (length: 'medium' | 'long' | 'child') => void;
   onShare: (summary: string, url: string, title: string) => void;
   onSelectHistory: (entry: SummaryHistoryEntry) => void;
@@ -45,9 +43,9 @@ function FormattedText({ text }: { text: string }) {
 }
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, currentLength,
-  isSpeaking, isCopied, apiKeys, resultsRef,
+  isSpeaking, apiKeys, resultsRef,
   summaryHistory, showHistory, setShowHistory,
-  onSpeak, onCopy, onExpand, onShare, onSelectHistory,
+  onSpeak, onExpand, onShare, onSelectHistory,
 }: ResultCardProps) {
   const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
 

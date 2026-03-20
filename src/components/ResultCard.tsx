@@ -26,7 +26,23 @@ interface ResultCardProps {
   onShare: (summary: string, url: string, title: string) => void;
   onSelectHistory: (entry: SummaryHistoryEntry) => void;
 }
-
+function FormattedText({ text }: { text: string }) {
+  // Convert **bold** and *bold* to <strong>
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith('*') && part.endsWith('*')) {
+          return <strong key={i} className="font-semibold">{part.slice(1, -1)}</strong>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, currentLength,
   isSpeaking, isCopied, apiKeys, resultsRef,
@@ -126,10 +142,10 @@ export function ResultCard({
                 </div>
               )}
               <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 space-y-3">
-                {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
-                  <p key={i}>{paragraph}</p>
-                ))}
-              </div>
+  {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
+    <p key={i}><FormattedText text={paragraph} /></p>
+  ))}
+</div>
             </div>
 
             {/* Expansion buttons */}

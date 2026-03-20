@@ -488,6 +488,11 @@ via AntiClickBaitLinks.com`;
     localStorage.setItem('dont_show_onboarding', 'true');
   }, []);
 
+  const handleClearHistory = useCallback(() => {
+    setSummaryHistory([]);
+    localStorage.removeItem('summary_history');
+  }, []);
+
   return {
     // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,

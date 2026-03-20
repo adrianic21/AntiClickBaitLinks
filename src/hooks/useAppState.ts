@@ -466,18 +466,14 @@ export function useAppState() {
     window.speechSynthesis.speak(utterance);
   }, [summary, isSpeaking, uiLanguage]);
 
-  const handleShare = useCallback(async (shareSummary: string, shareUrl: string, shareTitle: string) => {
-  const text = `${shareSummary}\n\nvia anticlickbaitlinks.com`;
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: shareTitle, text, url: shareUrl });
-    } catch { /* user cancelled */ }
-  } else {
+  const handleShare = useCallback(async (shareSummary: string) => {
+    const text = `${shareSummary}
+
+via AntiClickBaitLinks.com`;
     try {
       await navigator.clipboard.writeText(text);
     } catch { /* ignore */ }
-  }
-}, []);
+  }, []);
 
   const handleInstall = useCallback(async () => {
     if (!installPrompt) return;
@@ -510,6 +506,6 @@ export function useAppState() {
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleInstall, handleShare,
+    handleSpeak, handleInstall, handleShare, handleClearHistory,
   };
 }

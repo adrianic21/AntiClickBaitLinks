@@ -24,7 +24,7 @@ export default function App() {
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleInstall, handleShare,
+    handleSpeak, handleInstall, handleShare, handleClearHistory,
   } = state;
 
   // Load a history entry back into the view
@@ -211,6 +211,7 @@ export default function App() {
           onExpand={(length) => handleSummarize(undefined, length)}
           onShare={handleShare}
           onSelectHistory={handleSelectHistory}
+          onClearHistory={handleClearHistory}
         />
 
         {/* Install App button */}

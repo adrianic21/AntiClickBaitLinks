@@ -1,4 +1,4 @@
-import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2, History, Clock, ChevronRight } from 'lucide-react';
+import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2, History, Clock, ChevronRight, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations, SummaryHistoryEntry } from '../translations';
@@ -21,8 +21,9 @@ interface ResultCardProps {
   setShowHistory: (v: boolean) => void;
   onSpeak: () => void;
   onExpand: (length: 'medium' | 'long' | 'child') => void;
-  onShare: (summary: string, url: string, title: string) => void;
+  onShare: (summary: string) => void;
   onSelectHistory: (entry: SummaryHistoryEntry) => void;
+  onClearHistory: () => void;
 }
 function FormattedText({ text }: { text: string }) {
   // Convert **bold** and *bold* to <strong>
@@ -45,7 +46,7 @@ export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, currentLength,
   isSpeaking, apiKeys, resultsRef,
   summaryHistory, showHistory, setShowHistory,
-  onSpeak, onExpand, onShare, onSelectHistory,
+  onSpeak, onExpand, onShare, onSelectHistory, onClearHistory,
 }: ResultCardProps) {
   const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
 
@@ -107,7 +108,7 @@ export function ResultCard({
                 {isSpeaking ? <VolumeX size={14} /> : <Volume2 size={14} />}
                 {isSpeaking ? t.stop : t.listen}
               </button>
-              <button onClick={() => onShare(summary, url, articleTitle || url)}
+              <button onClick={() => onShare(summary)}
   className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
 >
   <Share2 size={14} />
@@ -177,14 +178,23 @@ export function ResultCard({
       {/* Summary history */}
       {summaryHistory.length > 0 && (
         <div className="mt-2">
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center gap-2 text-xs font-bold text-zinc-400 hover:text-zinc-600 transition-colors w-full px-1 py-1"
-          >
-            <History size={14} />
-            {t.historyTitle}
-            <ChevronRight size={14} className={cn("ml-auto transition-transform", showHistory && "rotate-90")} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className="flex items-center gap-2 text-xs font-bold text-zinc-400 hover:text-zinc-600 transition-colors flex-1 px-1 py-1"
+            >
+              <History size={14} />
+              {t.historyTitle}
+              <ChevronRight size={14} className={cn("ml-auto transition-transform", showHistory && "rotate-90")} />
+            </button>
+            <button
+              onClick={onClearHistory}
+              className="p-1 text-zinc-300 hover:text-red-400 transition-colors rounded-lg"
+              title={t.clearHistory}
+            >
+              <X size={13} />
+            </button>
+          </div>
           <AnimatePresence>
             {showHistory && (
               <motion.div

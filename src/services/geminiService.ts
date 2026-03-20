@@ -1,11 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 
-export type Provider = 'gemini' | 'openrouter';
+export type Provider = 'gemini' | 'openrouter' | 'mistral';
 
 export interface ApiKeys {
   gemini?: string;
   openrouter?: string;
+  mistral?: string;
 }
 
 // ─── Detectar si el error es de cuota/límite ─────────────────────────────────
@@ -15,7 +16,7 @@ function isQuotaError(error: any): boolean {
   return (
     msg.includes('resource_exhausted') ||
     msg.includes('quota_exceeded') ||
-    msg.includes('rateLimitExceeded') ||
+    msg.includes('ratelimitexceeded') ||
     msg.includes('rate_limit_exceeded') ||
     msg.includes('too many requests') ||
     (msg.includes('429') && (msg.includes('quota') || msg.includes('rate') || msg.includes('limit')))
@@ -46,19 +47,31 @@ function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): st
   switch (length) {
     case 'short':
       return `Write 1-3 concise sentences that answer the headline and preserve any critical context or limitations (e.g. animal study, single country, preliminary research). If a key nuance changes the meaning, include it even if it makes the response slightly longer.`;
-
     case 'medium':
       return `Write 3-5 sentences. Answer the headline directly, then add the most important supporting details and any critical qualifiers or limitations from the article (e.g. sample size, scope, caveats mentioned by researchers or experts quoted).`;
-
     case 'long':
       return `Write a thorough multi-paragraph summary. Cover: (1) the direct answer to the headline, (2) the key evidence or findings, (3) important limitations, caveats, or dissenting views mentioned in the article, (4) broader context if provided by the article itself. Do not omit any detail that materially affects how the reader should interpret the story.`;
-
     case 'child':
       return `Explain this article to a 10-year-old using simple words and a friendly tone. Make sure to include any important limitations in a way a child can understand — for example, "but this was only tested on mice, not people yet". Do not oversimplify to the point of being misleading.`;
   }
 }
 
-// ─── Llamada a Gemini (usando scraping propio, sin urlContext) ────────────────
+// ─── Fetch article content via our server ────────────────────────────────────
+
+async function fetchArticleContent(url: string): Promise<string> {
+  const fetchResponse = await fetch('/api/fetch-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  if (!fetchResponse.ok) throw new Error("Failed to fetch article content.");
+  const { text } = await fetchResponse.json();
+  return text;
+}
+
+// ─── Llamada a Gemini 2.5 Flash ───────────────────────────────────────────────
+// IMPORTANT: Gemini free tier is NOT available in EU/EEA/UK/Switzerland.
+// European users should use OpenRouter or Mistral instead.
 
 async function callGemini(
   apiKey: string,
@@ -67,19 +80,8 @@ async function callGemini(
   lengthInstruction: string,
   retryCount = 0
 ): Promise<string> {
-  // Fetch article content via our own server (same as OpenRouter)
-  // This avoids urlContext which has a separate, very limited quota
-  const fetchResponse = await fetch('/api/fetch-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
-  });
-
-  if (!fetchResponse.ok) throw new Error("Failed to fetch article content.");
-  const { text: articleContent } = await fetchResponse.json();
-
+  const articleContent = await fetchArticleContent(url);
   const ai = new GoogleGenAI({ apiKey });
-  const model = "gemini-2.0-flash";
 
   const prompt = `Analyze this article content from ${url} and provide an accurate summary.
 
@@ -94,17 +96,13 @@ ${articleContent}`;
 
   try {
     const response = await ai.models.generateContent({
-      model,
+      model: "gemini-2.5-flash",
       contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-      },
+      config: { systemInstruction: SYSTEM_PROMPT },
     });
-
     return response.text || "No summary available.";
   } catch (error: any) {
     const msg = (error?.message || '').toLowerCase();
-    // Per-minute rate limit — wait 15s and retry once
     if (retryCount === 0 && (msg.includes('429') || msg.includes('resource_exhausted'))) {
       await new Promise(resolve => setTimeout(resolve, 15000));
       return callGemini(apiKey, url, language, lengthInstruction, 1);
@@ -114,6 +112,8 @@ ${articleContent}`;
 }
 
 // ─── Llamada a OpenRouter ────────────────────────────────────────────────────
+// Free tier: 200 requests/day, no geographic restrictions.
+// Best free option for EU users.
 
 async function callOpenRouter(
   apiKey: string,
@@ -121,14 +121,7 @@ async function callOpenRouter(
   language: string,
   lengthInstruction: string
 ): Promise<string> {
-  const fetchResponse = await fetch('/api/fetch-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
-  });
-
-  if (!fetchResponse.ok) throw new Error("Failed to fetch article content for this provider.");
-  const { text: articleContent } = await fetchResponse.json();
+  const articleContent = await fetchArticleContent(url);
 
   const openai = new OpenAI({
     apiKey,
@@ -137,7 +130,48 @@ async function callOpenRouter(
   });
 
   const completion = await openai.chat.completions.create({
-    model: "google/gemini-2.0-flash-001",
+    model: "google/gemini-2.5-flash",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: `Analyze this article content from ${url} and provide an accurate summary.
+
+${lengthInstruction}
+
+IMPORTANT: If the article describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
+
+The response must be written in ${language}.
+
+ARTICLE CONTENT:
+${articleContent}`
+      }
+    ],
+  });
+
+  return completion.choices[0].message.content || "No summary available.";
+}
+
+// ─── Llamada a Mistral ───────────────────────────────────────────────────────
+// EU-based company, free tier available, no geographic restrictions.
+// Get your free API key at: https://console.mistral.ai
+
+async function callMistral(
+  apiKey: string,
+  url: string,
+  language: string,
+  lengthInstruction: string
+): Promise<string> {
+  const articleContent = await fetchArticleContent(url);
+
+  const openai = new OpenAI({
+    apiKey,
+    baseURL: "https://api.mistral.ai/v1",
+    dangerouslyAllowBrowser: true
+  });
+
+  const completion = await openai.chat.completions.create({
+    model: "mistral-small-latest",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       {
@@ -168,7 +202,6 @@ export async function summarizeUrl(
   length: 'short' | 'medium' | 'long' | 'child' = 'short',
   provider: Provider = 'gemini'
 ) {
-  // Compatibilidad con llamadas antiguas que pasan un string
   let keys: ApiKeys;
   if (typeof userApiKeys === 'string') {
     keys = { [provider]: userApiKeys } as ApiKeys;
@@ -176,17 +209,17 @@ export async function summarizeUrl(
     keys = userApiKeys || {};
   }
 
-  const hasGemini = keys.gemini && keys.gemini !== "undefined";
-  const hasOpenRouter = keys.openrouter && keys.openrouter !== "undefined";
+  const hasGemini = !!(keys.gemini && keys.gemini !== "undefined");
+  const hasOpenRouter = !!(keys.openrouter && keys.openrouter !== "undefined");
+  const hasMistral = !!(keys.mistral && keys.mistral !== "undefined");
 
-  if (!hasGemini && !hasOpenRouter) {
+  if (!hasGemini && !hasOpenRouter && !hasMistral) {
     throw new Error("API Key no configurada. Por favor, introduce tu propia API Key en la configuración.");
   }
 
   const lengthInstruction = getLengthInstruction(length);
 
-  // Orden de prioridad: provider elegido primero, luego los demás
-  const allProviders: Provider[] = ['gemini', 'openrouter'];
+  const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral'];
   const orderedProviders: Provider[] = [
     provider,
     ...allProviders.filter(p => p !== provider)
@@ -195,6 +228,7 @@ export async function summarizeUrl(
   const availableProviders = orderedProviders.filter(p => {
     if (p === 'gemini') return hasGemini;
     if (p === 'openrouter') return hasOpenRouter;
+    if (p === 'mistral') return hasMistral;
     return false;
   });
 
@@ -206,8 +240,10 @@ export async function summarizeUrl(
       console.log(`🔄 Trying provider: ${p}`);
       if (p === 'gemini') {
         return await callGemini(key, url, language, lengthInstruction);
-      } else {
+      } else if (p === 'openrouter') {
         return await callOpenRouter(key, url, language, lengthInstruction);
+      } else {
+        return await callMistral(key, url, language, lengthInstruction);
       }
     } catch (error: any) {
       lastError = error;
@@ -219,6 +255,5 @@ export async function summarizeUrl(
     }
   }
 
-  // Todos los providers fallaron por cuota
   throw new Error("quota_exceeded_all");
 }

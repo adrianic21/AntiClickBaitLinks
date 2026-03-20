@@ -109,21 +109,12 @@ export function ResultCard({
                 {isSpeaking ? <VolumeX size={14} /> : <Volume2 size={14} />}
                 {isSpeaking ? t.stop : t.listen}
               </button>
-              <button onClick={onCopy}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all",
-                  isCopied ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                )}
-              >
-                {isCopied ? <CopyCheck size={14} /> : <Copy size={14} />}
-                {isCopied ? t.copied : t.copy}
-              </button>
               <button onClick={() => onShare(summary, url, articleTitle || url)}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-              >
-                <Share2 size={14} />
-                {t.share}
-              </button>
+  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+>
+  <Share2 size={14} />
+  {t.share}
+</button>
             </div>
 
             {/* Original headline — only show if we have a real title, not the URL */}

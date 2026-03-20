@@ -477,18 +477,17 @@ export function useAppState() {
   }, [summary]);
 
   const handleShare = useCallback(async (shareSummary: string, shareUrl: string, shareTitle: string) => {
-    const text = `${shareTitle}\n\n${shareSummary}\n\n${shareUrl}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: shareTitle, text: shareSummary, url: shareUrl });
-      } catch { /* user cancelled or not supported */ }
-    } else {
-      // Fallback: copy to clipboard
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch { /* ignore */ }
-    }
-  }, []);
+  const text = `${shareSummary}\n\nvia anticlickbaitlinks.com`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: shareTitle, text, url: shareUrl });
+    } catch { /* user cancelled */ }
+  } else {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch { /* ignore */ }
+  }
+}, []);
 
   const handleInstall = useCallback(async () => {
     if (!installPrompt) return;

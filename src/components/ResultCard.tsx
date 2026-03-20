@@ -128,11 +128,10 @@ export function ResultCard({
 
             {/* Original headline — only show if we have a real title, not the URL */}
             {articleTitle && (
-              <div className="pb-3 border-b border-zinc-100">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Original headline</p>
-                <p className="text-sm font-semibold text-zinc-600 leading-snug italic">"{articleTitle}"</p>
-              </div>
-            )}
+  <div className="pb-3 border-b border-zinc-100">
+    <p className="text-sm font-semibold text-zinc-600 leading-snug">{articleTitle}</p>
+  </div>
+)}
 
             {/* Summary text */}
             <div className="relative">

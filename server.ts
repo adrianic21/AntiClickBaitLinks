@@ -166,33 +166,98 @@ async function startServer() {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    // Rotate user agents to improve success rate on sites that block bots
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+    ];
+
+    let lastError: any;
+
+    for (const userAgent of userAgents) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': userAgent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Upgrade-Insecure-Requests': '1',
+          },
+          redirect: 'follow',
+        });
+
+        if (!response.ok) throw new Error(`Failed to fetch URL: ${response.statusText}`);
+
+        const html = await response.text();
+        const $ = cheerio.load(html);
+
+        // Extract title
+        const title =
+          $('meta[property="og:title"]').attr('content') ||
+          $('meta[name="twitter:title"]').attr('content') ||
+          $('title').text() ||
+          '';
+
+        // Remove all non-content elements including cookie banners and ads
+        $(
+          'script, style, noscript, iframe, ' +
+          'nav, footer, header, aside, ' +
+          // Cookie banners & consent dialogs
+          '[id*="cookie"], [class*="cookie"], [id*="consent"], [class*="consent"], ' +
+          '[id*="gdpr"], [class*="gdpr"], [id*="banner"], [class*="banner"], ' +
+          '[id*="popup"], [class*="popup"], [id*="modal"], [class*="modal"], ' +
+          '[id*="overlay"], [class*="overlay"], [id*="notice"], [class*="notice"], ' +
+          // Ads
+          '[id*="ad-"], [class*="ad-"], [id*="-ad"], [class*="-ad"], ' +
+          '[id*="ads"], [class*="ads"], [class*="advertisement"], ' +
+          '[class*="sponsored"], [id*="sponsored"], ' +
+          '[class*="promo"], [id*="promo"], ' +
+          // Subscription / paywall nags
+          '[class*="paywall"], [id*="paywall"], ' +
+          '[class*="subscribe"], [id*="subscribe"], ' +
+          '[class*="newsletter"], [id*="newsletter"], ' +
+          // Social share bars
+          '[class*="share"], [id*="share"], ' +
+          '[class*="social"], [id*="social"], ' +
+          // Sidebars and recommendations
+          '[class*="sidebar"], [id*="sidebar"], ' +
+          '[class*="related"], [id*="related"], ' +
+          '[class*="recommendation"], ' +
+          // Comments
+          '[class*="comment"], [id*="comment"]'
+        ).remove();
+
+        // Extract main article content — prefer semantic article/main tags
+        let text = '';
+        const articleEl = $('article').first();
+        const mainEl = $('main').first();
+        const contentEl = $('[class*="article-body"], [class*="article__body"], [class*="story-body"], [class*="entry-content"], [class*="post-content"], [class*="content-body"]').first();
+
+        if (articleEl.length) {
+          text = articleEl.text();
+        } else if (contentEl.length) {
+          text = contentEl.text();
+        } else if (mainEl.length) {
+          text = mainEl.text();
+        } else {
+          text = $('body').text();
         }
-      });
 
-      if (!response.ok) throw new Error(`Failed to fetch URL: ${response.statusText}`);
+        text = text.replace(/\s+/g, ' ').trim();
 
-      const html = await response.text();
-      const $ = cheerio.load(html);
-
-      // Extract title
-      const title =
-        $('meta[property="og:title"]').attr('content') ||
-        $('meta[name="twitter:title"]').attr('content') ||
-        $('title').text() ||
-        '';
-
-      $('script, style, nav, footer, header').remove();
-      const text = $('body').text().replace(/\s+/g, ' ').trim();
-
-      res.json({ text: text.substring(0, 15000), title: title.trim() });
-    } catch (error: any) {
-      console.error("Error fetching URL:", error);
-      res.status(500).json({ error: error.message });
+        return res.json({ text: text.substring(0, 15000), title: title.trim() });
+      } catch (error: any) {
+        lastError = error;
+        // Try next user agent
+      }
     }
+
+    console.error("Error fetching URL:", lastError);
+    res.status(500).json({ error: lastError?.message || 'Failed to fetch URL' });
   });
 
   // ── PayPal Webhook ────────────────────────────────────────────────────────

@@ -486,6 +486,24 @@ export default function App() {
     };
   }, []);
 
+  // Fix 5: Open external links in the device browser when running as installed PWA
+  useEffect(() => {
+    const handleExternalLinks = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const anchor = target.closest('a');
+      if (!anchor) return;
+      const href = anchor.getAttribute('href');
+      if (!href) return;
+      // If it's an external URL (starts with http) open in new browser tab
+      if (href.startsWith('http://') || href.startsWith('https://')) {
+        e.preventDefault();
+        window.open(href, '_blank', 'noopener,noreferrer');
+      }
+    };
+    document.addEventListener('click', handleExternalLinks);
+    return () => document.removeEventListener('click', handleExternalLinks);
+  }, []);
+
   const handleInstall = async () => {
     if (!installPrompt) return;
     installPrompt.prompt();
@@ -703,11 +721,23 @@ const handleUnlock = async () => {
     }
   }, [summary]);
 
+  // Extract the first URL found in any text
+  const extractUrlFromText = (text: string): string => {
+    const urlRegex = /https?:\/\/[^\s"'<>()[\]{}]+/gi;
+    const matches = text.match(urlRegex);
+    if (matches && matches.length > 0) {
+      // Clean trailing punctuation that may have been captured
+      return matches[0].replace(/[.,;:!?]+$/, '');
+    }
+    return text.trim();
+  };
+
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
-        setUrl(text);
+        const extracted = extractUrlFromText(text);
+        setUrl(extracted);
         setError(null);
       }
     } catch (err) {
@@ -735,9 +765,14 @@ const handleUnlock = async () => {
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
 
+    // Extract URL from text if the user pasted a sentence containing a link
+    const extractedUrl = extractUrlFromText(url);
+    if (extractedUrl !== url) setUrl(extractedUrl);
+    const finalUrl = extractedUrl;
+
     // Basic URL validation
     try {
-      new URL(url);
+      new URL(finalUrl);
     } catch {
       setError(t.invalidUrl);
       return;
@@ -755,7 +790,7 @@ const handleUnlock = async () => {
     }
 
     try {
-      const result = await summarizeUrl(url, uiLanguage, apiKeys, length, provider);
+      const result = await summarizeUrl(finalUrl, uiLanguage, apiKeys, length, provider);
       setSummary(result);
       // Fetch page title
       if (length === 'short') {
@@ -763,7 +798,7 @@ const handleUnlock = async () => {
           const titleRes = await fetch('/api/fetch-url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url }),
+            body: JSON.stringify({ url: finalUrl }),
           });
           if (titleRes.ok) {
             const { title } = await titleRes.json();

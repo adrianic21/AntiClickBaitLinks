@@ -12,14 +12,15 @@ export interface ApiKeys {
 
 function isQuotaError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
+  // Only treat as quota error if it's genuinely a quota/rate-limit signal
+  // Avoid false positives from unrelated network errors
   return (
-    msg.includes('quota') ||
-    msg.includes('rate limit') ||
-    msg.includes('rate_limit') ||
-    msg.includes('too many requests') ||
-    msg.includes('429') ||
     msg.includes('resource_exhausted') ||
-    msg.includes('exhausted')
+    msg.includes('quota_exceeded') ||
+    msg.includes('rateLimitExceeded') ||
+    msg.includes('rate_limit_exceeded') ||
+    msg.includes('too many requests') ||
+    (msg.includes('429') && (msg.includes('quota') || msg.includes('rate') || msg.includes('limit')))
   );
 }
 
@@ -65,7 +66,8 @@ async function callGemini(
   apiKey: string,
   url: string,
   language: string,
-  lengthInstruction: string
+  lengthInstruction: string,
+  retryCount = 0
 ): Promise<string> {
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-2.0-flash";
@@ -80,16 +82,26 @@ The response must be written in ${language}.
 
 URL: ${url}`;
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      tools: [{ urlContext: {} }],
-      systemInstruction: SYSTEM_PROMPT,
-    },
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        tools: [{ urlContext: {} }],
+        systemInstruction: SYSTEM_PROMPT,
+      },
+    });
 
-  return response.text || "No summary available.";
+    return response.text || "No summary available.";
+  } catch (error: any) {
+    const msg = (error?.message || '').toLowerCase();
+    // Per-minute rate limit (not daily quota) — wait 15s and retry once
+    if (retryCount === 0 && (msg.includes('429') || msg.includes('resource_exhausted'))) {
+      await new Promise(resolve => setTimeout(resolve, 15000));
+      return callGemini(apiKey, url, language, lengthInstruction, 1);
+    }
+    throw error;
+  }
 }
 
 // ─── Llamada a OpenRouter ────────────────────────────────────────────────────

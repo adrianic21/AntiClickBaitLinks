@@ -12,8 +12,6 @@ export interface ApiKeys {
 
 function isQuotaError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
-  // Only treat as quota error if it's genuinely a quota/rate-limit signal
-  // Avoid false positives from unrelated network errors
   return (
     msg.includes('resource_exhausted') ||
     msg.includes('quota_exceeded') ||
@@ -60,7 +58,7 @@ function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): st
   }
 }
 
-// ─── Llamada a Gemini ─────────────────────────────────────────────────────────
+// ─── Llamada a Gemini (usando scraping propio, sin urlContext) ────────────────
 
 async function callGemini(
   apiKey: string,
@@ -69,10 +67,21 @@ async function callGemini(
   lengthInstruction: string,
   retryCount = 0
 ): Promise<string> {
+  // Fetch article content via our own server (same as OpenRouter)
+  // This avoids urlContext which has a separate, very limited quota
+  const fetchResponse = await fetch('/api/fetch-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+
+  if (!fetchResponse.ok) throw new Error("Failed to fetch article content.");
+  const { text: articleContent } = await fetchResponse.json();
+
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-2.0-flash";
 
-  const prompt = `Analyze the headline and full content of this URL and provide an accurate summary.
+  const prompt = `Analyze this article content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -80,14 +89,14 @@ IMPORTANT: If the article describes a study or discovery that only applies to an
 
 The response must be written in ${language}.
 
-URL: ${url}`;
+ARTICLE CONTENT:
+${articleContent}`;
 
   try {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
       config: {
-        tools: [{ urlContext: {} }],
         systemInstruction: SYSTEM_PROMPT,
       },
     });
@@ -95,7 +104,7 @@ URL: ${url}`;
     return response.text || "No summary available.";
   } catch (error: any) {
     const msg = (error?.message || '').toLowerCase();
-    // Per-minute rate limit (not daily quota) — wait 15s and retry once
+    // Per-minute rate limit — wait 15s and retry once
     if (retryCount === 0 && (msg.includes('429') || msg.includes('resource_exhausted'))) {
       await new Promise(resolve => setTimeout(resolve, 15000));
       return callGemini(apiKey, url, language, lengthInstruction, 1);

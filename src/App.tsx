@@ -78,7 +78,9 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Paste it in the settings (gear icon ⚙️)",
     apiKeyOr: "or",
     installApp: "Install App",
-    pasteError: "Clipboard access blocked. Please use Ctrl+V (or Cmd+V) to paste."
+    pasteError: "Clipboard access blocked. Please use Ctrl+V (or Cmd+V) to paste.",
+    tutorialQuestion: "Having trouble?",
+    tutorialBtn: "Explain it to a 10-year-old"
   },
   Spanish: {
     title: "AntiClickBaitLinks",
@@ -139,7 +141,9 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Pégala en los ajustes (icono de engranaje ⚙️)",
     apiKeyOr: "o",
     installApp: "Instalar App",
-    pasteError: "Acceso al portapapeles bloqueado. Por favor, usa Ctrl+V (o Cmd+V) para pegar."
+    pasteError: "Acceso al portapapeles bloqueado. Por favor, usa Ctrl+V (o Cmd+V) para pegar.",
+    tutorialQuestion: "¿Tienes algún problema?",
+    tutorialBtn: "Explicar a un niño de 10 años"
   },
   Portuguese: {
     title: "AntiClickBaitLinks",
@@ -200,7 +204,9 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Cole nas configurações (ícone de engrenagem ⚙️)",
     apiKeyOr: "ou",
     installApp: "Instalar App",
-    pasteError: "Acesso à área de transferência bloqueado. Use Ctrl+V (ou Cmd+V) para colar."
+    pasteError: "Acesso à área de transferência bloqueado. Use Ctrl+V (ou Cmd+V) para colar.",
+    tutorialQuestion: "Está com algum problema?",
+    tutorialBtn: "Explicar para uma criança de 10 anos"
   },
   French: {
     title: "AntiClickBaitLinks",
@@ -261,7 +267,9 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Collez-la dans les paramètres (icône d'engrenage ⚙️)",
     apiKeyOr: "ou",
     installApp: "Installer l'App",
-    pasteError: "Accès au presse-papiers bloqué. Veuillez utiliser Ctrl+V (ou Cmd+V) pour coller."
+    pasteError: "Accès au presse-papiers bloqué. Veuillez utiliser Ctrl+V (ou Cmd+V) pour coller.",
+    tutorialQuestion: "Vous avez un problème ?",
+    tutorialBtn: "L'expliquer à un enfant de 10 ans"
   },
   German: {
     title: "AntiClickBaitLinks",
@@ -322,7 +330,9 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Fügen Sie ihn in den Einstellungen ein (Zahnrad-Symbol ⚙️)",
     apiKeyOr: "oder",
     installApp: "App installieren",
-    pasteError: "Zugriff auf die Zwischenablage blockiert. Bitte verwenden Sie Strg+V (oder Cmd+V) zum Einfügen."
+    pasteError: "Zugriff auf die Zwischenablage blockiert. Bitte verwenden Sie Strg+V (oder Cmd+V) zum Einfügen.",
+    tutorialQuestion: "Haben Sie ein Problem?",
+    tutorialBtn: "Einem 10-Jährigen erklären"
   },
   Italian: {
     title: "AntiClickBaitLinks",
@@ -383,7 +393,9 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Incollala nelle impostazioni (icona ingranaggio ⚙️)",
     apiKeyOr: "o",
     installApp: "Installa App",
-    pasteError: "Accesso agli appunti bloccato. Usa Ctrl+V (o Cmd+V) per incollare."
+    pasteError: "Accesso agli appunti bloccato. Usa Ctrl+V (o Cmd+V) per incollare.",
+    tutorialQuestion: "Hai qualche problema?",
+    tutorialBtn: "Spiegarlo a un bambino di 10 anni"
   }
 };
 
@@ -1194,6 +1206,19 @@ const handleUnlock = async () => {
                     </div>
                   </div>
                 </section>
+
+                {/* Tutorial button — after How To Use */}
+                <div className="pt-2 pb-1 border-t border-zinc-100 space-y-3 text-center">
+                  <p className="text-xs italic text-zinc-400">{t.tutorialQuestion}</p>
+                  <a
+                    href="/tutorial.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2.5 bg-violet-50 text-violet-700 border border-violet-100 rounded-xl font-bold text-sm hover:bg-violet-100 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                  >
+                    🧒 {t.tutorialBtn}
+                  </a>
+                </div>
 
                 <section className="space-y-2">
                   <h4 className="text-sm font-extrabold text-zinc-800">{t.infoLimitsTitle}</h4>

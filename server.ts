@@ -6,31 +6,84 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
 
-// ─── Token Database (simple JSON file) ───────────────────────────────────────
+// ─── Upstash Redis (token database) ──────────────────────────────────────────
 
-const TOKENS_FILE = path.join(process.cwd(), 'tokens.json');
-
-function loadTokens(): Record<string, {
+interface TokenData {
   email: string;
   createdAt: string;
   used: boolean;
   revokedAt?: string;
-}> {
-  if (!fs.existsSync(TOKENS_FILE)) return {};
+}
+
+async function redisGet(key: string): Promise<TokenData | null> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+
+  const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json() as { result: string | null };
+  if (!data.result) return null;
   try {
-    return JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'));
+    return JSON.parse(data.result) as TokenData;
   } catch {
-    return {};
+    return null;
   }
 }
 
-function saveTokens(tokens: Record<string, {
-  email: string;
-  createdAt: string;
-  used: boolean;
-  revokedAt?: string;
-}>) {
-  fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+async function redisSet(key: string, value: TokenData): Promise<void> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return;
+
+  await fetch(`${url}/set/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(JSON.stringify(value)),
+  });
+}
+
+// List all token keys matching pattern token:*
+async function redisKeys(pattern: string): Promise<string[]> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return [];
+
+  const res = await fetch(`${url}/keys/${encodeURIComponent(pattern)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json() as { result: string[] };
+  return data.result || [];
+}
+
+// ─── Token helpers ────────────────────────────────────────────────────────────
+
+async function getToken(token: string): Promise<TokenData | null> {
+  return redisGet(`token:${token}`);
+}
+
+async function saveToken(token: string, data: TokenData): Promise<void> {
+  await redisSet(`token:${token}`, data);
+}
+
+async function revokeTokensByEmail(email: string): Promise<void> {
+  const keys = await redisKeys('token:*');
+  for (const key of keys) {
+    const tokenId = key.replace('token:', '');
+    const data = await redisGet(key);
+    if (data && data.email === email && !data.revokedAt) {
+      await saveToken(tokenId, {
+        ...data,
+        used: true,
+        revokedAt: new Date().toISOString(),
+      });
+      console.log(`🚫 Token revocado para ${email}: ${tokenId}`);
+    }
+  }
 }
 
 // ─── Email sender (Brevo REST API) ───────────────────────────────────────────
@@ -126,7 +179,7 @@ async function startServer() {
       const $ = cheerio.load(html);
 
       // Extract title
-      const title = 
+      const title =
         $('meta[property="og:title"]').attr('content') ||
         $('meta[name="twitter:title"]').attr('content') ||
         $('title').text() ||
@@ -174,13 +227,11 @@ async function startServer() {
       }
 
       const token = uuidv4();
-      const tokens = loadTokens();
-      tokens[token] = {
+      await saveToken(token, {
         email: payerEmail,
         createdAt: new Date().toISOString(),
         used: false,
-      };
-      saveTokens(tokens);
+      });
 
       console.log(`✅ Token generated for ${payerEmail}: ${token}`);
 
@@ -199,22 +250,7 @@ async function startServer() {
         event.resource?.payment_source?.paypal?.email_address;
 
       if (payerEmail) {
-        const tokens = loadTokens();
-        let revoked = false;
-
-        for (const [token, data] of Object.entries(tokens)) {
-          if (data.email === payerEmail && !data.revokedAt) {
-            tokens[token] = {
-              ...data,
-              used: true,
-              revokedAt: new Date().toISOString(),
-            };
-            revoked = true;
-            console.log(`🚫 Token revocado para ${payerEmail}: ${token}`);
-          }
-        }
-
-        if (revoked) saveTokens(tokens);
+        await revokeTokensByEmail(payerEmail);
       }
     }
 
@@ -227,8 +263,7 @@ async function startServer() {
     const { token } = req.body;
     if (!token) return res.status(400).json({ valid: false, error: "Token required" });
 
-    const tokens = loadTokens();
-    const tokenData = tokens[token];
+    const tokenData = await getToken(token);
 
     if (!tokenData || tokenData.used || tokenData.revokedAt) {
       return res.status(200).json({ valid: false });
@@ -249,9 +284,11 @@ async function startServer() {
     if (!email) return res.status(400).json({ error: "Email required" });
 
     const token = uuidv4();
-    const tokens = loadTokens();
-    tokens[token] = { email, createdAt: new Date().toISOString(), used: false };
-    saveTokens(tokens);
+    await saveToken(token, {
+      email,
+      createdAt: new Date().toISOString(),
+      used: false,
+    });
 
     try {
       await sendPremiumEmail(email, token);

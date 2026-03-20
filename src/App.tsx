@@ -78,9 +78,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Paste it in the settings (gear icon ⚙️)",
     apiKeyOr: "or",
     installApp: "Install App",
-    pasteError: "Clipboard access blocked. Please use Ctrl+V (or Cmd+V) to paste.",
-    tutorialQuestion: "Having trouble?",
-    tutorialBtn: "Explain it to a 10-year-old"
+    pasteError: "Clipboard access blocked. Please use Ctrl+V (or Cmd+V) to paste."
   },
   Spanish: {
     title: "AntiClickBaitLinks",
@@ -141,9 +139,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Pégala en los ajustes (icono de engranaje ⚙️)",
     apiKeyOr: "o",
     installApp: "Instalar App",
-    pasteError: "Acceso al portapapeles bloqueado. Por favor, usa Ctrl+V (o Cmd+V) para pegar.",
-    tutorialQuestion: "¿Tienes algún problema?",
-    tutorialBtn: "Explicar a un niño de 10 años"
+    pasteError: "Acceso al portapapeles bloqueado. Por favor, usa Ctrl+V (o Cmd+V) para pegar."
   },
   Portuguese: {
     title: "AntiClickBaitLinks",
@@ -204,9 +200,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Cole nas configurações (ícone de engrenagem ⚙️)",
     apiKeyOr: "ou",
     installApp: "Instalar App",
-    pasteError: "Acesso à área de transferência bloqueado. Use Ctrl+V (ou Cmd+V) para colar.",
-    tutorialQuestion: "Está com algum problema?",
-    tutorialBtn: "Explicar para uma criança de 10 anos"
+    pasteError: "Acesso à área de transferência bloqueado. Use Ctrl+V (ou Cmd+V) para colar."
   },
   French: {
     title: "AntiClickBaitLinks",
@@ -267,9 +261,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Collez-la dans les paramètres (icône d'engrenage ⚙️)",
     apiKeyOr: "ou",
     installApp: "Installer l'App",
-    pasteError: "Accès au presse-papiers bloqué. Veuillez utiliser Ctrl+V (ou Cmd+V) pour coller.",
-    tutorialQuestion: "Vous avez un problème ?",
-    tutorialBtn: "L'expliquer à un enfant de 10 ans"
+    pasteError: "Accès au presse-papiers bloqué. Veuillez utiliser Ctrl+V (ou Cmd+V) pour coller."
   },
   German: {
     title: "AntiClickBaitLinks",
@@ -330,9 +322,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Fügen Sie ihn in den Einstellungen ein (Zahnrad-Symbol ⚙️)",
     apiKeyOr: "oder",
     installApp: "App installieren",
-    pasteError: "Zugriff auf die Zwischenablage blockiert. Bitte verwenden Sie Strg+V (oder Cmd+V) zum Einfügen.",
-    tutorialQuestion: "Haben Sie ein Problem?",
-    tutorialBtn: "Einem 10-Jährigen erklären"
+    pasteError: "Zugriff auf die Zwischenablage blockiert. Bitte verwenden Sie Strg+V (oder Cmd+V) zum Einfügen."
   },
   Italian: {
     title: "AntiClickBaitLinks",
@@ -393,9 +383,7 @@ const UI_TRANSLATIONS = {
     apiKeyGuide2: "Incollala nelle impostazioni (icona ingranaggio ⚙️)",
     apiKeyOr: "o",
     installApp: "Installa App",
-    pasteError: "Accesso agli appunti bloccato. Usa Ctrl+V (o Cmd+V) per incollare.",
-    tutorialQuestion: "Hai qualche problema?",
-    tutorialBtn: "Spiegarlo a un bambino di 10 anni"
+    pasteError: "Accesso agli appunti bloccato. Usa Ctrl+V (o Cmd+V) per incollare."
   }
 };
 
@@ -467,13 +455,13 @@ export default function App() {
     ? Math.min(...searchHistory.filter(ts => ts > Date.now() - 24 * 60 * 60 * 1000)) + 24 * 60 * 60 * 1000 
     : null;
 
-  // Load Playfair Display font
+  // Load Rubik font
   useEffect(() => {
     const link = document.createElement('link');
-    link.href = 'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap';
+    link.href = 'https://fonts.googleapis.com/css2?family=Rubik:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap';
     link.rel = 'stylesheet';
     document.head.appendChild(link);
-    document.body.style.fontFamily = "'Playfair Display', Georgia, serif";
+    document.body.style.fontFamily = "'Rubik', system-ui, sans-serif";
     return () => { document.body.style.fontFamily = ''; };
   }, []);
 
@@ -1156,21 +1144,21 @@ const handleUnlock = async () => {
               
               <div className="space-y-5">
                 <section>
-                  <p className="text-sm text-zinc-600 leading-relaxed">{t.infoDesc}</p>
+                  <p className="text-base text-zinc-600 leading-relaxed">{t.infoDesc}</p>
                 </section>
                 <section className="space-y-3">
-                  <h4 className="text-sm font-extrabold text-zinc-800">{t.infoHowToTitle}</h4>
+                  <h4 className="text-base font-extrabold text-zinc-800">{t.infoHowToTitle}</h4>
                   
                   <div className="space-y-4">
                     <div className="flex gap-3">
                       <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold shrink-0">1</div>
                       <div className="space-y-1">
-                        <p className="text-sm font-bold text-zinc-800">{t.infoStep1Title}</p>
-                        <p className="text-xs text-zinc-500 leading-relaxed">{t.infoStep1Desc}</p>
+                        <p className="text-base font-bold text-zinc-800">{t.infoStep1Title}</p>
+                        <p className="text-sm text-zinc-500 leading-relaxed">{t.infoStep1Desc}</p>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Gemini</a>
+                          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-xs bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Gemini</a>
                           
-                          <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-[10px] bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">OpenRouter</a>
+                          <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-xs bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">OpenRouter</a>
                         </div>
                       </div>
                     </div>
@@ -1178,12 +1166,12 @@ const handleUnlock = async () => {
                     <div className="flex gap-3">
                       <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold shrink-0">2</div>
                       <div className="space-y-1">
-                        <p className="text-sm font-bold text-zinc-800">{t.infoStep2Title}</p>
-                        <p className="text-xs text-zinc-500 leading-relaxed">{t.infoStep2Desc}</p>
+                        <p className="text-base font-bold text-zinc-800">{t.infoStep2Title}</p>
+                        <p className="text-sm text-zinc-500 leading-relaxed">{t.infoStep2Desc}</p>
                         
                         <button 
                           onClick={() => setShowApiPrivacy(!showApiPrivacy)}
-                          className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 hover:text-emerald-700 transition-colors mt-2"
+                          className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors mt-2"
                         >
                           <ShieldCheck size={12} /> {t.infoApiPrivacyTitle}
                         </button>
@@ -1196,7 +1184,7 @@ const handleUnlock = async () => {
                               exit={{ height: 0, opacity: 0 }}
                               className="overflow-hidden"
                             >
-                              <p className="text-[10px] text-zinc-500 bg-emerald-50/50 p-2 rounded-lg mt-1 border border-emerald-100">
+                              <p className="text-xs text-zinc-500 bg-emerald-50/50 p-2 rounded-lg mt-1 border border-emerald-100">
                                 {t.infoApiPrivacyDesc}
                               </p>
                             </motion.div>
@@ -1207,29 +1195,16 @@ const handleUnlock = async () => {
                   </div>
                 </section>
 
-                {/* Tutorial button — after How To Use */}
-                <div className="pt-2 pb-1 border-t border-zinc-100 space-y-3 text-center">
-                  <p className="text-xs italic text-zinc-400">{t.tutorialQuestion}</p>
-                  <a
-                    href="/tutorial.html"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-2.5 bg-violet-50 text-violet-700 border border-violet-100 rounded-xl font-bold text-sm hover:bg-violet-100 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                  >
-                    🧒 {t.tutorialBtn}
-                  </a>
-                </div>
-
                 <section className="space-y-2">
-                  <h4 className="text-sm font-extrabold text-zinc-800">{t.infoLimitsTitle}</h4>
-                  <p className="text-sm text-zinc-600 leading-relaxed">
+                  <h4 className="text-base font-extrabold text-zinc-800">{t.infoLimitsTitle}</h4>
+                  <p className="text-base text-zinc-600 leading-relaxed">
                     {t.infoLimitsDesc}
                   </p>
                 </section>
 
                 <section className="space-y-3">
-                  <h4 className="text-sm font-extrabold text-zinc-800">{t.infoPremiumTitle}</h4>
-                  <p className="text-sm text-zinc-600 leading-relaxed">
+                  <h4 className="text-base font-extrabold text-zinc-800">{t.infoPremiumTitle}</h4>
+                  <p className="text-base text-zinc-600 leading-relaxed">
                     {t.infoPremiumDesc}
                   </p>
                   <a 
@@ -1243,7 +1218,7 @@ const handleUnlock = async () => {
 
                   {!isPremium && (
                     <div className="mt-4 pt-4 border-t border-zinc-100 space-y-3">
-                      <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{t.alreadyPremium}</h5>
+                      <h5 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.alreadyPremium}</h5>
                       <div className="flex gap-2">
                         <input
                           type="password"
@@ -1266,7 +1241,7 @@ const handleUnlock = async () => {
                         </button>
                       </div>
                       {lockError && (
-                        <p className="text-[9px] text-red-500 font-bold uppercase tracking-wider">
+                        <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider">
                           {t.invalidPass}
                         </p>
                       )}

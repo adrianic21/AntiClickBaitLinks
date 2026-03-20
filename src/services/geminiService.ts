@@ -1,12 +1,13 @@
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 
-export type Provider = 'gemini' | 'openrouter' | 'mistral';
+export type Provider = 'gemini' | 'openrouter' | 'mistral' | 'deepseek';
 
 export interface ApiKeys {
   gemini?: string;
   openrouter?: string;
   mistral?: string;
+  deepseek?: string;
 }
 
 // ─── Detectar si el error es de cuota/límite ─────────────────────────────────
@@ -152,7 +153,7 @@ ${articleContent}`
   return completion.choices[0].message.content || "No summary available.";
 }
 
-// ─── Llamada a Mistral ───────────────────────────────────────────────────────
+// ─── Llamada a Mistral (via server proxy to avoid CORS) ─────────────────────
 // EU-based company, free tier available, no geographic restrictions.
 // Get your free API key at: https://console.mistral.ai
 
@@ -164,19 +165,7 @@ async function callMistral(
 ): Promise<string> {
   const articleContent = await fetchArticleContent(url);
 
-  const openai = new OpenAI({
-    apiKey,
-    baseURL: "https://api.mistral.ai/v1",
-    dangerouslyAllowBrowser: true
-  });
-
-  const completion = await openai.chat.completions.create({
-    model: "mistral-small-latest",
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Analyze this article content from ${url} and provide an accurate summary.
+  const userMessage = `Analyze this article content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -185,12 +174,73 @@ IMPORTANT: If the article describes a study or discovery that only applies to an
 The response must be written in ${language}.
 
 ARTICLE CONTENT:
-${articleContent}`
-      }
-    ],
+${articleContent}`;
+
+  const response = await fetch('/api/mistral', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey,
+      model: 'mistral-small-latest',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+    }),
   });
 
-  return completion.choices[0].message.content || "No summary available.";
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(err.error || 'Mistral request failed');
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || 'No summary available.';
+}
+
+// ─── Llamada a DeepSeek (via server proxy to avoid CORS) ─────────────────────
+// Free tier: $5 credits on signup. Very capable model for summarization.
+// Get your API key at: https://platform.deepseek.com/api_keys
+
+async function callDeepSeek(
+  apiKey: string,
+  url: string,
+  language: string,
+  lengthInstruction: string
+): Promise<string> {
+  const articleContent = await fetchArticleContent(url);
+
+  const userMessage = `Analyze this article content from ${url} and provide an accurate summary.
+
+${lengthInstruction}
+
+IMPORTANT: If the article describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
+
+The response must be written in ${language}.
+
+ARTICLE CONTENT:
+${articleContent}`;
+
+  const response = await fetch('/api/deepseek', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey,
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(err.error || 'DeepSeek request failed');
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || 'No summary available.';
 }
 
 // ─── Función principal con fallback automático ────────────────────────────────
@@ -212,14 +262,15 @@ export async function summarizeUrl(
   const hasGemini = !!(keys.gemini && keys.gemini !== "undefined");
   const hasOpenRouter = !!(keys.openrouter && keys.openrouter !== "undefined");
   const hasMistral = !!(keys.mistral && keys.mistral !== "undefined");
+  const hasDeepSeek = !!(keys.deepseek && keys.deepseek !== "undefined");
 
-  if (!hasGemini && !hasOpenRouter && !hasMistral) {
+  if (!hasGemini && !hasOpenRouter && !hasMistral && !hasDeepSeek) {
     throw new Error("API Key no configurada. Por favor, introduce tu propia API Key en la configuración.");
   }
 
   const lengthInstruction = getLengthInstruction(length);
 
-  const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral'];
+  const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
   const orderedProviders: Provider[] = [
     provider,
     ...allProviders.filter(p => p !== provider)
@@ -229,6 +280,7 @@ export async function summarizeUrl(
     if (p === 'gemini') return hasGemini;
     if (p === 'openrouter') return hasOpenRouter;
     if (p === 'mistral') return hasMistral;
+    if (p === 'deepseek') return hasDeepSeek;
     return false;
   });
 
@@ -242,8 +294,10 @@ export async function summarizeUrl(
         return await callGemini(key, url, language, lengthInstruction);
       } else if (p === 'openrouter') {
         return await callOpenRouter(key, url, language, lengthInstruction);
-      } else {
+      } else if (p === 'mistral') {
         return await callMistral(key, url, language, lengthInstruction);
+      } else {
+        return await callDeepSeek(key, url, language, lengthInstruction);
       }
     } catch (error: any) {
       lastError = error;

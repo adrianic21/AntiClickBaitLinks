@@ -365,6 +365,71 @@ async function startServer() {
     res.json({ token, email });
   });
 
+
+  // ── Mistral Proxy (avoids CORS — Mistral blocks direct browser calls) ──────
+
+  app.post("/api/mistral", async (req, res) => {
+    const { apiKey, messages, model } = req.body;
+    if (!apiKey || !messages) return res.status(400).json({ error: "apiKey and messages required" });
+
+    try {
+      const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model || "mistral-small-latest",
+          messages,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        return res.status(response.status).json({ error: err });
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Mistral proxy error:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ── DeepSeek Proxy (avoids CORS — DeepSeek blocks direct browser calls) ────
+
+  app.post("/api/deepseek", async (req, res) => {
+    const { apiKey, messages, model } = req.body;
+    if (!apiKey || !messages) return res.status(400).json({ error: "apiKey and messages required" });
+
+    try {
+      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model || "deepseek-chat",
+          messages,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        return res.status(response.status).json({ error: err });
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("DeepSeek proxy error:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ── Vite / Static ─────────────────────────────────────────────────────────
 
   const distPath = path.join(process.cwd(), 'dist');

@@ -46,7 +46,7 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks uses AI to reveal the truth behind sensationalist headlines, saving you from clickbait. Paste any link and get an instant summary.",
     infoHowToTitle: "How to use",
     infoStep1Title: "1. Get your API Key",
-    infoStep1Desc: "Request your FREE key from Gemini (Google), OpenRouter or Mistral by clicking one of the links below.",
+    infoStep1Desc: "Request your FREE key from Gemini (Google), OpenRouter, Mistral or DeepSeek by clicking one of the links below.",
     infoStep2Title: "2. Copy it and paste it in AntiClickBaitLinks",
     infoStep2Desc: "Paste your key in the settings (gear icon ⚙️). You can activate all 3 APIs at the same time for better performance — if one reaches its limit, the app switches automatically.",
     infoApiPrivacyTitle: "Is my API Key safe?",
@@ -107,7 +107,7 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks utiliza IA para revelar la verdad tras titulares sensacionalistas, evitándote caer en el clickbait. Pega cualquier enlace de internet y recibe un resumen instantáneo.",
     infoHowToTitle: "¿Cómo usarlo?",
     infoStep1Title: "1. Consigue tu API Key",
-    infoStep1Desc: "Solicita tu clave GRATUITA en Gemini (Google), OpenRouter o Mistral haciendo clic en uno de los siguientes enlaces.",
+    infoStep1Desc: "Solicita tu clave GRATUITA en Gemini (Google), OpenRouter, Mistral o DeepSeek haciendo clic en uno de los siguientes enlaces.",
     infoStep2Title: "2. Cópiala y pégala en AntiClickBaitLinks",
     infoStep2Desc: "Pega tu clave en los ajustes (icono de engranaje ⚙️). Puedes activar las 3 APIs al mismo tiempo para un mejor rendimiento — si una alcanza su límite, la app cambia automáticamente.",
     infoApiPrivacyTitle: "¿Es segura mi API Key?",
@@ -168,7 +168,7 @@ const UI_TRANSLATIONS = {
     infoDesc: "O AntiClickBaitLinks usa IA para revelar a verdade por trás de manchetes sensacionalistas, evitando que você caia em clickbaits. Cole qualquer link e receba um resumo instantâneo.",
     infoHowToTitle: "Como usar",
     infoStep1Title: "1. Obtenha sua API Key",
-    infoStep1Desc: "Solicite sua chave GRATUITA no Gemini (Google), OpenRouter ou Mistral clicando em um dos links abaixo.",
+    infoStep1Desc: "Solicite sua chave GRATUITA no Gemini (Google), OpenRouter, Mistral ou DeepSeek clicando em um dos links abaixo.",
     infoStep2Title: "2. Copie e cole no AntiClickBaitLinks",
     infoStep2Desc: "Cole sua chave nas configurações (ícone de engrenagem ⚙️). Você pode ativar as 3 APIs ao mesmo tempo para melhor desempenho — se uma atingir o limite, o app troca automaticamente.",
     infoApiPrivacyTitle: "Minha API Key está segura?",
@@ -229,7 +229,7 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks utilise l'IA pour révéler la vérité derrière les titres sensationnalistes, vous évitant de tomber dans le piège du clickbait. Collez n'importe quel lien et recevez un résumé instantané.",
     infoHowToTitle: "Comment utiliser",
     infoStep1Title: "1. Obtenez votre clé API",
-    infoStep1Desc: "Demandez votre clé GRATUITE auprès de Gemini (Google), OpenRouter ou Mistral en cliquant sur l'un des liens ci-dessous.",
+    infoStep1Desc: "Demandez votre clé GRATUITE auprès de Gemini (Google), OpenRouter, Mistral ou DeepSeek en cliquant sur l'un des liens ci-dessous.",
     infoStep2Title: "2. Copiez-la et collez-la dans AntiClickBaitLinks",
     infoStep2Desc: "Collez votre clé dans les paramètres (icône d'engrenage ⚙️). Vous pouvez activer les 3 API en même temps pour de meilleures performances — si l'une atteint sa limite, l'app bascule automatiquement.",
     infoApiPrivacyTitle: "Ma clé API est-elle sécurisée ?",
@@ -290,7 +290,7 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks nutzt KI, um die Wahrheit hinter reißerischen Schlagzeilen zu enthüllen und Sie vor Clickbait zu schützen. Fügen Sie einen beliebigen Link ein und erhalten Sie sofort eine Zusammenfassung.",
     infoHowToTitle: "Bedienung",
     infoStep1Title: "1. API-Schlüssel anfordern",
-    infoStep1Desc: "Fordern Sie Ihren KOSTENLOSEN Schlüssel bei Gemini (Google), OpenRouter oder Mistral an, indem Sie auf einen der folgenden Links klicken.",
+    infoStep1Desc: "Fordern Sie Ihren KOSTENLOSEN Schlüssel bei Gemini (Google), OpenRouter, Mistral oder DeepSeek an, indem Sie auf einen der folgenden Links klicken.",
     infoStep2Title: "2. Kopieren und in AntiClickBaitLinks einfügen",
     infoStep2Desc: "Fügen Sie Ihren Schlüssel in den Einstellungen (Zahnrad-Symbol ⚙️) ein. Sie können alle 3 APIs gleichzeitig aktivieren — wenn eine ihr Limit erreicht, wechselt die App automatisch.",
     infoApiPrivacyTitle: "Ist mein API-Schlüssel sicher?",
@@ -351,7 +351,7 @@ const UI_TRANSLATIONS = {
     infoDesc: "AntiClickBaitLinks usa l'IA per svelare la verità dietro i titoli sensazionalistici, evitandoti di cadere nel clickbait. Incolla qualsiasi link e ricevi un riassunto istantaneo.",
     infoHowToTitle: "Come si usa",
     infoStep1Title: "1. Ottieni la tua API Key",
-    infoStep1Desc: "Richiedi la tua chiave GRATUITA da Gemini (Google), OpenRouter o Mistral cliccando su uno dei link seguenti.",
+    infoStep1Desc: "Richiedi la tua chiave GRATUITA da Gemini (Google), OpenRouter, Mistral o DeepSeek cliccando su uno dei link seguenti.",
     infoStep2Title: "2. Copiala e incollala in AntiClickBaitLinks",
     infoStep2Desc: "Incolla la tua chiave nelle impostazioni (icona ingranaggio ⚙️). Puoi attivare tutte e 3 le API contemporaneamente — se una raggiunge il limite, l'app cambia automaticamente.",
     infoApiPrivacyTitle: "La mia API Key è sicura?",
@@ -524,6 +524,7 @@ export default function App() {
       gemini: localStorage.getItem('api_key_gemini') || undefined,
       openrouter: localStorage.getItem('api_key_openrouter') || undefined,
       mistral: localStorage.getItem('api_key_mistral') || undefined,
+      deepseek: localStorage.getItem('api_key_deepseek') || undefined,
     };
     setApiKeys(savedKeys);
     // Load current provider key into input field
@@ -1195,6 +1196,7 @@ const handleUnlock = async () => {
                           
                           <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-xs bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">OpenRouter</a>
                           <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="text-xs bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">Mistral</a>
+                          <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="text-xs bg-zinc-100 px-2 py-1 rounded-md hover:bg-zinc-200 transition-colors">DeepSeek</a>
                         </div>
                       </div>
                     </div>
@@ -1331,7 +1333,7 @@ const handleUnlock = async () => {
                   {t.apiProvider}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(['gemini', 'openrouter', 'mistral'] as Provider[]).map((p) => (
+                  {(['gemini', 'openrouter', 'mistral', 'deepseek'] as Provider[]).map((p) => (
                     <button
                       key={p}
                       onClick={() => { setProvider(p); setUserApiKey(apiKeys[p] || ''); }}
@@ -1351,7 +1353,7 @@ const handleUnlock = async () => {
               <div className="space-y-2">
                 <input
                   type="password"
-                  placeholder={provider === 'gemini' ? "AIzaSy..." : provider === 'openrouter' ? "sk-or-..." : "sk-or-v1-..."}
+                  placeholder={provider === 'gemini' ? "AIzaSy..." : provider === 'openrouter' ? "sk-or-..." : provider === 'mistral' ? "..." : "sk-..."}
                   value={userApiKey}
                   onChange={(e) => setUserApiKey(e.target.value)}
                   className="w-full px-4 py-3 bg-zinc-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all"
@@ -1368,7 +1370,8 @@ const handleUnlock = async () => {
               href={
                 provider === 'gemini' ? "https://aistudio.google.com/app/apikey" :
                 provider === 'openrouter' ? "https://openrouter.ai/keys" :
-                "https://console.mistral.ai/api-keys"
+                provider === 'mistral' ? "https://console.mistral.ai/api-keys" :
+                "https://platform.deepseek.com/api_keys"
               }
               target="_blank" 
               rel="noopener noreferrer"
@@ -1496,18 +1499,7 @@ const handleUnlock = async () => {
                     {isCopied ? t.copied : t.copy}
                   </button>
                 </div>
-                <button 
-                  onClick={() => {
-                    setSummary(null);
-                    setArticleTitle(null);
-                    setUrl('');
-                    window.speechSynthesis.cancel();
-                    setIsSpeaking(false);
-                  }}
-                  className="text-zinc-400 hover:text-zinc-600 transition-colors"
-                >
-                  {t.clear}
-                </button>
+
               </div>
               <div className="pb-3 border-b border-zinc-100">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Original headline</p>
@@ -1590,7 +1582,7 @@ const handleUnlock = async () => {
                     <span>{t.apiKeyMissing}</span>
                   </div>
                   <div className="text-[10px] text-amber-600 space-y-1 pl-5">
-                    <p>1. {t.apiKeyGuide1} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a> {t.apiKeyOr} <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a> {t.apiKeyOr} <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Mistral</a></p>
+                    <p>1. {t.apiKeyGuide1} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a> {t.apiKeyOr} <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a> {t.apiKeyOr} <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Mistral</a> {t.apiKeyOr} <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">DeepSeek</a></p>
                     <p>2. {t.apiKeyGuide2}</p>
                   </div>
                 </div>

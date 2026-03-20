@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import * as cheerio from 'cheerio';
@@ -159,6 +160,41 @@ async function startServer() {
 
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));
   app.use(express.json());
+
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+
+  // General API limit: 60 requests per minute per IP
+  const generalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please slow down.' },
+  });
+
+  // Strict limit for token validation: 10 per minute per IP (prevents brute force)
+  const tokenLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many token attempts, please wait.' },
+  });
+
+  // Admin endpoint: 5 per minute per IP
+  const adminLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Admin rate limit exceeded.' },
+  });
+
+  app.use('/api/fetch-url', generalLimiter);
+  app.use('/api/mistral', generalLimiter);
+  app.use('/api/deepseek', generalLimiter);
+  app.use('/api/validate-token', tokenLimiter);
+  app.use('/api/admin/generate-token', adminLimiter);
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
 

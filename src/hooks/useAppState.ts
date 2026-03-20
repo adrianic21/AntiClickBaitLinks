@@ -61,6 +61,16 @@ export function useAppState() {
   const [isCopied, setIsCopied] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Summary history: last 10 entries
+  const [summaryHistory, setSummaryHistory] = useState<Array<{
+    url: string;
+    title: string;
+    summary: string;
+    date: number;
+  }>>([]);
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -205,6 +215,12 @@ export function useAppState() {
       const hasChosenLang = localStorage.getItem('ui_language') !== null;
       if (!hasChosenLang) setShowOnboardingLang(true);
       else setShowInfo(true);
+    }
+
+    // Summary history (last 10 summaries)
+    const savedSummaryHistory = localStorage.getItem('summary_history');
+    if (savedSummaryHistory) {
+      try { setSummaryHistory(JSON.parse(savedSummaryHistory)); } catch { /* ignore */ }
     }
 
     // Search history
@@ -364,6 +380,15 @@ export function useAppState() {
     setCurrentLength(length);
     if (length === 'short') { setSummary(null); setArticleTitle(null); }
 
+    // Rotate loading messages for better UX
+    const loadingMessages = t.loadingMessages;
+    let msgIndex = 0;
+    setLoadingMessage(loadingMessages[0]);
+    let msgInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+      msgIndex = (msgIndex + 1) % loadingMessages.length;
+      setLoadingMessage(loadingMessages[msgIndex]);
+    }, 2500);
+
     try {
       // Single fetch — summarize and get title at the same time
       const [summaryResult, fetchRes] = await Promise.all([
@@ -377,8 +402,26 @@ export function useAppState() {
           : Promise.resolve(null),
       ]);
 
+      if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
+      setLoadingMessage('');
       setSummary(summaryResult);
-      if (fetchRes?.title) setArticleTitle(fetchRes.title);
+      const resolvedTitle = fetchRes?.title || '';
+      if (resolvedTitle) setArticleTitle(resolvedTitle);
+
+      // Save to summary history (last 10, only on new short summaries)
+      if (length === 'short') {
+        const newEntry = {
+          url: finalUrl,
+          title: resolvedTitle || finalUrl,
+          summary: summaryResult,
+          date: Date.now(),
+        };
+        setSummaryHistory(prev => {
+          const updated = [newEntry, ...prev.filter(h => h.url !== finalUrl)].slice(0, 10);
+          localStorage.setItem('summary_history', JSON.stringify(updated));
+          return updated;
+        });
+      }
 
       if (!isPremium) {
         const newHistory = [...searchHistory, Date.now()];
@@ -386,6 +429,8 @@ export function useAppState() {
         localStorage.setItem('search_history', JSON.stringify(newHistory));
       }
     } catch (err: any) {
+      clearInterval(msgInterval);
+      setLoadingMessage('');
       let message = t.genericError;
       if (
         err.message === 'quota_exceeded_all' ||
@@ -401,6 +446,8 @@ export function useAppState() {
       setError(message);
       console.error(err);
     } finally {
+      if (msgInterval) { clearInterval(msgInterval); }
+      setLoadingMessage('');
       setIsLoading(false);
     }
   }, [url, isLoading, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, searchHistory, t, openPopup]);
@@ -429,6 +476,20 @@ export function useAppState() {
     } catch { /* ignore */ }
   }, [summary]);
 
+  const handleShare = useCallback(async (shareSummary: string, shareUrl: string, shareTitle: string) => {
+    const text = `${shareTitle}\n\n${shareSummary}\n\n${shareUrl}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: shareTitle, text: shareSummary, url: shareUrl });
+      } catch { /* user cancelled or not supported */ }
+    } else {
+      // Fallback: copy to clipboard
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch { /* ignore */ }
+    }
+  }, []);
+
   const handleInstall = useCallback(async () => {
     if (!installPrompt) return;
     installPrompt.prompt();
@@ -453,12 +514,13 @@ export function useAppState() {
     unlockPass, setUnlockPass, lockError, setLockError,
     dontShowAgain, isSpeaking, isCopied, currentLength,
     showInstallButton, resultsRef,
+    loadingMessage, summaryHistory, showHistory, setShowHistory,
     // derived
     t,
     // handlers
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleCopy, handleInstall,
+    handleSpeak, handleCopy, handleInstall, handleShare,
   };
 }

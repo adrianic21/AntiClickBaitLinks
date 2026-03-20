@@ -20,11 +20,18 @@ export default function App() {
     unlockPass, setUnlockPass, lockError, setLockError,
     dontShowAgain, isSpeaking, isCopied, currentLength,
     showInstallButton, resultsRef, t,
+    loadingMessage, summaryHistory, showHistory, setShowHistory,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleCopy, handleInstall,
+    handleSpeak, handleCopy, handleInstall, handleShare,
   } = state;
+
+  // Load a history entry back into the view
+  const handleSelectHistory = (entry: { url: string; title: string; summary: string; date: number }) => {
+    setUrl(entry.url);
+    setShowHistory(false);
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start pt-36 sm:justify-center sm:pt-0 p-6 sm:p-12">
@@ -192,14 +199,20 @@ export default function App() {
           url={url}
           error={error}
           isLoading={isLoading}
+          loadingMessage={loadingMessage}
           currentLength={currentLength}
           isSpeaking={isSpeaking}
           isCopied={isCopied}
           apiKeys={apiKeys}
           resultsRef={resultsRef}
+          summaryHistory={summaryHistory}
+          showHistory={showHistory}
+          setShowHistory={setShowHistory}
           onSpeak={handleSpeak}
           onCopy={handleCopy}
           onExpand={(length) => handleSummarize(undefined, length)}
+          onShare={handleShare}
+          onSelectHistory={handleSelectHistory}
         />
 
         {/* Install App button */}

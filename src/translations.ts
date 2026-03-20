@@ -68,6 +68,10 @@ export const UI_TRANSLATIONS = {
     apiKeyOr: "or",
     installApp: "Install App",
     pasteError: "Clipboard access blocked. Please use Ctrl+V (or Cmd+V) to paste.",
+    share: "Share",
+    historyTitle: "Recent summaries",
+    historyEmpty: "No summaries yet",
+    loadingMessages: ['Fetching the article...', 'Analysing the content...', 'Cutting through the clickbait...', 'Almost there...'],
   },
   Spanish: {
     title: "AntiClickBaitLinks",
@@ -129,6 +133,10 @@ export const UI_TRANSLATIONS = {
     apiKeyOr: "o",
     installApp: "Instalar App",
     pasteError: "Acceso al portapapeles bloqueado. Por favor, usa Ctrl+V (o Cmd+V) para pegar.",
+    share: "Compartir",
+    historyTitle: "Resúmenes recientes",
+    historyEmpty: "Aún no hay resúmenes",
+    loadingMessages: ['Obteniendo el artículo...', 'Analizando el contenido...', 'Cortando el clickbait...', 'Casi listo...'],
   },
   Portuguese: {
     title: "AntiClickBaitLinks",
@@ -190,6 +198,10 @@ export const UI_TRANSLATIONS = {
     apiKeyOr: "ou",
     installApp: "Instalar App",
     pasteError: "Acesso à área de transferência bloqueado. Use Ctrl+V (ou Cmd+V) para colar.",
+    share: "Compartilhar",
+    historyTitle: "Resumos recentes",
+    historyEmpty: "Ainda sem resumos",
+    loadingMessages: ['Buscando o artigo...', 'Analisando o conteúdo...', 'Cortando o clickbait...', 'Quase pronto...'],
   },
   French: {
     title: "AntiClickBaitLinks",
@@ -251,6 +263,10 @@ export const UI_TRANSLATIONS = {
     apiKeyOr: "ou",
     installApp: "Installer l'App",
     pasteError: "Accès au presse-papiers bloqué. Veuillez utiliser Ctrl+V (ou Cmd+V) pour coller.",
+    share: "Partager",
+    historyTitle: "Résumés récents",
+    historyEmpty: "Aucun résumé pour l'instant",
+    loadingMessages: ['Récupération de l\'article...', 'Analyse du contenu...', 'Élimination du clickbait...', 'Presque fini...'],
   },
   German: {
     title: "AntiClickBaitLinks",
@@ -312,6 +328,10 @@ export const UI_TRANSLATIONS = {
     apiKeyOr: "oder",
     installApp: "App installieren",
     pasteError: "Zugriff auf die Zwischenablage blockiert. Bitte verwenden Sie Strg+V (oder Cmd+V) zum Einfügen.",
+    share: "Teilen",
+    historyTitle: "Letzte Zusammenfassungen",
+    historyEmpty: "Noch keine Zusammenfassungen",
+    loadingMessages: ['Artikel wird abgerufen...', 'Inhalt wird analysiert...', 'Clickbait wird entfernt...', 'Fast fertig...'],
   },
   Italian: {
     title: "AntiClickBaitLinks",
@@ -373,8 +393,18 @@ export const UI_TRANSLATIONS = {
     apiKeyOr: "o",
     installApp: "Installa App",
     pasteError: "Accesso agli appunti bloccato. Usa Ctrl+V (o Cmd+V) per incollare.",
+    share: "Condividi",
+    historyTitle: "Riassunti recenti",
+    historyEmpty: "Nessun riassunto ancora",
+    loadingMessages: ['Recupero dell\'articolo...', 'Analisi del contenuto...', 'Eliminazione del clickbait...', 'Quasi finito...'],
   },
 };
 
 export type TranslationKey = keyof typeof UI_TRANSLATIONS;
 export type Translations = typeof UI_TRANSLATIONS.English;
+export type SummaryHistoryEntry = {
+  url: string;
+  title: string;
+  summary: string;
+  date: number;
+};

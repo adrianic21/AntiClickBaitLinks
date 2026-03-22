@@ -261,19 +261,84 @@ async function startServer() {
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
 
+  // Helper: extract clean text from HTML using Cheerio
+  function extractFromHtml(html: string): { text: string; title: string } {
+    const $ = cheerio.load(html);
+
+    const title =
+      $('meta[property="og:title"]').attr('content') ||
+      $('meta[name="twitter:title"]').attr('content') ||
+      $('title').text() ||
+      '';
+
+    $(
+      'script, style, noscript, iframe, ' +
+      'nav, footer, header, aside, ' +
+      '[id*="cookie"], [class*="cookie"], [id*="consent"], [class*="consent"], ' +
+      '[id*="gdpr"], [class*="gdpr"], [id*="banner"], [class*="banner"], ' +
+      '[id*="popup"], [class*="popup"], [id*="modal"], [class*="modal"], ' +
+      '[id*="overlay"], [class*="overlay"], [id*="notice"], [class*="notice"], ' +
+      '[id*="ad-"], [class*="ad-"], [id*="-ad"], [class*="-ad"], ' +
+      '[id*="ads"], [class*="ads"], [class*="advertisement"], ' +
+      '[class*="sponsored"], [id*="sponsored"], ' +
+      '[class*="promo"], [id*="promo"], ' +
+      '[class*="paywall"], [id*="paywall"], ' +
+      '[class*="subscribe"], [id*="subscribe"], ' +
+      '[class*="newsletter"], [id*="newsletter"], ' +
+      '[class*="share"], [id*="share"], ' +
+      '[class*="social"], [id*="social"], ' +
+      '[class*="sidebar"], [id*="sidebar"], ' +
+      '[class*="related"], [id*="related"], ' +
+      '[class*="recommendation"], ' +
+      '[class*="comment"], [id*="comment"]'
+    ).remove();
+
+    const articleEl = $('article').first();
+    const mainEl = $('main').first();
+    const contentEl = $('[class*="article-body"], [class*="article__body"], [class*="story-body"], [class*="entry-content"], [class*="post-content"], [class*="content-body"]').first();
+
+    let text = '';
+    if (articleEl.length) text = articleEl.text();
+    else if (contentEl.length) text = contentEl.text();
+    else if (mainEl.length) text = mainEl.text();
+    else text = $('body').text();
+
+    return { text: text.replace(/\s+/g, ' ').trim(), title: title.trim() };
+  }
+
+  // Helper: fetch via Jina Reader (handles JS-rendered sites, anti-bot protection)
+  async function fetchViaJina(url: string): Promise<{ text: string; title: string }> {
+    const jinaUrl = `https://r.jina.ai/${url}`;
+    const response = await fetch(jinaUrl, {
+      headers: {
+        'Accept': 'text/plain',
+        'X-Return-Format': 'text',
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) throw new Error(`Jina fetch failed: ${response.status}`);
+    const text = await response.text();
+    if (!text || text.length < 100) throw new Error('Jina returned too little content');
+
+    // Extract title from first line if Jina includes it
+    const lines = text.split('\n').filter(l => l.trim());
+    const title = lines[0]?.startsWith('Title:') ? lines[0].replace('Title:', '').trim() : '';
+    const body = title ? lines.slice(1).join(' ') : text;
+
+    return { text: body.substring(0, 15000), title };
+  }
+
   app.post("/api/fetch-url", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
-    // Rotate user agents to improve success rate on sites that block bots
     const userAgents = [
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
     ];
 
-    let lastError: any;
-
+    // ── Strategy 1: Direct Cheerio scraping ──────────────────────────────────
     for (const userAgent of userAgents) {
       try {
         const response = await fetch(url, {
@@ -281,82 +346,41 @@ async function startServer() {
             'User-Agent': userAgent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
             'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
             'Upgrade-Insecure-Requests': '1',
           },
           redirect: 'follow',
+          signal: AbortSignal.timeout(15000),
         });
 
-        if (!response.ok) throw new Error(`Failed to fetch URL: ${response.statusText}`);
+        if (!response.ok) continue;
 
         const html = await response.text();
-        const $ = cheerio.load(html);
+        const { text, title } = extractFromHtml(html);
 
-        // Extract title
-        const title =
-          $('meta[property="og:title"]').attr('content') ||
-          $('meta[name="twitter:title"]').attr('content') ||
-          $('title').text() ||
-          '';
-
-        // Remove all non-content elements including cookie banners and ads
-        $(
-          'script, style, noscript, iframe, ' +
-          'nav, footer, header, aside, ' +
-          // Cookie banners & consent dialogs
-          '[id*="cookie"], [class*="cookie"], [id*="consent"], [class*="consent"], ' +
-          '[id*="gdpr"], [class*="gdpr"], [id*="banner"], [class*="banner"], ' +
-          '[id*="popup"], [class*="popup"], [id*="modal"], [class*="modal"], ' +
-          '[id*="overlay"], [class*="overlay"], [id*="notice"], [class*="notice"], ' +
-          // Ads
-          '[id*="ad-"], [class*="ad-"], [id*="-ad"], [class*="-ad"], ' +
-          '[id*="ads"], [class*="ads"], [class*="advertisement"], ' +
-          '[class*="sponsored"], [id*="sponsored"], ' +
-          '[class*="promo"], [id*="promo"], ' +
-          // Subscription / paywall nags
-          '[class*="paywall"], [id*="paywall"], ' +
-          '[class*="subscribe"], [id*="subscribe"], ' +
-          '[class*="newsletter"], [id*="newsletter"], ' +
-          // Social share bars
-          '[class*="share"], [id*="share"], ' +
-          '[class*="social"], [id*="social"], ' +
-          // Sidebars and recommendations
-          '[class*="sidebar"], [id*="sidebar"], ' +
-          '[class*="related"], [id*="related"], ' +
-          '[class*="recommendation"], ' +
-          // Comments
-          '[class*="comment"], [id*="comment"]'
-        ).remove();
-
-        // Extract main article content — prefer semantic article/main tags
-        let text = '';
-        const articleEl = $('article').first();
-        const mainEl = $('main').first();
-        const contentEl = $('[class*="article-body"], [class*="article__body"], [class*="story-body"], [class*="entry-content"], [class*="post-content"], [class*="content-body"]').first();
-
-        if (articleEl.length) {
-          text = articleEl.text();
-        } else if (contentEl.length) {
-          text = contentEl.text();
-        } else if (mainEl.length) {
-          text = mainEl.text();
-        } else {
-          text = $('body').text();
+        // Only accept if we got meaningful content (>200 chars)
+        if (text.length > 200) {
+          console.log(`✅ Fetched via Cheerio (${text.length} chars)`);
+          return res.json({ text: text.substring(0, 15000), title });
         }
-
-        text = text.replace(/\s+/g, ' ').trim();
-
-        return res.json({ text: text.substring(0, 15000), title: title.trim() });
-      } catch (error: any) {
-        lastError = error;
+      } catch {
         // Try next user agent
       }
     }
 
-    console.error("Error fetching URL:", lastError);
-    res.status(500).json({ error: lastError?.message || 'Failed to fetch URL' });
+    // ── Strategy 2: Jina Reader (JS-rendered sites, anti-bot protected) ─────
+    try {
+      console.log(`🔄 Cheerio failed, trying Jina Reader...`);
+      const { text, title } = await fetchViaJina(url);
+      console.log(`✅ Fetched via Jina (${text.length} chars)`);
+      return res.json({ text, title });
+    } catch (jinaError: any) {
+      console.error('Jina fetch failed:', jinaError.message);
+    }
+
+    // ── All strategies failed ─────────────────────────────────────────────────
+    console.error("All fetch strategies failed for:", url);
+    res.status(500).json({ error: 'Failed to fetch URL' });
   });
 
   // ── PayPal Webhook ────────────────────────────────────────────────────────

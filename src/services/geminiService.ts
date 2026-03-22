@@ -76,14 +76,16 @@ CRITICAL RULES — follow all of them without exception:
 
 5. UNCERTAINTY: If the article itself is speculative or uses hedged language ("may", "could", "suggests"), reflect that uncertainty in your summary — do not present it as confirmed fact.
 
-6. SCOPE: Only summarize what is actually in the article. Do not add outside knowledge or context not present in the source.`;
+6. SCOPE: Only summarize what is actually in the article. Do not add outside knowledge or context not present in the source.
+
+7. CONTENT QUALITY: If the extracted content is clearly not an article (e.g. it is a login page, error page, cookie consent wall, or technical gibberish), respond only with: "INSUFFICIENT_CONTENT". Do not describe the error — just output that exact token.`;
 
 // ─── Length instructions ──────────────────────────────────────────────────────
 
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
-      return `Write 1-3 concise sentences that answer the headline and preserve any critical context or limitations (e.g. animal study, single country, preliminary research). If a key nuance changes the meaning, include it even if it makes the response slightly longer.`;
+      return `Write exactly 1-2 sentences maximum. State the core fact directly. Only add a critical qualifier (e.g. animal study, single country) if it fundamentally changes the meaning. Be ruthlessly concise — the user will click for more if they want it.`;
     case 'medium':
       return `Write 3-5 sentences. Answer the headline directly, then add the most important supporting details and any critical qualifiers or limitations from the article (e.g. sample size, scope, caveats mentioned by researchers or experts quoted).`;
     case 'long':
@@ -137,7 +139,9 @@ ${articleContent}`;
       contents: prompt,
       config: { systemInstruction: SYSTEM_PROMPT },
     });
-    return response.text || "No summary available.";
+    const result = response.text || '';
+    if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+    return result || "No summary available.";
   } catch (error: any) {
     const msg = (error?.message || '').toLowerCase();
     if (retryCount === 0 && (msg.includes('429') || msg.includes('resource_exhausted'))) {
@@ -186,7 +190,9 @@ ${articleContent}`
     ],
   });
 
-  return completion.choices[0].message.content || "No summary available.";
+  const result = completion.choices[0].message.content || '';
+  if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+  return result || "No summary available.";
 }
 
 // ─── Llamada a Mistral (via server proxy to avoid CORS) ─────────────────────
@@ -231,7 +237,9 @@ ${articleContent}`;
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || 'No summary available.';
+  const mistralResult = data.choices?.[0]?.message?.content || '';
+  if (mistralResult.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+  return mistralResult || 'No summary available.';
 }
 
 // ─── Llamada a DeepSeek (via server proxy to avoid CORS) ─────────────────────
@@ -276,7 +284,9 @@ ${articleContent}`;
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || 'No summary available.';
+  const deepseekResult = data.choices?.[0]?.message?.content || '';
+  if (deepseekResult.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+  return deepseekResult || 'No summary available.';
 }
 
 // ─── Función principal con fallback automático ────────────────────────────────
@@ -340,6 +350,11 @@ export async function summarizeUrl(
       if (isQuotaError(error)) {
         console.warn(`⚠️ Quota exceeded for ${p}, trying next provider...`);
         continue;
+      }
+
+      // Insufficient content — no point trying other providers with same content
+      if (error.message === 'insufficient_content') {
+        throw new Error('insufficient_content');
       }
 
       // Auth errors — propagate immediately with a clear message

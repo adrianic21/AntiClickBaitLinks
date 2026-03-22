@@ -21,7 +21,7 @@ interface ResultCardProps {
   setShowHistory: (v: boolean) => void;
   onSpeak: () => void;
   onExpand: (length: 'medium' | 'long' | 'child') => void;
-  onShare: (summary: string) => void;
+  onShare: (summary: string, url?: string) => void;
   onSelectHistory: (entry: SummaryHistoryEntry) => void;
   onClearHistory: () => void;
 }
@@ -108,7 +108,7 @@ export function ResultCard({
                 {isSpeaking ? <VolumeX size={14} /> : <Volume2 size={14} />}
                 {isSpeaking ? t.stop : t.listen}
               </button>
-              <button onClick={() => onShare(summary)}
+              <button onClick={() => onShare(summary, url)}
   className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
 >
   <Share2 size={14} />

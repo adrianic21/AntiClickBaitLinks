@@ -17,7 +17,7 @@ export default function App() {
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft, resetTimestamp,
-    unlockPass, setUnlockPass, lockError, setLockError,
+    unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef, t,
     loadingMessage, summaryHistory, showHistory, setShowHistory,
@@ -113,11 +113,12 @@ export default function App() {
         isPremium={isPremium}
         unlockPass={unlockPass}
         lockError={lockError}
+        deviceMismatchError={deviceMismatchError}
         isLoading={isLoading}
         onClose={closeInfo}
         onUnlock={handleUnlock}
         onPassChange={setUnlockPass}
-        onErrorChange={setLockError}
+        onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
       />
 
       {/* Lock modal */}
@@ -127,11 +128,12 @@ export default function App() {
         timeLeft={timeLeft}
         unlockPass={unlockPass}
         lockError={lockError}
+        deviceMismatchError={deviceMismatchError}
         isLoading={isLoading}
         onClose={() => setShowLockModal(false)}
         onUnlock={handleUnlock}
         onPassChange={setUnlockPass}
-        onErrorChange={setLockError}
+        onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
       />
 
       {/* Main content */}

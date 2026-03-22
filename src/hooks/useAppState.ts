@@ -4,6 +4,16 @@ import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// ─── Device fingerprint (stable per browser) ─────────────────────────────────
+function getDeviceId(): string {
+  let id = localStorage.getItem('device_id');
+  if (!id) {
+    id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('device_id', id);
+  }
+  return id;
+}
+
 // ─── URL extraction helper ────────────────────────────────────────────────────
 export function extractUrlFromText(text: string): string {
   const urlRegex = /https?:\/\/[^\s"'<>()[\]{}]+/gi;
@@ -54,6 +64,7 @@ export function useAppState() {
   const [timeLeft, setTimeLeft] = useState('');
   const [unlockPass, setUnlockPass] = useState('');
   const [lockError, setLockError] = useState(false);
+  const [deviceMismatchError, setDeviceMismatchError] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
   // Misc
@@ -62,6 +73,8 @@ export function useAppState() {
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [serverRemaining, setServerRemaining] = useState<number | null>(null);
+  const [serverResetAt, setServerResetAt] = useState<number | null>(null);
 
   // Summary history: last 10 entries
   const [summaryHistory, setSummaryHistory] = useState<Array<{
@@ -85,15 +98,15 @@ export function useAppState() {
   );
 
   const remainingSearches = useMemo(
-    () => isPremium ? Infinity : Math.max(0, 5 - recentSearches.length),
-    [isPremium, recentSearches]
+    () => isPremium ? Infinity : (serverRemaining !== null ? serverRemaining : Math.max(0, 10 - recentSearches.length)),
+    [isPremium, recentSearches, serverRemaining]
   );
 
   const nextResetTime = useMemo(
-    () => !isPremium && recentSearches.length > 0
+    () => serverResetAt || (!isPremium && recentSearches.length > 0
       ? Math.min(...recentSearches) + DAY_MS
-      : null,
-    [isPremium, recentSearches]
+      : null),
+    [isPremium, recentSearches, serverResetAt]
   );
 
   // ─── Popup helpers ──────────────────────────────────────────────────────────
@@ -193,7 +206,7 @@ export function useAppState() {
         fetch('/api/validate-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: savedToken }),
+          body: JSON.stringify({ token: savedToken, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
           .then(data => {
@@ -214,6 +227,25 @@ export function useAppState() {
       const hasChosenLang = localStorage.getItem('ui_language') !== null;
       if (!hasChosenLang) setShowOnboardingLang(true);
       else setShowInfo(true);
+    }
+
+    // Check server-side usage limit on load
+    if (!savedPremium) {
+      fetch('/api/check-limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record: false, isPremium: false }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          setServerRemaining(data.remaining ?? null);
+          if (data.resetAt) setServerResetAt(data.resetAt);
+          if (!data.allowed) {
+            setResetTimestamp(data.resetAt);
+            setShowLockModal(true);
+          }
+        })
+        .catch(() => { /* fall back to localStorage */ });
     }
 
     // Summary history (last 10 summaries)
@@ -301,14 +333,14 @@ export function useAppState() {
 
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
-    const recent = searchHistory.filter(ts => ts > Date.now() - DAY_MS);
-    if (recent.length >= 5) {
-      setResetTimestamp(Math.min(...recent) + DAY_MS);
+    // Quick local pre-check to avoid unnecessary server call
+    if (serverRemaining !== null && serverRemaining <= 0) {
+      if (serverResetAt) setResetTimestamp(serverResetAt);
       openLockModal();
       return false;
     }
     return true;
-  }, [isPremium, searchHistory, openLockModal]);
+  }, [isPremium, serverRemaining, serverResetAt, openLockModal]);
 
   const handleUnlock = useCallback(async () => {
     if (!unlockPass.trim()) return;
@@ -317,7 +349,7 @@ export function useAppState() {
       const res = await fetch('/api/validate-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: unlockPass.trim() }),
+        body: JSON.stringify({ token: unlockPass.trim(), deviceId: getDeviceId() }),
       });
       const data = await res.json();
       if (data.valid) {
@@ -328,6 +360,9 @@ export function useAppState() {
         openPopup('');
         setLockError(false);
         setUnlockPass('');
+      } else if (data.reason === 'device_mismatch') {
+        setLockError(true);
+        setDeviceMismatchError(true);
       } else {
         setLockError(true);
       }
@@ -423,9 +458,27 @@ export function useAppState() {
       }
 
       if (!isPremium) {
-        const newHistory = [...searchHistory, Date.now()];
-        setSearchHistory(newHistory);
-        localStorage.setItem('search_history', JSON.stringify(newHistory));
+        // Record usage on server (IP-based) — this is the authoritative counter
+        fetch('/api/check-limit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ record: true, isPremium: false }),
+        })
+          .then(r => r.json())
+          .then(data => {
+            setServerRemaining(data.remaining ?? null);
+            if (data.resetAt) setServerResetAt(data.resetAt);
+            if (!data.allowed) {
+              setResetTimestamp(data.resetAt);
+              openLockModal();
+            }
+          })
+          .catch(() => {
+            // Fallback: increment localStorage counter if server unreachable
+            const newHistory = [...searchHistory, Date.now()];
+            setSearchHistory(newHistory);
+            localStorage.setItem('search_history', JSON.stringify(newHistory));
+          });
       }
     } catch (err: any) {
       clearInterval(msgInterval);
@@ -501,7 +554,7 @@ via AntiClickBaitLinks.com`;
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft, resetTimestamp,
-    unlockPass, setUnlockPass, lockError, setLockError,
+    unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef,
     loadingMessage, summaryHistory, showHistory, setShowHistory,

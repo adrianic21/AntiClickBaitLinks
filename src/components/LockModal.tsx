@@ -9,6 +9,7 @@ interface LockModalProps {
   timeLeft: string;
   unlockPass: string;
   lockError: boolean;
+  deviceMismatchError: boolean;
   isLoading: boolean;
   onClose: () => void;
   onUnlock: () => void;
@@ -18,7 +19,7 @@ interface LockModalProps {
 
 export function LockModal({
   t, show, timeLeft, unlockPass, lockError, isLoading,
-  onClose, onUnlock, onPassChange, onErrorChange,
+  onClose, onUnlock, onPassChange, onErrorChange, deviceMismatchError,
 }: LockModalProps) {
   return (
     <AnimatePresence>

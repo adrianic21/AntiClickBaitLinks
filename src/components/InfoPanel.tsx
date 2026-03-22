@@ -12,6 +12,7 @@ interface InfoPanelProps {
   isPremium: boolean;
   unlockPass: string;
   lockError: boolean;
+  deviceMismatchError: boolean;
   isLoading: boolean;
   onClose: () => void;
   onUnlock: () => void;
@@ -29,7 +30,7 @@ const API_LINKS = [
 export function InfoPanel({
   t, show, dontShowAgain, showApiPrivacy, setShowApiPrivacy,
   isPremium, unlockPass, lockError, isLoading,
-  onClose, onUnlock, onPassChange, onErrorChange,
+  onClose, onUnlock, onPassChange, onErrorChange, deviceMismatchError,
 }: InfoPanelProps) {
   return (
     <AnimatePresence>
@@ -145,7 +146,9 @@ export function InfoPanel({
                       </button>
                     </div>
                     {lockError && (
-                      <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider">{t.invalidPass}</p>
+                      <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider">
+                        {deviceMismatchError ? t.deviceMismatchError : t.invalidPass}
+                      </p>
                     )}
                   </div>
                 )}

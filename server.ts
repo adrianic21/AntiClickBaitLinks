@@ -87,6 +87,68 @@ async function revokeTokensByEmail(email: string): Promise<void> {
   }
 }
 
+// ─── IP-based usage tracking (free tier limit) ───────────────────────────────
+
+const FREE_LIMIT = 10;
+const USAGE_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function getClientIp(req: express.Request): string {
+  // Railway puts the real IP in x-forwarded-for
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    return (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+async function getUsageCount(ip: string): Promise<number> {
+  const data = await redisGet(`usage:${ip}` as any);
+  if (!data) return 0;
+  // We store usage as { count, windowStart } — reuse TokenData fields creatively
+  const usage = data as any;
+  const windowStart = usage.windowStart || 0;
+  if (Date.now() - windowStart > USAGE_WINDOW_MS) return 0; // window expired
+  return usage.count || 0;
+}
+
+async function incrementUsage(ip: string): Promise<number> {
+  const existing = await redisGet(`usage:${ip}` as any);
+  const usage = existing as any;
+  const now = Date.now();
+
+  let count = 1;
+  let windowStart = now;
+
+  if (usage && (now - (usage.windowStart || 0)) < USAGE_WINDOW_MS) {
+    count = (usage.count || 0) + 1;
+    windowStart = usage.windowStart || now;
+  }
+
+  await redisSet(`usage:${ip}` as any, { count, windowStart, email: '', createdAt: new Date().toISOString(), used: false } as any);
+  return count;
+}
+
+async function getUsageResetTime(ip: string): Promise<number | null> {
+  const data = await redisGet(`usage:${ip}` as any);
+  if (!data) return null;
+  const usage = data as any;
+  if (!usage.windowStart) return null;
+  const resetAt = usage.windowStart + USAGE_WINDOW_MS;
+  if (Date.now() > resetAt) return null;
+  return resetAt;
+}
+
+// ─── Token device binding ─────────────────────────────────────────────────────
+
+async function getTokenDevice(token: string): Promise<string | null> {
+  const data = await redisGet(`device:${token}` as any);
+  return data ? (data as any).deviceId || null : null;
+}
+
+async function bindTokenToDevice(token: string, deviceId: string): Promise<void> {
+  await redisSet(`device:${token}` as any, { deviceId, email: '', createdAt: new Date().toISOString(), used: false } as any);
+}
+
 // ─── Email sender (Brevo REST API) ───────────────────────────────────────────
 
 async function sendPremiumEmail(toEmail: string, token: string) {
@@ -194,6 +256,7 @@ async function startServer() {
   app.use('/api/mistral', generalLimiter);
   app.use('/api/deepseek', generalLimiter);
   app.use('/api/validate-token', tokenLimiter);
+  app.use('/api/check-limit', generalLimiter);
   app.use('/api/admin/generate-token', adminLimiter);
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
@@ -358,19 +421,55 @@ async function startServer() {
     res.status(200).json({ received: true });
   });
 
-  // ── Validate Token ────────────────────────────────────────────────────────
+  // ── Validate Token (with device binding) ────────────────────────────────
 
   app.post("/api/validate-token", async (req, res) => {
-    const { token } = req.body;
+    const { token, deviceId } = req.body;
     if (!token) return res.status(400).json({ valid: false, error: "Token required" });
 
     const tokenData = await getToken(token);
-
     if (!tokenData || tokenData.used || tokenData.revokedAt) {
       return res.status(200).json({ valid: false });
     }
 
+    // Device binding: if deviceId provided, check or bind
+    if (deviceId) {
+      const boundDevice = await getTokenDevice(token);
+      if (!boundDevice) {
+        // First time activating — bind to this device
+        await bindTokenToDevice(token, deviceId);
+      } else if (boundDevice !== deviceId) {
+        // Different device — reject
+        return res.status(200).json({ valid: false, reason: 'device_mismatch' });
+      }
+    }
+
     res.status(200).json({ valid: true, email: tokenData.email });
+  });
+
+  // ── Check / record usage limit (IP-based) ───────────────────────────────
+
+  app.post("/api/check-limit", async (req, res) => {
+    const { record, isPremium } = req.body;
+    if (isPremium) return res.json({ allowed: true, remaining: null, resetAt: null });
+
+    const ip = getClientIp(req);
+    const count = await getUsageCount(ip);
+
+    if (record) {
+      // Record a new usage
+      if (count >= FREE_LIMIT) {
+        const resetAt = await getUsageResetTime(ip);
+        return res.json({ allowed: false, remaining: 0, resetAt });
+      }
+      const newCount = await incrementUsage(ip);
+      return res.json({ allowed: true, remaining: FREE_LIMIT - newCount, resetAt: null });
+    } else {
+      // Just check without recording
+      const remaining = Math.max(0, FREE_LIMIT - count);
+      const resetAt = count >= FREE_LIMIT ? await getUsageResetTime(ip) : null;
+      return res.json({ allowed: count < FREE_LIMIT, remaining, resetAt });
+    }
   });
 
   // ── Admin: generar token manualmente ─────────────────────────────────────

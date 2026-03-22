@@ -95,17 +95,53 @@ function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): st
   }
 }
 
+// ─── Detect content type from URL ────────────────────────────────────────────
+
+export function detectContentType(url: string): 'youtube' | 'pdf' | 'web' {
+  if (/(?:youtube\.com\/(?:watch|shorts|embed)|youtu\.be\/)/.test(url)) return 'youtube';
+  if (url.toLowerCase().endsWith('.pdf')) return 'pdf';
+  return 'web';
+}
+
 // ─── Fetch article content via our server ────────────────────────────────────
 
-async function fetchArticleContent(url: string): Promise<string> {
-  const fetchResponse = await fetch('/api/fetch-url', {
+export async function fetchArticleContent(url: string): Promise<{ text: string; title: string; type: string }> {
+  const contentType = detectContentType(url);
+  const endpoint = contentType === 'youtube' ? '/api/youtube' : '/api/fetch-url';
+
+  const fetchResponse = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url })
   });
-  if (!fetchResponse.ok) throw new Error("Failed to fetch article content.");
-  const { text } = await fetchResponse.json();
-  return text;
+
+  if (!fetchResponse.ok) {
+    const err = await fetchResponse.json().catch(() => ({}));
+    throw new Error(err.error || "Failed to fetch content.");
+  }
+
+  const data = await fetchResponse.json();
+  return { text: data.text || '', title: data.title || '', type: data.type || contentType };
+}
+
+// ─── Fetch PDF from uploaded file (base64) ───────────────────────────────────
+
+export async function fetchPdfContent(file: File): Promise<{ text: string; title: string }> {
+  const formData = new FormData();
+  formData.append('pdf', file);
+
+  const response = await fetch('/api/pdf-upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to process PDF.');
+  }
+
+  const data = await response.json();
+  return { text: data.text || '', title: data.title || file.name };
 }
 
 // ─── Llamada a Gemini 2.5 Flash ───────────────────────────────────────────────
@@ -117,20 +153,22 @@ async function callGemini(
   url: string,
   language: string,
   lengthInstruction: string,
+  prefetchedContent?: { text: string; title: string; type: string },
   retryCount = 0
 ): Promise<string> {
-  const articleContent = await fetchArticleContent(url);
+  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const ai = new GoogleGenAI({ apiKey });
 
-  const prompt = `Analyze this article content from ${url} and provide an accurate summary.
+  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
+  const prompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
-IMPORTANT: If the article describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
+IMPORTANT: If the content describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
 
 The response must be written in ${language}.
 
-ARTICLE CONTENT:
+CONTENT:
 ${articleContent}`;
 
   try {
@@ -146,7 +184,7 @@ ${articleContent}`;
     const msg = (error?.message || '').toLowerCase();
     if (retryCount === 0 && (msg.includes('429') || msg.includes('resource_exhausted'))) {
       await new Promise(resolve => setTimeout(resolve, 15000));
-      return callGemini(apiKey, url, language, lengthInstruction, 1);
+      return callGemini(apiKey, url, language, lengthInstruction, prefetchedContent, 1);
     }
     throw error;
   }
@@ -160,9 +198,11 @@ async function callOpenRouter(
   apiKey: string,
   url: string,
   language: string,
-  lengthInstruction: string
+  lengthInstruction: string,
+  prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
-  const articleContent = await fetchArticleContent(url);
+  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
+  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
 
   const openai = new OpenAI({
     apiKey,
@@ -176,15 +216,15 @@ async function callOpenRouter(
       { role: "system", content: SYSTEM_PROMPT },
       {
         role: "user",
-        content: `Analyze this article content from ${url} and provide an accurate summary.
+        content: `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
-IMPORTANT: If the article describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
+IMPORTANT: If the content describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
 
 The response must be written in ${language}.
 
-ARTICLE CONTENT:
+CONTENT:
 ${articleContent}`
       }
     ],
@@ -203,11 +243,13 @@ async function callMistral(
   apiKey: string,
   url: string,
   language: string,
-  lengthInstruction: string
+  lengthInstruction: string,
+  prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
-  const articleContent = await fetchArticleContent(url);
+  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
+  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
 
-  const userMessage = `Analyze this article content from ${url} and provide an accurate summary.
+  const userMessage = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -215,7 +257,7 @@ IMPORTANT: If the article describes a study or discovery that only applies to an
 
 The response must be written in ${language}.
 
-ARTICLE CONTENT:
+CONTENT:
 ${articleContent}`;
 
   const response = await fetch('/api/mistral', {
@@ -250,11 +292,13 @@ async function callDeepSeek(
   apiKey: string,
   url: string,
   language: string,
-  lengthInstruction: string
+  lengthInstruction: string,
+  prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
-  const articleContent = await fetchArticleContent(url);
+  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
+  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
 
-  const userMessage = `Analyze this article content from ${url} and provide an accurate summary.
+  const userMessage = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -262,7 +306,7 @@ IMPORTANT: If the article describes a study or discovery that only applies to an
 
 The response must be written in ${language}.
 
-ARTICLE CONTENT:
+CONTENT:
 ${articleContent}`;
 
   const response = await fetch('/api/deepseek', {
@@ -296,7 +340,8 @@ export async function summarizeUrl(
   language: string = "Spanish",
   userApiKeys?: ApiKeys | string,
   length: 'short' | 'medium' | 'long' | 'child' = 'short',
-  provider: Provider = 'gemini'
+  provider: Provider = 'gemini',
+  prefetchedContent?: { text: string; title: string; type: string }
 ) {
   let keys: ApiKeys;
   if (typeof userApiKeys === 'string') {
@@ -332,11 +377,24 @@ export async function summarizeUrl(
 
   let lastError: any;
 
+  // Pre-fetch content once so all provider retries share it
+  let sharedContent = prefetchedContent;
+  if (!sharedContent) {
+    try {
+      sharedContent = await fetchArticleContent(url);
+    } catch (fetchErr: any) {
+      throw new Error(fetchErr.message || 'insufficient_content');
+    }
+    if (!sharedContent.text || sharedContent.text.length < 50) {
+      throw new Error('insufficient_content');
+    }
+  }
+
   const callProvider = async (p: Provider, key: string): Promise<string> => {
-    if (p === 'gemini') return callGemini(key, url, language, lengthInstruction);
-    if (p === 'openrouter') return callOpenRouter(key, url, language, lengthInstruction);
-    if (p === 'mistral') return callMistral(key, url, language, lengthInstruction);
-    return callDeepSeek(key, url, language, lengthInstruction);
+    if (p === 'gemini') return callGemini(key, url, language, lengthInstruction, sharedContent);
+    if (p === 'openrouter') return callOpenRouter(key, url, language, lengthInstruction, sharedContent);
+    if (p === 'mistral') return callMistral(key, url, language, lengthInstruction, sharedContent);
+    return callDeepSeek(key, url, language, lengthInstruction, sharedContent);
   };
 
   for (const p of availableProviders) {

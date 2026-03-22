@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { summarizeUrl, isAuthError, type Provider, type ApiKeys } from '../services/geminiService';
+import { summarizeUrl, fetchPdfContent, detectContentType, isAuthError, type Provider, type ApiKeys } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -74,6 +74,7 @@ export function useAppState() {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [serverRemaining, setServerRemaining] = useState<number | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
 
   // Summary history: last 10 entries
@@ -416,18 +417,20 @@ export function useAppState() {
     length: 'short' | 'medium' | 'long' | 'child' = 'short'
   ) => {
     if (e) e.preventDefault();
-    if (!url || isLoading) return;
+    if (!url && !pdfFile || isLoading) return;
     if (!checkUsageLimit()) return;
 
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
 
-    const finalUrl = extractUrlFromText(url);
-    if (finalUrl !== url) setUrl(finalUrl);
+    const finalUrl = pdfFile ? `pdf:${pdfFile.name}` : extractUrlFromText(url);
+    if (!pdfFile && finalUrl !== url) setUrl(finalUrl);
 
-    try { new URL(finalUrl); } catch {
-      setError(t.invalidUrl);
-      return;
+    if (!pdfFile) {
+      try { new URL(finalUrl); } catch {
+        setError(t.invalidUrl);
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -445,22 +448,29 @@ export function useAppState() {
     }, 2500);
 
     try {
-      // Single fetch — summarize and get title at the same time
-      const [summaryResult, fetchRes] = await Promise.all([
-        summarizeUrl(finalUrl, uiLanguage, apiKeys, length, provider),
-        length === 'short'
-          ? fetch('/api/fetch-url', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: finalUrl }),
-            }).then(r => r.ok ? r.json() : null).catch(() => null)
-          : Promise.resolve(null),
-      ]);
+      // Pre-fetch content (PDF upload, YouTube, or web)
+      let prefetchedContent: { text: string; title: string; type: string } | undefined;
+      if (pdfFile) {
+        prefetchedContent = await fetchPdfContent(pdfFile).then(r => ({ ...r, type: 'pdf' }));
+      }
+
+      // Summarize using pre-fetched content
+      const summaryResult = await summarizeUrl(finalUrl, uiLanguage, apiKeys, length, provider, prefetchedContent);
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');
       setSummary(summaryResult);
-      const resolvedTitle = fetchRes?.title || '';
+
+      // Get title: from prefetched content or fetch separately for web/YouTube
+      const resolvedTitle = prefetchedContent?.title ||
+        (length === 'short' && !pdfFile
+          ? await fetch('/api/' + (detectContentType(finalUrl) === 'youtube' ? 'youtube' : 'fetch-url'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: finalUrl }),
+            }).then(r => r.ok ? r.json() : null).then(d => d?.title || '').catch(() => '')
+          : '') || '';
+
       if (resolvedTitle) setArticleTitle(resolvedTitle);
 
       // Save to summary history (last 10, only on new short summaries)
@@ -578,7 +588,7 @@ via AntiClickBaitLinks.com`;
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef,
-    loadingMessage, summaryHistory, showHistory, setShowHistory,
+    loadingMessage, summaryHistory, showHistory, setShowHistory, pdfFile, setPdfFile,
     // derived
     t,
     // handlers

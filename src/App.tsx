@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Link as LinkIcon, Loader2, Download, Clipboard, X } from 'lucide-react';
+import { ShieldCheck, Link as LinkIcon, Loader2, Download, Clipboard, X, FileText, Youtube } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LANGUAGES } from './translations';
 import { useAppState, cn } from './hooks/useAppState';
@@ -20,12 +20,24 @@ export default function App() {
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef, t,
-    loadingMessage, summaryHistory, showHistory, setShowHistory,
+    loadingMessage, summaryHistory, showHistory, setShowHistory, pdfFile, setPdfFile,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare, handleClearHistory,
   } = state;
+
+  // PDF file input ref
+  const pdfInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handlePdfSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPdfFile(file);
+      setUrl('');
+    }
+    e.target.value = '';
+  };
 
   // Load a history entry back into the view
   const handleSelectHistory = (entry: { url: string; title: string; summary: string; date: number }) => {
@@ -157,25 +169,31 @@ export default function App() {
           <form onSubmit={handleSummarize} className="flex items-center gap-2">
             <div className="relative flex-1">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400">
-                <LinkIcon size={20} />
+                {pdfFile ? <FileText size={20} className="text-red-500" /> : <LinkIcon size={20} />}
               </div>
-              <input
-                type="text"
-                placeholder={t.placeholder}
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                className="w-full pl-12 pr-32 py-4 bg-transparent border-none focus:ring-0 text-zinc-900 placeholder:text-zinc-400 text-lg outline-none"
-              />
+              {pdfFile ? (
+                <div className="w-full pl-12 pr-16 py-4 text-zinc-700 text-base truncate">
+                  {pdfFile.name}
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  placeholder={t.placeholder}
+                  value={url}
+                  onChange={e => setUrl(e.target.value)}
+                  className="w-full pl-12 pr-32 py-4 bg-transparent border-none focus:ring-0 text-zinc-900 placeholder:text-zinc-400 text-lg outline-none"
+                />
+              )}
               <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                {url && !isLoading && (
-                  <button type="button" onClick={handleClear}
+                {(url || pdfFile) && !isLoading && (
+                  <button type="button" onClick={() => { handleClear(); setPdfFile(null); }}
                     className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all active:scale-90"
                     title={t.clearLink}
                   >
                     <X size={20} />
                   </button>
                 )}
-                {!url && !isLoading && (
+                {!url && !pdfFile && !isLoading && (
                   <button type="button" onClick={handlePaste}
                     className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all active:scale-95 whitespace-nowrap"
                   >
@@ -191,6 +209,31 @@ export default function App() {
               </div>
             </div>
           </form>
+          {/* PDF upload button */}
+          {!isLoading && (
+            <div className="flex items-center gap-2 px-2 pb-1 pt-0.5 border-t border-zinc-100/60 mt-1">
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={handlePdfSelect}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => pdfInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-zinc-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+              >
+                <FileText size={13} />
+                {t.uploadPdf}
+              </button>
+              <span className="text-zinc-200 text-xs">|</span>
+              <span className="text-[10px] text-zinc-400 flex items-center gap-1">
+                <Youtube size={11} className="text-red-500" />
+                {t.youtubeSupported}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Results + API key status */}

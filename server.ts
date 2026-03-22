@@ -6,6 +6,8 @@ import * as cheerio from 'cheerio';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
+import multer from 'multer';
+import pdfParse from 'pdf-parse';
 
 // ─── Upstash Redis (token database) ──────────────────────────────────────────
 
@@ -253,6 +255,8 @@ async function startServer() {
   });
 
   app.use('/api/fetch-url', generalLimiter);
+  app.use('/api/youtube', generalLimiter);
+  app.use('/api/pdf-upload', generalLimiter);
   app.use('/api/mistral', generalLimiter);
   app.use('/api/deepseek', generalLimiter);
   app.use('/api/validate-token', tokenLimiter);
@@ -331,6 +335,25 @@ async function startServer() {
   app.post("/api/fetch-url", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
+
+    // ── Handle PDF URLs directly ──────────────────────────────────────────
+    if (url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf')) {
+      try {
+        const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        if (pdfRes.ok) {
+          const buffer = Buffer.from(await pdfRes.arrayBuffer());
+          const data = await pdfParse(buffer);
+          const text = data.text?.replace(/\s+/g, ' ').trim() || '';
+          if (text.length > 100) {
+            const title = data.info?.Title || '';
+            console.log(`✅ Fetched PDF via URL (${text.length} chars)`);
+            return res.json({ text: text.substring(0, 20000), title, type: 'pdf' });
+          }
+        }
+      } catch (pdfErr: any) {
+        console.warn('PDF URL fetch failed, trying as HTML:', pdfErr.message);
+      }
+    }
 
     const userAgents = [
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -524,6 +547,79 @@ async function startServer() {
     res.json({ token, email });
   });
 
+
+  // ── YouTube transcript extractor ─────────────────────────────────────────
+
+  app.post("/api/youtube", async (req, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: "URL is required" });
+
+    // Extract video ID from various YouTube URL formats
+    const videoIdMatch = url.match(
+      /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+    );
+    if (!videoIdMatch) return res.status(400).json({ error: "Invalid YouTube URL" });
+
+    const videoId = videoIdMatch[1];
+
+    // Fetch transcript via Jina Reader (most reliable no-key method)
+    try {
+      const jinaUrl = `https://r.jina.ai/https://www.youtube.com/watch?v=${videoId}`;
+      const jinaRes = await fetch(jinaUrl, {
+        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' },
+        signal: AbortSignal.timeout(25000),
+      });
+
+      if (!jinaRes.ok) throw new Error(`Jina failed: ${jinaRes.status}`);
+
+      const text = await jinaRes.text();
+      if (!text || text.length < 100) throw new Error('No transcript content');
+
+      // Extract title from Jina output
+      const lines = text.split('\n').filter(l => l.trim());
+      const titleLine = lines.find(l => l.startsWith('Title:'));
+      const title = titleLine ? titleLine.replace('Title:', '').trim() : '';
+      const body = text.replace(titleLine || '', '').trim();
+
+      return res.json({ text: body.substring(0, 20000), title, type: 'youtube' });
+    } catch (err: any) {
+      console.error('YouTube transcript error:', err.message);
+      return res.status(500).json({ error: 'Could not extract transcript from this video. Make sure it has subtitles enabled.' });
+    }
+  });
+
+  // ── PDF extractor (from URL) ──────────────────────────────────────────────
+  // Handled inside /api/fetch-url automatically when URL ends in .pdf
+
+  // ── PDF upload ────────────────────────────────────────────────────────────
+
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === 'application/pdf') cb(null, true);
+      else cb(new Error('Only PDF files are allowed'));
+    },
+  });
+
+  app.post("/api/pdf-upload", upload.single('pdf'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No PDF file provided" });
+
+    try {
+      const data = await pdfParse(req.file.buffer);
+      const text = data.text?.replace(/\s+/g, ' ').trim() || '';
+
+      if (text.length < 100) {
+        return res.status(422).json({ error: 'PDF appears to be scanned or image-based. Only text PDFs are supported.' });
+      }
+
+      const title = data.info?.Title || req.file.originalname.replace('.pdf', '') || 'PDF Document';
+      return res.json({ text: text.substring(0, 20000), title, type: 'pdf' });
+    } catch (err: any) {
+      console.error('PDF parse error:', err.message);
+      return res.status(500).json({ error: 'Could not read this PDF file.' });
+    }
+  });
 
   // ── Mistral Proxy (avoids CORS — Mistral blocks direct browser calls) ──────
 

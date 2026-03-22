@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { summarizeUrl, type Provider, type ApiKeys } from '../services/geminiService';
+import { summarizeUrl, isAuthError, type Provider, type ApiKeys } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

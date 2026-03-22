@@ -24,6 +24,42 @@ function isQuotaError(error: any): boolean {
   );
 }
 
+// ─── Detectar si el error es de autenticación/API key inválida ───────────────
+
+export function isAuthError(error: any): boolean {
+  const msg = (error?.message || error?.toString() || '').toLowerCase();
+  return (
+    msg.includes('api_key_invalid') ||
+    msg.includes('invalid api key') ||
+    msg.includes('invalid_api_key') ||
+    msg.includes('unauthorized') ||
+    msg.includes('unauthenticated') ||
+    msg.includes('authentication') ||
+    msg.includes('permission_denied') ||
+    msg.includes('api key not valid') ||
+    msg.includes('invalid key') ||
+    msg.includes('401')
+  );
+}
+
+// ─── Detectar si es un error transitorio (reintentable) ──────────────────────
+
+function isTransientError(error: any): boolean {
+  const msg = (error?.message || error?.toString() || '').toLowerCase();
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network error') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('etimedout') ||
+    msg.includes('socket hang up') ||
+    msg.includes('503') ||
+    msg.includes('502') ||
+    msg.includes('500')
+  );
+}
+
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are a rigorous fact-preserving journalist assistant. Your job is to summarize news articles and web content with absolute accuracy, never omitting details that change the meaning or scope of the story.
@@ -286,25 +322,45 @@ export async function summarizeUrl(
 
   let lastError: any;
 
+  const callProvider = async (p: Provider, key: string): Promise<string> => {
+    if (p === 'gemini') return callGemini(key, url, language, lengthInstruction);
+    if (p === 'openrouter') return callOpenRouter(key, url, language, lengthInstruction);
+    if (p === 'mistral') return callMistral(key, url, language, lengthInstruction);
+    return callDeepSeek(key, url, language, lengthInstruction);
+  };
+
   for (const p of availableProviders) {
     const key = keys[p]!;
     try {
       console.log(`🔄 Trying provider: ${p}`);
-      if (p === 'gemini') {
-        return await callGemini(key, url, language, lengthInstruction);
-      } else if (p === 'openrouter') {
-        return await callOpenRouter(key, url, language, lengthInstruction);
-      } else if (p === 'mistral') {
-        return await callMistral(key, url, language, lengthInstruction);
-      } else {
-        return await callDeepSeek(key, url, language, lengthInstruction);
-      }
+      return await callProvider(p, key);
     } catch (error: any) {
       lastError = error;
+
       if (isQuotaError(error)) {
         console.warn(`⚠️ Quota exceeded for ${p}, trying next provider...`);
         continue;
       }
+
+      // Auth errors — propagate immediately with a clear message
+      if (isAuthError(error)) {
+        throw new Error('api_key_invalid');
+      }
+
+      // Transient errors (network, server down) — retry once after 2s
+      if (isTransientError(error)) {
+        console.warn(`⚠️ Transient error for ${p}, retrying in 2s...`);
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          return await callProvider(p, key);
+        } catch (retryError: any) {
+          lastError = retryError;
+          // If still failing after retry, try next provider if available
+          console.warn(`⚠️ Retry failed for ${p}, trying next provider...`);
+          continue;
+        }
+      }
+
       throw error;
     }
   }

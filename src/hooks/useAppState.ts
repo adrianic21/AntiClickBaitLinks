@@ -159,6 +159,27 @@ export function useAppState() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
+  // ─── Web Share Target — receive URLs shared from other apps ──────────────
+  useEffect(() => {
+    // Case 1: app was closed, opened via share → URL is in query param
+    const params = new URLSearchParams(window.location.search);
+    const sharedUrl = params.get('shared');
+    if (sharedUrl && sharedUrl.startsWith('http')) {
+      setUrl(sharedUrl);
+      // Clean the URL bar without reload
+      window.history.replaceState({}, '', '/');
+    }
+
+    // Case 2: app was already open → service worker sends a postMessage
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SHARE_TARGET' && event.data.url) {
+        setUrl(event.data.url);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', handleMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', handleMessage);
+  }, []);
+
   // ─── Open external links in browser (PWA) ──────────────────────────────────
   useEffect(() => {
     const handleExternalLinks = (e: MouseEvent) => {

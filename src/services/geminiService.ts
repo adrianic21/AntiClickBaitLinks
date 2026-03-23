@@ -83,7 +83,8 @@ TU META: Que el usuario NO tenga que hacer clic en el artículo para saber cuál
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
-      return `MÁXIMO 1-2 ORACIONES. Prohibido empezar con "Este artículo..." o "Se mencionan...". Ve directo a la información. Si el titular promete una lista (ej. "10 herramientas"), ENUMERA LOS ELEMENTOS SEPARADOS POR COMAS DE INMEDIATO. Ejemplo: "Las herramientas son: Cursor, Copilot, Claude...". Sé despiadadamente informativo.`;
+  return `RESPUESTA DIRECTA DE 1-2 ORACIONES. Si el titular es una lista, tu respuesta DEBE ser únicamente la lista de elementos separados por comas. Ejemplo: "Cursor, Copilot, Claude, Gemini...". NADA MÁS.`;
+
     case 'medium':
       return `Escribe 3-5 oraciones. Responde directamente a la promesa del titular sin rodeos descriptivos. Si es una lista, NOMBRA TODOS LOS ELEMENTOS y añade una brevísima explicación de 3-5 palabras para los más importantes. Incluye cualquier limitación crítica (ej. "solo para Windows", "en fase beta").`;
     case 'long':
@@ -323,14 +324,13 @@ export async function summarizeUrl(
   prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
   const lengthInstruction = getLengthInstruction(length);
-
-  // Intentar primero con el prefetchedContent si existe, si no, descargarlo una vez
+  
   let content = prefetchedContent;
   if (!content) {
     try {
       content = await fetchArticleContent(url);
     } catch (e: any) {
-      throw e; // Si falla la descarga, no podemos seguir con ningún provider
+      throw e;
     }
   }
 
@@ -338,6 +338,40 @@ export async function summarizeUrl(
     throw new Error('insufficient_content');
   }
 
+  // ─── CONSTRUCCIÓN DEL PROMPT FINAL (REFORZADO) ──────────────────────────
+  // Ponemos la instrucción AL FINAL para que la IA la tenga fresca en memoria.
+  const finalPrompt = `
+ARTÍCULO A RESUMIR:
+TÍTULO: ${content.title}
+CONTENIDO: ${content.text}
+
+---
+INSTRUCCIÓN FINAL (CRÍTICA):
+${lengthInstruction}
+IDIOMA DE RESPUESTA: ${language}
+
+SI EL TÍTULO ES UNA LISTA (EJ. "10 HERRAMIENTAS"), TU RESPUESTA DEBE SER LA LISTA DE ELEMENTOS. 
+PROHIBIDO EMPEZAR CON "ESTE ARTÍCULO...". VE DIRECTO A LA INFORMACIÓN.
+  `.trim();
+
+  // ─── LLAMADA AL PROVEEDOR ────────────────────────────────────────────────
+  try {
+    if (provider === 'gemini') {
+      return await callGemini(finalPrompt, apiKeys.gemini || '');
+    } else if (provider === 'mistral') {
+      return await callMistral(finalPrompt, apiKeys.mistral || '');
+    } else {
+      return await callDeepSeek(finalPrompt, apiKeys.deepseek || '');
+    }
+  } catch (error: any) {
+    // Si falla el proveedor principal, intentamos fallback a Gemini (si no es el actual)
+    if (provider !== 'gemini' && apiKeys.gemini) {
+      console.warn(`🔄 Fallback to Gemini due to ${provider} error...`);
+      return await callGemini(finalPrompt, apiKeys.gemini);
+    }
+    throw error;
+  }
+}
   // Definir orden de providers (el seleccionado primero, luego el resto)
   const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
   const providersToTry = [provider, ...allProviders.filter(p => p !== provider)];

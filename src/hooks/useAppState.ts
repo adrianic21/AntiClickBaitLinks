@@ -59,7 +59,6 @@ export function useAppState() {
 
   // Premium / limits
   const [isPremium, setIsPremium] = useState(false);
-  const [searchHistory, setSearchHistory] = useState<number[]>([]);
   const [showLockModal, setShowLockModal] = useState(false);
   const [resetTimestamp, setResetTimestamp] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState('');
@@ -73,18 +72,9 @@ export function useAppState() {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
-  const [showHistory, setShowHistory] = useState(false);
   const [serverRemaining, setServerRemaining] = useState<number | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
-
-  // Summary history: last 10 entries
-  const [summaryHistory, setSummaryHistory] = useState<Array<{
-    url: string;
-    title: string;
-    summary: string;
-    date: number;
-  }>>([]);
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -94,21 +84,14 @@ export function useAppState() {
     [uiLanguage]
   );
 
-  const recentSearches = useMemo(
-    () => searchHistory.filter(ts => ts > Date.now() - DAY_MS),
-    [searchHistory]
-  );
-
   const remainingSearches = useMemo(
-    () => isPremium ? Infinity : (serverRemaining !== null ? serverRemaining : Math.max(0, 10 - recentSearches.length)),
-    [isPremium, recentSearches, serverRemaining]
+    () => isPremium ? Infinity : (serverRemaining !== null ? serverRemaining : 10),
+    [isPremium, serverRemaining]
   );
 
   const nextResetTime = useMemo(
-    () => serverResetAt || (!isPremium && recentSearches.length > 0
-      ? Math.min(...recentSearches) + DAY_MS
-      : null),
-    [isPremium, recentSearches, serverResetAt]
+    () => serverResetAt || null,
+    [serverResetAt]
   );
 
   // ─── Popup helpers ──────────────────────────────────────────────────────────
@@ -272,28 +255,7 @@ export function useAppState() {
             setShowLockModal(true);
           }
         })
-        .catch(() => { /* fall back to localStorage */ });
-    }
-
-    // Summary history (last 10 summaries)
-    const savedSummaryHistory = localStorage.getItem('summary_history');
-    if (savedSummaryHistory) {
-      try { setSummaryHistory(JSON.parse(savedSummaryHistory)); } catch { /* ignore */ }
-    }
-
-    // Search history
-    const savedHistory = localStorage.getItem('search_history');
-    if (savedHistory) {
-      try {
-        const history: number[] = JSON.parse(savedHistory);
-        setSearchHistory(history);
-        const recent = history.filter(ts => ts > Date.now() - DAY_MS);
-        if (recent.length >= 5 && !savedPremium) {
-          setResetTimestamp(Math.min(...recent) + DAY_MS);
-          // use direct setter to avoid circular dep with openLockModal
-          setShowLockModal(true);
-        }
-      } catch { setSearchHistory([]); }
+        .catch(() => { /* fall back to server count */ });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -484,21 +446,6 @@ export function useAppState() {
 
       if (resolvedTitle) setArticleTitle(resolvedTitle);
 
-      // Save to summary history (last 10, only on new short summaries)
-      if (resolvedLength === 'short') {
-        const newEntry = {
-          url: finalUrl,
-          title: resolvedTitle || finalUrl,
-          summary: summaryResult,
-          date: Date.now(),
-        };
-        setSummaryHistory(prev => {
-          const updated = [newEntry, ...prev.filter(h => h.url !== finalUrl)].slice(0, 10);
-          localStorage.setItem('summary_history', JSON.stringify(updated));
-          return updated;
-        });
-      }
-
       if (!isPremium) {
         // Record usage on server (IP-based) — this is the authoritative counter
         fetch('/api/check-limit', {
@@ -515,12 +462,7 @@ export function useAppState() {
               openLockModal();
             }
           })
-          .catch(() => {
-            // Fallback: increment localStorage counter if server unreachable
-            const newHistory = [...searchHistory, Date.now()];
-            setSearchHistory(newHistory);
-            localStorage.setItem('search_history', JSON.stringify(newHistory));
-          });
+          .catch(() => { /* server unreachable, counter will sync on next load */ });
       }
     } catch (err: any) {
       clearInterval(msgInterval);
@@ -539,7 +481,6 @@ export function useAppState() {
       } else if (err.message?.includes('pdf_no_text') || err.message?.includes('scanned') || err.message?.includes('image-based')) {
         message = t.pdfNoTextError;
       } else if (err.message?.includes('Could not read') || err.message?.includes('PDF')) {
-        // PDF processing error — show a PDF-specific message, not the generic link error
         message = pdfFile ? t.pdfNoTextError : t.genericError;
       } else if (err.message === 'api_key_invalid' || err.message?.includes('API Key')) {
         message = t.apiKeyInvalidError;
@@ -549,13 +490,12 @@ export function useAppState() {
         openPopup('settings');
       }
       setError(message);
-      console.error(err);
     } finally {
       if (msgInterval) { clearInterval(msgInterval); }
       setLoadingMessage('');
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, searchHistory, t, openPopup]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, t, openPopup, openLockModal]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -594,11 +534,6 @@ via AntiClickBaitLinks.com`;
     localStorage.setItem('dont_show_onboarding', 'true');
   }, []);
 
-  const handleClearHistory = useCallback(() => {
-    setSummaryHistory([]);
-    localStorage.removeItem('summary_history');
-  }, []);
-
   return {
     // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
@@ -611,13 +546,13 @@ via AntiClickBaitLinks.com`;
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef,
-    loadingMessage, summaryHistory, showHistory, setShowHistory, pdfFile, setPdfFile,
+    loadingMessage, pdfFile, setPdfFile,
     // derived
     t,
     // handlers
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize, setPreferredLength,
-    handleSpeak, handleInstall, handleShare, handleClearHistory,
+    handleSpeak, handleInstall, handleShare,
   };
 }

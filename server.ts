@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 
 // ─── Upstash Redis (token database) ──────────────────────────────────────────
 

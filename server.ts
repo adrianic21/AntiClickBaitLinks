@@ -56,6 +56,7 @@ interface DeviceData {
   fingerprint?: string;
   boundAt?: string;
   lastValidatedAt?: string;
+  transferCount?: number;
 }
 
 async function redisGet<T>(key: string): Promise<T | null> {
@@ -230,6 +231,11 @@ async function getTokenDevice(token: string): Promise<DeviceData | null> {
 
 async function bindTokenToDevice(token: string, deviceData: DeviceData): Promise<void> {
   await redisSet<DeviceData>(`device:${token}`, deviceData);
+}
+
+function isDeviceTransferEnabled(): boolean {
+  const value = String(process.env.PREMIUM_TRANSFER_ON_MISMATCH || '').toLowerCase().trim();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
 }
 
 // ─── Email sender (Brevo REST API) ───────────────────────────────────────────
@@ -661,9 +667,20 @@ async function startServer() {
         fingerprint: currentFingerprint,
         boundAt: new Date().toISOString(),
         lastValidatedAt: new Date().toISOString(),
+        transferCount: 0,
       });
     } else {
       if (boundDevice.deviceId !== normalizedDeviceId) {
+        if (isDeviceTransferEnabled()) {
+          await bindTokenToDevice(token, {
+            deviceId: normalizedDeviceId,
+            fingerprint: currentFingerprint,
+            boundAt: boundDevice.boundAt || new Date().toISOString(),
+            lastValidatedAt: new Date().toISOString(),
+            transferCount: (boundDevice.transferCount || 0) + 1,
+          });
+          return res.status(200).json({ valid: true, transferred: true, email: tokenData.email });
+        }
         return res.status(200).json({ valid: false, reason: 'device_mismatch' });
       }
 

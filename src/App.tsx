@@ -28,7 +28,6 @@ export default function App() {
     handleSpeak, handleInstall, handleShare,
   } = state;
 
-  // PDF file input ref
   const pdfInputRef = React.useRef<HTMLInputElement>(null);
 
   const handlePdfSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,7 +39,12 @@ export default function App() {
     e.target.value = '';
   };
 
+  // FIX: Construir la URL que se pasa a ResultCard correctamente cuando hay un PDF.
+  // Sin esto, ResultCard recibe url="" y no puede mostrar ni el nombre del archivo.
+  const resultCardUrl = pdfFile ? `pdf:${pdfFile.name}` : url;
+
   return (
+    // FIX: Eliminado sm:p-6 duplicado (era sobreescrito inmediatamente por sm:p-12)
     <div className="min-h-screen flex flex-col items-center justify-start pt-36 sm:justify-center sm:pt-0 p-6 sm:p-12">
 
       {/* Background */}
@@ -205,6 +209,7 @@ export default function App() {
               </div>
             </div>
           </form>
+
           {/* PDF upload button + Summarize when PDF ready */}
           {!isLoading && (
             <div className="flex items-center gap-2 px-2 pb-1 pt-0.5 border-t border-zinc-100/60 mt-1">
@@ -274,7 +279,7 @@ export default function App() {
           t={t}
           summary={summary}
           articleTitle={articleTitle}
-          url={url}
+          url={resultCardUrl}
           error={error}
           isLoading={isLoading}
           loadingMessage={loadingMessage}

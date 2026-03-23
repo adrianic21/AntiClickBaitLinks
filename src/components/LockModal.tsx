@@ -65,9 +65,11 @@ export function LockModal({
                     lockError ? "ring-2 ring-red-500/20" : "focus:ring-2 focus:ring-emerald-500/20"
                   )}
                 />
+                {/* FIX: Antes siempre mostraba t.invalidPass ignorando deviceMismatchError.
+                    Ahora distingue correctamente entre token inválido y dispositivo diferente. */}
                 {lockError && (
                   <p className="text-[10px] text-red-500 font-bold text-center uppercase tracking-wider">
-                    {t.invalidPass}
+                    {deviceMismatchError ? t.deviceMismatchError : t.invalidPass}
                   </p>
                 )}
                 <button onClick={onUnlock} disabled={isLoading}

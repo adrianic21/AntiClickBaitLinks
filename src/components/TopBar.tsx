@@ -1,6 +1,5 @@
-import { ShieldCheck, Languages, Info, Key, Settings, Check } from 'lucide-react';
+import { ShieldCheck, Languages, Info, Key, Settings, Check, X, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, AlertCircle } from 'lucide-react';
 import { cn } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
 import type { Translations } from '../translations';

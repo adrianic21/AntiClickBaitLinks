@@ -1,5 +1,5 @@
 import { Info, ShieldCheck, ArrowRight, X, HelpCircle, Lightbulb } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations } from '../translations';
@@ -37,6 +37,13 @@ export function InfoPanel({
   uiLanguage,
 }: InfoPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'faq' | 'usecases'>('info');
+
+  // FIX: Resetear al tab Info cada vez que el panel se abre.
+  // Antes, si cerrabas estando en FAQ y lo reabrías, volvías a FAQ en lugar de Info.
+  useEffect(() => {
+    if (show) setActiveTab('info');
+  }, [show]);
+
   return (
     <AnimatePresence>
       {show && (
@@ -60,6 +67,7 @@ export function InfoPanel({
                 <X size={20} />
               </button>
             </div>
+
             {/* Tabs */}
             <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl">
               <button onClick={() => setActiveTab('info')}
@@ -84,16 +92,13 @@ export function InfoPanel({
 
             {/* Info tab */}
             {activeTab === 'info' && <div className="space-y-5">
-              {/* Description */}
               <section>
                 <p className="text-base text-zinc-600 leading-relaxed">{t.infoDesc}</p>
               </section>
 
-              {/* How to use */}
               <section className="space-y-3">
                 <h4 className="text-base font-extrabold text-zinc-800">{t.infoHowToTitle}</h4>
                 <div className="space-y-4">
-                  {/* Step 1 */}
                   <div className="flex gap-3">
                     <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold shrink-0">1</div>
                     <div className="space-y-1">
@@ -111,7 +116,6 @@ export function InfoPanel({
                     </div>
                   </div>
 
-                  {/* Step 2 */}
                   <div className="flex gap-3">
                     <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold shrink-0">2</div>
                     <div className="space-y-1">
@@ -138,13 +142,11 @@ export function InfoPanel({
                 </div>
               </section>
 
-              {/* Free version */}
               <section className="space-y-2">
                 <h4 className="text-base font-extrabold text-zinc-800">{t.infoLimitsTitle}</h4>
                 <p className="text-base text-zinc-600 leading-relaxed">{t.infoLimitsDesc}</p>
               </section>
 
-              {/* Premium */}
               <section className="space-y-3">
                 <h4 className="text-base font-extrabold text-zinc-800">{t.infoPremiumTitle}</h4>
                 <p className="text-base text-zinc-600 leading-relaxed">{t.infoPremiumDesc}</p>
@@ -181,7 +183,6 @@ export function InfoPanel({
                 )}
               </section>
 
-              {/* Close button */}
               <div className="pt-4 border-t border-zinc-100">
                 <button onClick={onClose}
                   className="w-full py-3 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all active:scale-[0.98]"

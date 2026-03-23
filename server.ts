@@ -260,13 +260,13 @@ async function startServer() {
   // ── Rate limiting blindado para Railway ───────────────────────────────────
 
   // Función reutilizable para obtener la IP real del usuario en Railway
-  const getIp = (req: express.Request) => {
-    const xForwardedFor = req.headers['x-forwarded-for'];
-    if (xForwardedFor) {
-      return (Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor).split(',')[0].trim();
-    }
-    return req.ip || req.socket.remoteAddress || 'unknown';
-  };
+  const getIp = (req: any) => {
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  if (xForwardedFor) {
+    return (Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor).split(',')[0].trim();
+  }
+  return req.ip || req.socket.remoteAddress || 'unknown';
+};
 
   // 1. Límite General (60 peticiones por minuto)
   const generalLimiter = rateLimit({

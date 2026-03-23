@@ -263,6 +263,7 @@ async function startServer() {
     max: 60,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false }, // Desactivar la validación estricta de X-Forwarded-For
     message: { error: 'Too many requests, please slow down.' },
   });
 
@@ -272,6 +273,7 @@ async function startServer() {
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false }, // Desactivar la validación estricta de X-Forwarded-For
     message: { error: 'Too many token attempts, please wait.' },
   });
 
@@ -281,6 +283,7 @@ async function startServer() {
     max: 5,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false }, // Desactivar la validación estricta de X-Forwarded-For
     message: { error: 'Admin rate limit exceeded.' },
   });
 

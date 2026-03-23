@@ -7,7 +7,9 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
 import multer from 'multer';
-import pdfParse from 'pdf-parse';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 // ─── Upstash Redis (token database) ──────────────────────────────────────────
 

@@ -74,6 +74,7 @@ export function useAppState() {
   const [serverRemaining, setServerRemaining] = useState<number | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
+  const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
@@ -157,13 +158,18 @@ export function useAppState() {
     const params = new URLSearchParams(window.location.search);
     const sharedUrl = params.get('shared');
     if (sharedUrl && sharedUrl.startsWith('http')) {
+      setPendingSharedUrl(sharedUrl);
       setUrl(sharedUrl);
       window.history.replaceState({}, '', '/');
     }
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'SHARE_TARGET' && event.data.url) {
-        setUrl(event.data.url);
+        const incomingUrl = String(event.data.url);
+        if (incomingUrl.startsWith('http')) {
+          setPendingSharedUrl(incomingUrl);
+          setUrl(incomingUrl);
+        }
       }
     };
     navigator.serviceWorker?.addEventListener('message', handleMessage);
@@ -551,6 +557,20 @@ export function useAppState() {
       await navigator.clipboard.writeText(text);
     } catch { /* ignore */ }
   }, []);
+
+  // ─── Auto-summarize immediately on shared URLs ──────────────────────────────
+  useEffect(() => {
+    if (!pendingSharedUrl || isLoading) return;
+    if (pendingSharedUrl !== url) return;
+
+    setSummary(null);
+    setArticleTitle(null);
+    setError(null);
+    setTimeout(() => {
+      handleSummarize();
+      setPendingSharedUrl(null);
+    }, 50);
+  }, [pendingSharedUrl, url, isLoading, handleSummarize]);
 
   const handleInstall = useCallback(async () => {
     if (!installPrompt) return;

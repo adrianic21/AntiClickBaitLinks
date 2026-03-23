@@ -142,6 +142,35 @@ Premium tokens are UUIDs generated on payment via PayPal webhook. Each token is 
 
 ---
 
+## PWABuilder Store Readiness
+
+The app is prepared for PWABuilder packaging with:
+
+- Valid web manifest (`id`, `scope`, shortcuts, categories, share target)
+- Service worker with cached shell + offline fallback page
+- Installability metadata for Android, iOS web app mode, and Windows/PWA packaging
+
+Before publishing to stores, complete this checklist:
+
+1. Ensure production is served over `https://` and that `/manifest.json` + `/sw.js` are reachable.
+2. Run Lighthouse (PWA category) and resolve any critical installability warnings.
+3. Generate and upload store assets in PWABuilder:
+   - screenshots (phone + desktop/tablet),
+   - feature graphic / hero image,
+   - app icons requested by each store package.
+4. Configure legal pages in production (privacy policy, terms, support contact) because stores require them.
+5. For store submission accounts:
+   - Google Play Console (Android)
+   - Microsoft Partner Center (Windows)
+   - Apple Developer account + App Store Connect (iOS packaging/signing flow)
+
+Recommended env vars for production hardening:
+
+- `PREMIUM_TRANSFER_ON_MISMATCH=true` (default-enabled in code)
+- `DEVICE_FINGERPRINT_SALT=<strong-random-secret>`
+
+---
+
 ## License
 
 MIT

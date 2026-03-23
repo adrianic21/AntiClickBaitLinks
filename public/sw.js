@@ -2,6 +2,7 @@ const CACHE_NAME = 'anticlickbait-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
+  '/offline.html',
   '/icon-192.png',
   '/icon-512.png',
   '/manifest.json',
@@ -62,6 +63,23 @@ self.addEventListener('fetch', (event) => {
   // ── Normal fetch handling ─────────────────────────────────────────────────
   if (event.request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/')) return;
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(async () => {
+          const cachedPage = await caches.match(event.request);
+          if (cachedPage) return cachedPage;
+          return caches.match('/offline.html');
+        })
+    );
+    return;
+  }
 
   event.respondWith(
     fetch(event.request)

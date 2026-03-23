@@ -2,11 +2,18 @@
   "name": "AntiClickBaitLinks",
   "short_name": "AntiClickBait",
   "description": "Reveal the truth behind clickbait headlines instantly",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#ffffff",
   "theme_color": "#059669",
   "orientation": "portrait",
+  "categories": ["news", "productivity", "utilities", "education"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon-192.png",
@@ -31,6 +38,20 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Summarize a link",
+      "short_name": "Summarize",
+      "description": "Open AntiClickBaitLinks and paste a URL to summarize.",
+      "url": "/"
+    },
+    {
+      "name": "Upload PDF",
+      "short_name": "PDF",
+      "description": "Open AntiClickBaitLinks to upload and summarize a PDF.",
+      "url": "/"
     }
   ],
   "share_target": {

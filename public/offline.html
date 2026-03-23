@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#059669" />
+    <title>Offline | AntiClickBaitLinks</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(180deg, #ffffff 0%, #ecfdf5 100%);
+        color: #0f172a;
+      }
+      .card {
+        width: min(92vw, 480px);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
+        padding: 24px;
+        text-align: center;
+      }
+      .logo {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 14px;
+        border-radius: 16px;
+        background: #059669;
+        color: white;
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 1.2rem;
+      }
+      p {
+        margin: 0;
+        color: #475569;
+        line-height: 1.5;
+      }
+      button {
+        margin-top: 16px;
+        border: 0;
+        border-radius: 12px;
+        background: #059669;
+        color: white;
+        font-weight: 700;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="logo">AC</div>
+      <h1>No internet connection</h1>
+      <p>You are offline right now. Reconnect and try again to summarize new links.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

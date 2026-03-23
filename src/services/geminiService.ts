@@ -83,8 +83,7 @@ TU META: Que el usuario NO tenga que hacer clic en el artículo para saber cuál
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
-  return `RESPUESTA DIRECTA DE 1-2 ORACIONES. Si el titular es una lista, tu respuesta DEBE ser únicamente la lista de elementos separados por comas. Ejemplo: "Cursor, Copilot, Claude, Gemini...". NADA MÁS.`;
-
+      return `RESPUESTA DIRECTA DE 1-2 ORACIONES. Si el titular es una lista, tu respuesta DEBE ser únicamente la lista de elementos separados por comas. Ejemplo: "Cursor, Copilot, Claude, Gemini...". NADA MÁS.`;
     case 'medium':
       return `Escribe 3-5 oraciones. Responde directamente a la promesa del titular sin rodeos descriptivos. Si es una lista, NOMBRA TODOS LOS ELEMENTOS y añade una brevísima explicación de 3-5 palabras para los más importantes. Incluye cualquier limitación crítica (ej. "solo para Windows", "en fase beta").`;
     case 'long':
@@ -224,6 +223,8 @@ ${articleContent}`;
 }
 
 // ─── Llamada a Mistral (via server proxy to avoid CORS) ─────────────────────
+// FIX: El system prompt ahora se inyecta como role:"system" en el array de mensajes.
+// Antes se enviaba como `systemInstruction` y el proxy del servidor lo ignoraba completamente.
 
 async function callMistral(
   apiKey: string,
@@ -252,8 +253,10 @@ ${articleContent}`;
     body: JSON.stringify({
       apiKey,
       model: 'mistral-small-latest',
-      messages: [{ role: 'user', content: userPrompt }],
-      systemInstruction: SYSTEM_PROMPT,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
     }),
   });
 
@@ -269,6 +272,8 @@ ${articleContent}`;
 }
 
 // ─── Llamada a DeepSeek (via server proxy to avoid CORS) ─────────────────────
+// FIX: El system prompt ahora se inyecta como role:"system" en el array de mensajes.
+// Antes se enviaba como `systemInstruction` y el proxy del servidor lo ignoraba completamente.
 
 async function callDeepSeek(
   apiKey: string,
@@ -297,8 +302,10 @@ ${articleContent}`;
     body: JSON.stringify({
       apiKey,
       model: 'deepseek-chat',
-      messages: [{ role: 'user', content: userPrompt }],
-      systemInstruction: SYSTEM_PROMPT,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
     }),
   });
 
@@ -324,7 +331,7 @@ export async function summarizeUrl(
   prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
   const lengthInstruction = getLengthInstruction(length);
-  
+
   let content = prefetchedContent;
   if (!content) {
     try {
@@ -338,24 +345,7 @@ export async function summarizeUrl(
     throw new Error('insufficient_content');
   }
 
-  // ─── CONSTRUCCIÓN DEL PROMPT FINAL (REFORZADO) ──────────────────────────
-  // Ponemos la instrucción AL FINAL para que la IA la tenga fresca en memoria.
-  const finalPrompt = `
-ARTÍCULO A RESUMIR:
-TÍTULO: ${content.title}
-CONTENIDO: ${content.text}
-
----
-INSTRUCCIÓN FINAL (CRÍTICA):
-${lengthInstruction}
-IDIOMA DE RESPUESTA: ${language}
-
-SI EL TÍTULO ES UNA LISTA (EJ. "10 HERRAMIENTAS"), TU RESPUESTA DEBE SER LA LISTA DE ELEMENTOS. 
-PROHIBIDO EMPEZAR CON "ESTE ARTÍCULO...". VE DIRECTO A LA INFORMACIÓN.
-  `.trim();
-
   // ─── LLAMADA AL PROVEEDOR CON FALLBACK ──────────────────────────────────
-  // Definir orden de providers (el seleccionado primero, luego el resto)
   const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
   const providersToTry = [provider, ...allProviders.filter(p => p !== provider)];
 

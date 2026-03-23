@@ -210,7 +210,7 @@ export default function App() {
               </div>
             </div>
           </form>
-          {/* PDF upload button */}
+          {/* PDF upload button + Summarize when PDF ready */}
           {!isLoading && (
             <div className="flex items-center gap-2 px-2 pb-1 pt-0.5 border-t border-zinc-100/60 mt-1">
               <input
@@ -220,19 +220,34 @@ export default function App() {
                 onChange={handlePdfSelect}
                 className="hidden"
               />
-              <button
-                type="button"
-                onClick={() => pdfInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-zinc-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-              >
-                <FileText size={13} />
-                {t.uploadPdf}
-              </button>
-              <span className="text-zinc-200 text-xs">|</span>
-              <span className="text-[10px] text-zinc-400 flex items-center gap-1">
-                <Youtube size={11} className="text-red-500" />
-                {t.youtubeSupported}
-              </span>
+              {!pdfFile && (
+                <button
+                  type="button"
+                  onClick={() => pdfInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-zinc-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                >
+                  <FileText size={13} />
+                  {t.uploadPdf}
+                </button>
+              )}
+              {pdfFile && (
+                <button
+                  type="submit"
+                  onClick={(e) => handleSummarize(e as any)}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
+                >
+                  {t.summarize}
+                </button>
+              )}
+              {!pdfFile && (
+                <>
+                  <span className="text-zinc-200 text-xs">|</span>
+                  <span className="text-[10px] text-zinc-400 flex items-center gap-1">
+                    <Youtube size={11} className="text-red-500" />
+                    {t.youtubeSupported}
+                  </span>
+                </>
+              )}
             </div>
           )}
         </div>

@@ -277,6 +277,7 @@ async function startServer() {
       $('title').text() ||
       '';
 
+    // Remove noise elements
     $(
       'script, style, noscript, iframe, ' +
       'nav, footer, header, aside, ' +
@@ -291,25 +292,49 @@ async function startServer() {
       '[class*="paywall"], [id*="paywall"], ' +
       '[class*="subscribe"], [id*="subscribe"], ' +
       '[class*="newsletter"], [id*="newsletter"], ' +
-      '[class*="share"], [id*="share"], ' +
+      '[class*="share-bar"], [class*="share-buttons"], ' +
       '[class*="social"], [id*="social"], ' +
       '[class*="sidebar"], [id*="sidebar"], ' +
       '[class*="related"], [id*="related"], ' +
       '[class*="recommendation"], ' +
-      '[class*="comment"], [id*="comment"]'
+      '[class*="comment"], [id*="comment"], ' +
+      '[class*="tags"], [id*="tags"], ' +
+      '[class*="breadcrumb"], [id*="breadcrumb"]'
     ).remove();
 
-    const articleEl = $('article').first();
-    const mainEl = $('main').first();
-    const contentEl = $('[class*="article-body"], [class*="article__body"], [class*="story-body"], [class*="entry-content"], [class*="post-content"], [class*="content-body"]').first();
+    // Try many content selectors (ordered from most to least specific)
+    const contentSelectors = [
+      // Generic article/content
+      'article .article-body', 'article .article__body',
+      'article .article-content', 'article .article__content',
+      '.article-body', '.article__body',
+      '.article-content', '.article__content',
+      // El Pais, El Mundo, Spanish press
+      '.a_c', '.article_body', '.articulo-cuerpo',
+      '.cuerpo-articulo', '.noticia__cuerpo',
+      // Xataka / Webedia
+      '.entry-content', '.post-content', '.post__content', '.body-content',
+      // BBC, Reuters, Guardian
+      '[data-component="text-block"]', '.story-body',
+      '.story-body__inner', '.article__body-content',
+      // Generic fallbacks
+      '.content-body', '.content__body', '.main-content', '.page-content',
+      'article', 'main', '.content', '#content',
+    ];
 
     let text = '';
-    if (articleEl.length) text = articleEl.text();
-    else if (contentEl.length) text = contentEl.text();
-    else if (mainEl.length) text = mainEl.text();
-    else text = $('body').text();
+    for (const sel of contentSelectors) {
+      const el = $(sel).first();
+      if (el.length) {
+        const candidate = el.text().replace(/\s+/g, ' ').trim();
+        if (candidate.length > 150) { text = candidate; break; }
+      }
+    }
+    if (!text || text.length < 150) {
+      text = $('body').text().replace(/\s+/g, ' ').trim();
+    }
 
-    return { text: text.replace(/\s+/g, ' ').trim(), title: title.trim() };
+    return { text, title: title.trim() };
   }
 
   // Helper: fetch via Jina Reader (handles JS-rendered sites, anti-bot protection)
@@ -319,19 +344,24 @@ async function startServer() {
       headers: {
         'Accept': 'text/plain',
         'X-Return-Format': 'text',
+        'X-Remove-Selector': 'header,footer,nav,aside,.cookie,.banner,.popup,.modal,.sidebar,.related,.ads,.newsletter',
+        'X-Timeout': '25',
       },
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) throw new Error(`Jina fetch failed: ${response.status}`);
     const text = await response.text();
     if (!text || text.length < 100) throw new Error('Jina returned too little content');
 
-    // Extract title from first line if Jina includes it
+    // Extract title from Jina output (first non-empty line that starts with Title:)
     const lines = text.split('\n').filter(l => l.trim());
-    const title = lines[0]?.startsWith('Title:') ? lines[0].replace('Title:', '').trim() : '';
-    const body = title ? lines.slice(1).join(' ') : text;
+    const titleLine = lines.find(l => l.startsWith('Title:') || l.startsWith('# '));
+    const title = titleLine
+      ? titleLine.replace(/^Title:|^# /, '').trim()
+      : '';
+    const body = titleLine ? text.replace(titleLine, '').trim() : text;
 
-    return { text: body.substring(0, 15000), title };
+    return { text: body.substring(0, 20000), title };
   }
 
   app.post("/api/fetch-url", async (req, res) => {
@@ -383,10 +413,10 @@ async function startServer() {
         const html = await response.text();
         const { text, title } = extractFromHtml(html);
 
-        // Only accept if we got meaningful content (>200 chars)
-        if (text.length > 200) {
+        // Only accept if we got meaningful content (>150 chars)
+        if (text.length > 150) {
           console.log(`✅ Fetched via Cheerio (${text.length} chars)`);
-          return res.json({ text: text.substring(0, 15000), title });
+          return res.json({ text: text.substring(0, 20000), title });
         }
       } catch {
         // Try next user agent
@@ -564,30 +594,68 @@ async function startServer() {
 
     const videoId = videoIdMatch[1];
 
-    // Fetch transcript via Jina Reader (most reliable no-key method)
+    // Strategy 1: Jina Reader with YouTube-optimized headers
     try {
       const jinaUrl = `https://r.jina.ai/https://www.youtube.com/watch?v=${videoId}`;
       const jinaRes = await fetch(jinaUrl, {
-        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' },
-        signal: AbortSignal.timeout(25000),
+        headers: {
+          'Accept': 'text/plain',
+          'X-Return-Format': 'text',
+          'X-With-Generated-Alt': 'true',
+          'X-Timeout': '30',
+        },
+        signal: AbortSignal.timeout(35000),
       });
 
       if (!jinaRes.ok) throw new Error(`Jina failed: ${jinaRes.status}`);
 
       const text = await jinaRes.text();
-      if (!text || text.length < 100) throw new Error('No transcript content');
+      if (!text || text.length < 200) throw new Error('No transcript content');
 
       // Extract title from Jina output
       const lines = text.split('\n').filter(l => l.trim());
-      const titleLine = lines.find(l => l.startsWith('Title:'));
-      const title = titleLine ? titleLine.replace('Title:', '').trim() : '';
-      const body = text.replace(titleLine || '', '').trim();
+      const titleLine = lines.find(l => l.startsWith('Title:') || l.startsWith('# '));
+      const title = titleLine ? titleLine.replace(/^Title:|^# /, '').trim() : '';
+      const body = titleLine ? text.replace(titleLine, '').trim() : text;
 
-      return res.json({ text: body.substring(0, 20000), title, type: 'youtube' });
+      return res.json({ text: body.substring(0, 25000), title, type: 'youtube' });
     } catch (err: any) {
-      console.error('YouTube transcript error:', err.message);
-      return res.status(500).json({ error: 'Could not extract transcript from this video. Make sure it has subtitles enabled.' });
+      console.warn('YouTube Jina strategy failed, trying direct fetch:', err.message);
     }
+
+    // Strategy 2: Direct fetch of YouTube page + extract description/metadata
+    try {
+      const ytRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (ytRes.ok) {
+        const html = await ytRes.text();
+        // Extract title
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/);
+        const title = titleMatch ? titleMatch[1].replace(' - YouTube', '').trim() : '';
+        // Extract description from meta
+        const descMatch = html.match(/<meta name="description" content="([^"]+)"/);
+        const desc = descMatch ? descMatch[1] : '';
+        // Extract initial data with video description
+        const dataMatch = html.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+        const longDesc = dataMatch ? dataMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : '';
+
+        const combined = [longDesc || desc].filter(Boolean).join('\n');
+        if (combined.length > 100) {
+          const note = 'Note: This is the video description as the transcript could not be extracted automatically.\n\n';
+          return res.json({ text: (note + combined).substring(0, 20000), title, type: 'youtube' });
+        }
+      }
+    } catch (err2: any) {
+      console.warn('YouTube direct fetch failed:', err2.message);
+    }
+
+    return res.status(500).json({ error: 'Could not extract content from this video. The video may not have subtitles or may be restricted.' });
   });
 
   // ── PDF extractor (from URL) ──────────────────────────────────────────────

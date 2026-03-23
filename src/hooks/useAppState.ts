@@ -522,7 +522,12 @@ export function useAppState() {
         err.message?.includes('Quota exceeded')
       ) {
         message = t.quotaError;
-      } else if (err.message?.includes('API Key')) {
+      } else if (err.message === 'insufficient_content' || err.message?.includes('INSUFFICIENT_CONTENT')) {
+        message = t.insufficientContentError;
+      } else if (err.message === 'api_key_invalid' || err.message?.includes('API Key')) {
+        message = t.apiKeyInvalidError;
+        openPopup('settings');
+      } else if (err.message?.includes('no key') || err.message?.includes('API Key no configurada')) {
         message = t.noKeyError;
         openPopup('settings');
       }

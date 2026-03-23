@@ -56,7 +56,7 @@ function isTransientError(error: any): boolean {
     msg.includes('socket hang up') ||
     msg.includes('503') ||
     msg.includes('502') ||
-    msg.includes('500')
+    msg.includes("500") && !msg.includes("pdf_no_text")
   );
 }
 
@@ -182,10 +182,9 @@ ${articleContent}`;
     return result || "No summary available.";
   } catch (error: any) {
     const msg = (error?.message || '').toLowerCase();
-    if (retryCount === 0 && (msg.includes('429') || msg.includes('resource_exhausted'))) {
-      await new Promise(resolve => setTimeout(resolve, 15000));
-      return callGemini(apiKey, url, language, lengthInstruction, prefetchedContent, 1);
-    }
+    // Gemini SDK has its own retry logic for 429s, so we don't need to re-implement it here.
+    // The original code was causing a triple retry (SDK + our code + next provider), leading to excessive delays.
+    // We only rethrow the error, and the main summarization flow will handle the fallback to the next provider.
     throw error;
   }
 }

@@ -139,6 +139,14 @@ function getClientIp(req: express.Request): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
+function getUsageId(req: express.Request): string {
+  const rawDeviceId = typeof req.body?.deviceId === 'string' ? req.body.deviceId.trim() : '';
+  if (rawDeviceId && rawDeviceId.length >= 8 && rawDeviceId.length <= 128) {
+    return `device:${rawDeviceId}`;
+  }
+  return `ip:${getClientIp(req)}`;
+}
+
 async function getUsageCount(ip: string): Promise<number> {
   const usage = await redisGet<UsageData>(`usage:${ip}`);
   if (!usage) return 0;
@@ -632,19 +640,19 @@ async function startServer() {
     const { record, isPremium } = req.body;
     if (isPremium) return res.json({ allowed: true, remaining: null, resetAt: null });
 
-    const ip = getClientIp(req);
-    const count = await getUsageCount(ip);
+    const usageId = getUsageId(req);
+    const count = await getUsageCount(usageId);
 
     if (record) {
       if (count >= FREE_LIMIT) {
-        const resetAt = await getUsageResetTime(ip);
+        const resetAt = await getUsageResetTime(usageId);
         return res.json({ allowed: false, remaining: 0, resetAt });
       }
-      const newCount = await incrementUsage(ip);
+      const newCount = await incrementUsage(usageId);
       return res.json({ allowed: true, remaining: FREE_LIMIT - newCount, resetAt: null });
     } else {
       const remaining = Math.max(0, FREE_LIMIT - count);
-      const resetAt = count >= FREE_LIMIT ? await getUsageResetTime(ip) : null;
+      const resetAt = count >= FREE_LIMIT ? await getUsageResetTime(usageId) : null;
       return res.json({ allowed: count < FREE_LIMIT, remaining, resetAt });
     }
   });

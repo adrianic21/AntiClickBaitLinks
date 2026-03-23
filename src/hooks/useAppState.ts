@@ -246,7 +246,7 @@ export function useAppState() {
       fetch('/api/check-limit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record: false, isPremium: false }),
+        body: JSON.stringify({ record: false, isPremium: false, deviceId: getDeviceId() }),
       })
         .then(r => r.json())
         .then(data => {
@@ -472,7 +472,7 @@ export function useAppState() {
         fetch('/api/check-limit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ record: true, isPremium: false }),
+          body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
           .then(data => {

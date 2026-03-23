@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations } from '../translations';
+import { FAQ_CONTENT, USE_CASES } from '../translations';
 
 interface InfoPanelProps {
   uiLanguage: string;

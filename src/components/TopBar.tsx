@@ -83,7 +83,7 @@ export function TopBar({
               <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
               <span className="hidden sm:inline">{t.statusFree}</span>
               <span className="bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded-md text-[10px]">
-                {remainingSearches}/5
+                {remainingSearches}/10
               </span>
             </>
           )}
@@ -149,7 +149,7 @@ export function TopBar({
                 <div className="flex justify-between items-center bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
                   <span className="text-xs text-zinc-500">{t.remainingSearches}</span>
                   <span className="text-sm font-bold text-zinc-900">
-                    {isPremium ? t.unlimited : `${remainingSearches}/5`}
+                    {isPremium ? t.unlimited : `${remainingSearches}/10`}
                   </span>
                 </div>
                 {!isPremium && nextResetTime && (

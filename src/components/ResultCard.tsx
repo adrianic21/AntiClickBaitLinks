@@ -1,7 +1,7 @@
-import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2, History, Clock, ChevronRight, X } from 'lucide-react';
+import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
-import type { Translations, SummaryHistoryEntry } from '../translations';
+import type { Translations } from '../translations';
 import type { ApiKeys } from '../services/geminiService';
 
 interface ResultCardProps {
@@ -16,14 +16,9 @@ interface ResultCardProps {
   isSpeaking: boolean;
   apiKeys: ApiKeys;
   resultsRef: React.RefObject<HTMLDivElement>;
-  summaryHistory: SummaryHistoryEntry[];
-  showHistory: boolean;
-  setShowHistory: (v: boolean) => void;
   onSpeak: () => void;
   onExpand: (length: 'medium' | 'long' | 'child') => void;
   onShare: (summary: string, url?: string) => void;
-  onSelectHistory: (entry: SummaryHistoryEntry) => void;
-  onClearHistory: () => void;
 }
 function FormattedText({ text }: { text: string }) {
   // Convert **bold** and *bold* to <strong>
@@ -45,15 +40,10 @@ function FormattedText({ text }: { text: string }) {
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, currentLength,
   isSpeaking, apiKeys, resultsRef,
-  summaryHistory, showHistory, setShowHistory,
-  onSpeak, onExpand, onShare, onSelectHistory, onClearHistory,
+  onSpeak, onExpand, onShare,
 }: ResultCardProps) {
   const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
 
-  const formatDate = (ts: number) => {
-    const d = new Date(ts);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
 
   return (
     <div ref={resultsRef}>
@@ -175,52 +165,7 @@ export function ResultCard({
         )}
       </AnimatePresence>
 
-      {/* Summary history */}
-      {summaryHistory.length > 0 && (
-        <div className="mt-2">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setShowHistory(!showHistory)}
-              className="flex items-center gap-2 text-xs font-bold text-zinc-400 hover:text-zinc-600 transition-colors flex-1 px-1 py-1"
-            >
-              <History size={14} />
-              {t.historyTitle}
-              <ChevronRight size={14} className={cn("ml-auto transition-transform", showHistory && "rotate-90")} />
-            </button>
-            <button
-              onClick={onClearHistory}
-              className="p-1 text-zinc-300 hover:text-red-400 transition-colors rounded-lg"
-              title={t.clearHistory}
-            >
-              <X size={13} />
-            </button>
-          </div>
-          <AnimatePresence>
-            {showHistory && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }} className="overflow-hidden"
-              >
-                <div className="mt-1 space-y-1">
-                  {summaryHistory.map((entry, i) => (
-                    <button key={i} onClick={() => onSelectHistory(entry)}
-                      className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-zinc-50 transition-colors group flex items-start gap-2"
-                    >
-                      <Clock size={12} className="text-zinc-300 shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-zinc-600 truncate group-hover:text-emerald-600 transition-colors">
-                          {entry.title.length > 60 ? entry.title.slice(0, 60) + '…' : entry.title}
-                        </p>
-                        <p className="text-[10px] text-zinc-400 mt-0.5">{formatDate(entry.date)}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
+
 
       {/* API Key status */}
       <div className={cn(

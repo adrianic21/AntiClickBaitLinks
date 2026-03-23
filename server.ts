@@ -249,6 +249,7 @@ function verifyPaypalWebhook(req: express.Request): boolean {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1); //
   
   // Configuración de confianza en proxy (Railway)
   app.set("trust proxy", 1); 

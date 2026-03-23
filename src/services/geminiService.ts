@@ -56,7 +56,7 @@ function isTransientError(error: any): boolean {
     msg.includes('socket hang up') ||
     msg.includes('503') ||
     msg.includes('502') ||
-    msg.includes("500") && !msg.includes("pdf_no_text")
+    (msg.includes("500") && !msg.includes("pdf_no_text") && !msg.includes("failed to process pdf"))
   );
 }
 
@@ -145,16 +145,13 @@ export async function fetchPdfContent(file: File): Promise<{ text: string; title
 }
 
 // ─── Llamada a Gemini 2.5 Flash ───────────────────────────────────────────────
-// IMPORTANT: Gemini free tier is NOT available in EU/EEA/UK/Switzerland.
-// European users should use OpenRouter or Mistral instead.
 
 async function callGemini(
   apiKey: string,
   url: string,
   language: string,
   lengthInstruction: string,
-  prefetchedContent?: { text: string; title: string; type: string },
-  retryCount = 0
+  prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
   const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const ai = new GoogleGenAI({ apiKey });
@@ -181,17 +178,13 @@ ${articleContent}`;
     if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
     return result || "No summary available.";
   } catch (error: any) {
-    const msg = (error?.message || '').toLowerCase();
-    // Gemini SDK has its own retry logic for 429s, so we don't need to re-implement it here.
-    // The original code was causing a triple retry (SDK + our code + next provider), leading to excessive delays.
-    // We only rethrow the error, and the main summarization flow will handle the fallback to the next provider.
+    // Gemini SDK handles its own retries for 429s.
+    // We just rethrow and let the main flow handle provider fallback.
     throw error;
   }
 }
 
 // ─── Llamada a OpenRouter ────────────────────────────────────────────────────
-// Free tier: 200 requests/day, no geographic restrictions.
-// Best free option for EU users.
 
 async function callOpenRouter(
   apiKey: string,
@@ -235,8 +228,6 @@ ${articleContent}`
 }
 
 // ─── Llamada a Mistral (via server proxy to avoid CORS) ─────────────────────
-// EU-based company, free tier available, no geographic restrictions.
-// Get your free API key at: https://console.mistral.ai
 
 async function callMistral(
   apiKey: string,
@@ -284,8 +275,6 @@ ${articleContent}`;
 }
 
 // ─── Llamada a DeepSeek (via server proxy to avoid CORS) ─────────────────────
-// Free tier: $5 credits on signup. Very capable model for summarization.
-// Get your API key at: https://platform.deepseek.com/api_keys
 
 async function callDeepSeek(
   apiKey: string,

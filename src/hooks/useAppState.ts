@@ -538,7 +538,7 @@ export function useAppState() {
       setLoadingMessage('');
       setIsLoading(false);
     }
-  }, [url, isLoading, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, searchHistory, t, openPopup]);
+  }, [url, pdfFile, isLoading, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, searchHistory, t, openPopup]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;

@@ -14,9 +14,11 @@ interface ResultCardProps {
   loadingMessage: string;
   currentLength: 'short' | 'medium' | 'long' | 'child';
   isSpeaking: boolean;
+  speechRate: number;
   apiKeys: ApiKeys;
   resultsRef: React.RefObject<HTMLDivElement>;
   onSpeak: () => void;
+  onSpeechRateChange: (rate: number) => void;
   onExpand: (length: 'medium' | 'long' | 'child') => void;
   onShare: (summary: string, url?: string) => void;
 }
@@ -40,8 +42,8 @@ function FormattedText({ text }: { text: string }) {
 
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, currentLength,
-  isSpeaking, apiKeys, resultsRef,
-  onSpeak, onExpand, onShare,
+  isSpeaking, speechRate, apiKeys, resultsRef,
+  onSpeak, onSpeechRateChange, onExpand, onShare,
 }: ResultCardProps) {
   const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
 
@@ -110,12 +112,28 @@ export function ResultCard({
                 <Share2 size={14} />
                 {t.share}
               </button>
+              <div className="flex items-center gap-1 rounded-full bg-zinc-100 p-1">
+                {[0.85, 1, 1.2].map(rate => (
+                  <button
+                    key={rate}
+                    onClick={() => onSpeechRateChange(rate)}
+                    className={cn(
+                      "px-2 py-0.5 rounded-full text-[11px] font-bold transition-colors",
+                      speechRate === rate
+                        ? "bg-white text-emerald-700 shadow-sm"
+                        : "text-zinc-500 hover:text-zinc-700"
+                    )}
+                  >
+                    {rate}x
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Original headline */}
             {articleTitle && (
               <div className="pb-3 border-b border-zinc-100">
-                <p className="text-sm font-semibold text-zinc-600 leading-snug">{articleTitle}</p>
+                <p className="text-sm font-semibold text-zinc-600 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 
@@ -159,16 +177,16 @@ export function ResultCard({
             </div>
 
             {/* Source link — oculto para PDFs subidos localmente */}
-            <div className="pt-4 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-sm">
+            <div className="pt-4 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-sm min-w-0">
               <Search size={14} />
               {isLocalPdf ? (
                 // PDF subido: mostrar solo el nombre del archivo, sin enlace
-                <span className="truncate max-w-[250px] sm:max-w-md text-zinc-400">
+                <span className="truncate max-w-[250px] sm:max-w-md text-zinc-400 min-w-0">
                   {displayUrl}
                 </span>
               ) : (
                 <a href={url} target="_blank" rel="noopener noreferrer"
-                  className="truncate max-w-[250px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors"
+                  className="truncate max-w-[250px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors min-w-0"
                 >
                   {displayUrl}
                 </a>

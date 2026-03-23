@@ -93,6 +93,22 @@ function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): st
   }
 }
 
+function normalizeContentForSpeed(
+  content: string,
+  length: 'short' | 'medium' | 'long' | 'child'
+): string {
+  // Limitar tokens acelera notablemente la respuesta en textos muy largos.
+  const maxCharsByLength: Record<typeof length, number> = {
+    short: 10000,
+    medium: 16000,
+    long: 26000,
+    child: 12000,
+  };
+  const maxChars = maxCharsByLength[length];
+  if (content.length <= maxChars) return content;
+  return `${content.slice(0, maxChars)}\n\n[TRUNCATED_FOR_SPEED]`;
+}
+
 // ─── Detect content type from URL ────────────────────────────────────────────
 
 export function detectContentType(url: string): 'youtube' | 'pdf' | 'web' {
@@ -149,13 +165,17 @@ async function callGemini(
   url: string,
   language: string,
   lengthInstruction: string,
+  length: 'short' | 'medium' | 'long' | 'child',
   prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
   const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const ai = new GoogleGenAI({ apiKey });
+  const optimizedContent = normalizeContentForSpeed(articleContent, length);
 
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
-  const prompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
+  const prompt = `${SYSTEM_PROMPT}
+
+Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -164,13 +184,12 @@ IMPORTANT: If the content describes a study or discovery that only applies to an
 The response must be written in ${language}.
 
 CONTENT:
-${articleContent}`;
+${optimizedContent}`;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: [{ role: "user", content: prompt }],
-      systemInstruction: SYSTEM_PROMPT,
+      contents: prompt,
     });
     const result = response.text || '';
     if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
@@ -187,10 +206,12 @@ async function callOpenRouter(
   url: string,
   language: string,
   lengthInstruction: string,
+  length: 'short' | 'medium' | 'long' | 'child',
   prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
   const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
+  const optimizedContent = normalizeContentForSpeed(articleContent, length);
 
   const openai = new OpenAI({
     apiKey,
@@ -207,7 +228,7 @@ IMPORTANT: If the content describes a study or discovery that only applies to an
 The response must be written in ${language}.
 
 CONTENT:
-${articleContent}`;
+${optimizedContent}`;
 
   const completion = await openai.chat.completions.create({
     model: "google/gemini-2.5-flash",
@@ -231,10 +252,12 @@ async function callMistral(
   url: string,
   language: string,
   lengthInstruction: string,
+  length: 'short' | 'medium' | 'long' | 'child',
   prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
   const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
+  const optimizedContent = normalizeContentForSpeed(articleContent, length);
 
   const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
@@ -245,7 +268,7 @@ IMPORTANT: If the article describes a study or discovery that only applies to an
 The response must be written in ${language}.
 
 CONTENT:
-${articleContent}`;
+${optimizedContent}`;
 
   const response = await fetch('/api/mistral', {
     method: 'POST',
@@ -280,10 +303,12 @@ async function callDeepSeek(
   url: string,
   language: string,
   lengthInstruction: string,
+  length: 'short' | 'medium' | 'long' | 'child',
   prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<string> {
   const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
+  const optimizedContent = normalizeContentForSpeed(articleContent, length);
 
   const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
@@ -294,7 +319,7 @@ IMPORTANT: If the article describes a study or discovery that only applies to an
 The response must be written in ${language}.
 
 CONTENT:
-${articleContent}`;
+${optimizedContent}`;
 
   const response = await fetch('/api/deepseek', {
     method: 'POST',
@@ -358,13 +383,13 @@ export async function summarizeUrl(
     try {
       switch (p) {
         case 'gemini':
-          return await callGemini(key, url, language, lengthInstruction, content);
+          return await callGemini(key, url, language, lengthInstruction, length, content);
         case 'openrouter':
-          return await callOpenRouter(key, url, language, lengthInstruction, content);
+          return await callOpenRouter(key, url, language, lengthInstruction, length, content);
         case 'mistral':
-          return await callMistral(key, url, language, lengthInstruction, content);
+          return await callMistral(key, url, language, lengthInstruction, length, content);
         case 'deepseek':
-          return await callDeepSeek(key, url, language, lengthInstruction, content);
+          return await callDeepSeek(key, url, language, lengthInstruction, length, content);
       }
     } catch (error: any) {
       lastError = error;
@@ -375,7 +400,7 @@ export async function summarizeUrl(
       if (isQuotaError(error) || isTransientError(error)) {
         console.warn(`Provider ${p} failed, trying next...`, error);
         if (isTransientError(error)) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 700));
         }
         continue;
       }

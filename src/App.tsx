@@ -19,6 +19,7 @@ export default function App() {
     showLockModal, setShowLockModal, timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
+    speechRate, setSpeechRate,
     showInstallButton, resultsRef, t,
     loadingMessage, pdfFile, setPdfFile,
     openPopup, togglePopup, openLockModal, closeInfo,
@@ -45,7 +46,7 @@ export default function App() {
 
   return (
     // FIX: Eliminado sm:p-6 duplicado (era sobreescrito inmediatamente por sm:p-12)
-    <div className="min-h-screen flex flex-col items-center justify-start pt-36 sm:justify-center sm:pt-0 p-6 sm:p-12">
+    <div className="min-h-screen flex flex-col items-center justify-start pt-32 sm:pt-36 p-6 sm:p-12">
 
       {/* Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
@@ -172,7 +173,7 @@ export default function App() {
                 {pdfFile ? <FileText size={20} className="text-red-500" /> : <LinkIcon size={20} />}
               </div>
               {pdfFile ? (
-                <div className="w-full pl-12 pr-16 py-4 text-zinc-700 text-base truncate">
+                <div className="w-full pl-12 pr-16 py-4 text-zinc-700 text-base break-all overflow-hidden">
                   {pdfFile.name}
                 </div>
               ) : (
@@ -285,9 +286,11 @@ export default function App() {
           loadingMessage={loadingMessage}
           currentLength={currentLength}
           isSpeaking={isSpeaking}
+          speechRate={speechRate}
           apiKeys={apiKeys}
           resultsRef={resultsRef}
           onSpeak={handleSpeak}
+          onSpeechRateChange={setSpeechRate}
           onExpand={(length) => handleSummarize(undefined, length)}
           onShare={handleShare}
         />

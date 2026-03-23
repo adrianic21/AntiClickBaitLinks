@@ -67,6 +67,7 @@ export function useAppState() {
 
   // Misc
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speechRate, setSpeechRateState] = useState(1);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -75,6 +76,7 @@ export function useAppState() {
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
 
   const resultsRef = useRef<HTMLDivElement>(null);
+  const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
 
   // FIX: AbortController para cancelar requests en vuelo cuando el usuario
   // inicia una nueva búsqueda antes de que termine la anterior.
@@ -190,6 +192,10 @@ export function useAppState() {
 
     const savedLength = localStorage.getItem('preferred_length') as 'short' | 'medium' | 'long';
     if (savedLength) setPreferredLengthState(savedLength);
+    const savedSpeechRate = Number(localStorage.getItem('speech_rate'));
+    if (!Number.isNaN(savedSpeechRate) && savedSpeechRate >= 0.5 && savedSpeechRate <= 2) {
+      setSpeechRateState(savedSpeechRate);
+    }
 
     const savedKeys: ApiKeys = {
       gemini: localStorage.getItem('api_key_gemini') || undefined,
@@ -372,6 +378,11 @@ export function useAppState() {
     localStorage.setItem('preferred_length', len);
   }, []);
 
+  const setSpeechRate = useCallback((rate: number) => {
+    setSpeechRateState(rate);
+    localStorage.setItem('speech_rate', String(rate));
+  }, []);
+
   const handleClear = useCallback(() => {
     // FIX: Cancelar request en vuelo al limpiar
     abortControllerRef.current?.abort();
@@ -379,6 +390,7 @@ export function useAppState() {
     setSummary(null);
     setArticleTitle(null);
     setError(null);
+    summaryCacheRef.current.clear();
   }, []);
 
   const handleSummarize = useCallback(async (
@@ -411,6 +423,15 @@ export function useAppState() {
     setError(null);
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
+
+    const cacheKey = `${finalUrl}|${uiLanguage}|${resolvedLength}`;
+    const cached = summaryCacheRef.current.get(cacheKey);
+    if (cached) {
+      setSummary(cached.summary);
+      setArticleTitle(cached.title || null);
+      setIsLoading(false);
+      return;
+    }
 
     const loadingMessages = t.loadingMessages;
     let msgIndex = 0;
@@ -445,6 +466,7 @@ export function useAppState() {
       // deja vacío — no vale la pena un request extra solo por eso.
       const resolvedTitle = prefetchedContent?.title || '';
       if (resolvedTitle) setArticleTitle(resolvedTitle);
+      summaryCacheRef.current.set(cacheKey, { summary: summaryResult, title: resolvedTitle });
 
       if (!isPremium) {
         fetch('/api/check-limit', {
@@ -508,11 +530,20 @@ export function useAppState() {
       French: 'fr-FR', German: 'de-DE', Italian: 'it-IT',
     };
     utterance.lang = langMap[uiLanguage] || 'en-US';
+    utterance.rate = speechRate;
+
+    const voices = window.speechSynthesis.getVoices();
+    const uiLangPrefix = (utterance.lang.split('-')[0] || '').toLowerCase();
+    const bestVoice = voices.find(v => v.lang.toLowerCase().startsWith(uiLangPrefix))
+      || voices.find(v => v.default)
+      || voices[0];
+    if (bestVoice) utterance.voice = bestVoice;
+
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     setIsSpeaking(true);
     window.speechSynthesis.speak(utterance);
-  }, [summary, isSpeaking, uiLanguage]);
+  }, [summary, isSpeaking, uiLanguage, speechRate]);
 
   const handleShare = useCallback(async (shareSummary: string) => {
     const text = `${shareSummary}\n\nvia AntiClickBaitLinks.com`;
@@ -545,6 +576,7 @@ export function useAppState() {
     showLockModal, setShowLockModal, timeLeft, resetTimestamp,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
+    speechRate, setSpeechRate,
     showInstallButton, resultsRef,
     loadingMessage, pdfFile, setPdfFile,
     // derived

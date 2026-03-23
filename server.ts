@@ -9,7 +9,36 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-// pdf-parse is imported lazily inside functions to avoid startup crash
+// ─── PDF text extraction (pdfjs-dist, no test-runner issues) ────────────────
+async function extractPdfText(buffer: Buffer): Promise<{ text: string; title: string }> {
+  // Dynamic import to avoid ESM/CJS issues at startup
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+  
+  // Extract title from metadata
+  let title = '';
+  try {
+    const meta = await pdf.getMetadata();
+    title = (meta.info as any)?.Title || '';
+  } catch { /* ignore */ }
+
+  // Extract text from all pages
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => item.str || '')
+      .join(' ');
+    fullText += pageText + '\n';
+  }
+
+  return {
+    text: fullText.replace(/\s+/g, ' ').trim(),
+    title,
+  };
+}
 
 // ─── Upstash Redis (token database) ──────────────────────────────────────────
 
@@ -374,13 +403,10 @@ async function startServer() {
         const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
         if (pdfRes.ok) {
           const buffer = Buffer.from(await pdfRes.arrayBuffer());
-          const pdfParse = require('pdf-parse');
-          const data = await pdfParse(buffer);
-          const text = data.text?.replace(/\s+/g, ' ').trim() || '';
+          const { text, title: pdfTitle } = await extractPdfText(buffer);
           if (text.length > 100) {
-            const title = data.info?.Title || '';
             console.log(`✅ Fetched PDF via URL (${text.length} chars)`);
-            return res.json({ text: text.substring(0, 20000), title, type: 'pdf' });
+            return res.json({ text: text.substring(0, 20000), title: pdfTitle, type: 'pdf' });
           }
         }
       } catch (pdfErr: any) {
@@ -677,15 +703,13 @@ async function startServer() {
     if (!req.file) return res.status(400).json({ error: "No PDF file provided" });
 
     try {
-      const pdfParse = require('pdf-parse');
-      const data = await pdfParse(req.file.buffer);
-      const text = data.text?.replace(/\s+/g, ' ').trim() || '';
+      const { text, title: pdfTitle } = await extractPdfText(req.file.buffer);
 
       if (text.length < 100) {
         return res.status(422).json({ error: 'PDF appears to be scanned or image-based. Only text PDFs are supported.' });
       }
 
-      const title = data.info?.Title || req.file.originalname.replace('.pdf', '') || 'PDF Document';
+      const title = pdfTitle || req.file.originalname.replace('.pdf', '') || 'PDF Document';
       return res.json({ text: text.substring(0, 20000), title, type: 'pdf' });
     } catch (err: any) {
       console.error('PDF parse error:', err.message);

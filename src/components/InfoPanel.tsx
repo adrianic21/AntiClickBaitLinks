@@ -1,9 +1,11 @@
-import { Info, ShieldCheck, ArrowRight, X } from 'lucide-react';
+import { Info, ShieldCheck, ArrowRight, X, HelpCircle, Lightbulb } from 'lucide-react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations } from '../translations';
 
 interface InfoPanelProps {
+  uiLanguage: string;
   t: Translations;
   show: boolean;
   dontShowAgain: boolean;
@@ -31,7 +33,9 @@ export function InfoPanel({
   t, show, dontShowAgain, showApiPrivacy, setShowApiPrivacy,
   isPremium, unlockPass, lockError, isLoading,
   onClose, onUnlock, onPassChange, onErrorChange, deviceMismatchError,
+  uiLanguage,
 }: InfoPanelProps) {
+  const [activeTab, setActiveTab] = useState<'info' | 'faq' | 'usecases'>('info');
   return (
     <AnimatePresence>
       {show && (
@@ -55,8 +59,30 @@ export function InfoPanel({
                 <X size={20} />
               </button>
             </div>
+            {/* Tabs */}
+            <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl">
+              <button onClick={() => setActiveTab('info')}
+                className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  activeTab === 'info' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                )}>
+                <Info size={12} /> {t.infoTitle.split(' ')[0]}
+              </button>
+              <button onClick={() => setActiveTab('faq')}
+                className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  activeTab === 'faq' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                )}>
+                <HelpCircle size={12} /> FAQ
+              </button>
+              <button onClick={() => setActiveTab('usecases')}
+                className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  activeTab === 'usecases' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                )}>
+                <Lightbulb size={12} /> Tips
+              </button>
+            </div>
 
-            <div className="space-y-5">
+            {/* Info tab */}
+            {activeTab === 'info' && <div className="space-y-5">
               {/* Description */}
               <section>
                 <p className="text-base text-zinc-600 leading-relaxed">{t.infoDesc}</p>
@@ -162,7 +188,43 @@ export function InfoPanel({
                   {t.closeBtn}
                 </button>
               </div>
-            </div>
+            </div>}
+
+            {/* FAQ tab */}
+            {activeTab === 'faq' && (
+              <div className="space-y-3">
+                {(FAQ_CONTENT[uiLanguage as keyof typeof FAQ_CONTENT] || FAQ_CONTENT.English).map((item, i) => (
+                  <details key={i} className="group rounded-xl border border-zinc-100 overflow-hidden">
+                    <summary className="flex items-center justify-between px-4 py-3 cursor-pointer text-sm font-semibold text-zinc-800 hover:bg-zinc-50 transition-colors list-none">
+                      {item.q}
+                      <span className="text-zinc-400 group-open:rotate-180 transition-transform text-lg leading-none ml-2 shrink-0">›</span>
+                    </summary>
+                    <p className="px-4 pb-3 pt-1 text-sm text-zinc-600 leading-relaxed border-t border-zinc-100">{item.a}</p>
+                  </details>
+                ))}
+                <button onClick={onClose} className="w-full py-3 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all mt-2">
+                  {t.closeBtn}
+                </button>
+              </div>
+            )}
+
+            {/* Use cases tab */}
+            {activeTab === 'usecases' && (
+              <div className="space-y-3">
+                {(USE_CASES[uiLanguage as keyof typeof USE_CASES] || USE_CASES.English).map((item, i) => (
+                  <div key={i} className="flex gap-3 p-3 rounded-xl bg-zinc-50 border border-zinc-100">
+                    <span className="text-2xl shrink-0">{item.icon}</span>
+                    <div>
+                      <p className="text-sm font-bold text-zinc-800 mb-0.5">{item.title}</p>
+                      <p className="text-xs text-zinc-600 leading-relaxed">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+                <button onClick={onClose} className="w-full py-3 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all mt-2">
+                  {t.closeBtn}
+                </button>
+              </div>
+            )}
           </motion.div>
         </>
       )}

@@ -118,6 +118,7 @@ export default function App() {
       {/* Info / onboarding panel */}
       <InfoPanel
         t={t}
+        uiLanguage={uiLanguage}
         show={showInfo}
         dontShowAgain={dontShowAgain}
         showApiPrivacy={showApiPrivacy}

@@ -515,6 +515,7 @@ export function useAppState() {
       clearInterval(msgInterval);
       setLoadingMessage('');
       let message = t.genericError;
+      console.error('Summarize error:', err.message, err);
       if (
         err.message === 'quota_exceeded_all' ||
         err.message?.includes('429') ||

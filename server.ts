@@ -249,52 +249,66 @@ function verifyPaypalWebhook(req: express.Request): boolean {
 
 async function startServer() {
   const app = express();
-  app.set("trust proxy", 1); // Confiar en el proxy de Railway para obtener la IP real del cliente
+  
+  // Configuración de confianza en proxy (Railway)
+  app.set("trust proxy", 1); 
+  
   const PORT = process.env.PORT || 3000;
-
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));
   app.use(express.json());
 
-  // ── Rate limiting ─────────────────────────────────────────────────────────
+  // ── Rate limiting blindado para Railway ───────────────────────────────────
 
-  // General API limit: 60 requests per minute per IP
+  // Función reutilizable para obtener la IP real del usuario en Railway
+  const getIp = (req: express.Request) => {
+    const xForwardedFor = req.headers['x-forwarded-for'];
+    if (xForwardedFor) {
+      return (Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor).split(',')[0].trim();
+    }
+    return req.ip || req.socket.remoteAddress || 'unknown';
+  };
+
+  // 1. Límite General (60 peticiones por minuto)
   const generalLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 60,
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { xForwardedForHeader: false }, // Desactivar la validación estricta de X-Forwarded-For
+    validate: false, // Desactiva validaciones internas problemáticas
+    keyGenerator: getIp, // Usa nuestra función de IP
     message: { error: 'Too many requests, please slow down.' },
   });
 
-  // Strict limit for token validation: 10 per minute per IP (prevents brute force)
+  // 2. Límite para Tokens (10 intentos por minuto para evitar fuerza bruta)
   const tokenLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { xForwardedForHeader: false }, // Desactivar la validación estricta de X-Forwarded-For
+    validate: false,
+    keyGenerator: getIp,
     message: { error: 'Too many token attempts, please wait.' },
   });
 
-  // Admin endpoint: 5 per minute per IP
+  // 3. Límite para Admin (5 peticiones por minuto)
   const adminLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 5,
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { xForwardedForHeader: false }, // Desactivar la validación estricta de X-Forwarded-For
+    validate: false,
+    keyGenerator: getIp,
     message: { error: 'Admin rate limit exceeded.' },
   });
 
+  // Aplicar los limitadores a las rutas correspondientes
   app.use('/api/fetch-url', generalLimiter);
   app.use('/api/youtube', generalLimiter);
   app.use('/api/pdf-upload', generalLimiter);
   app.use('/api/mistral', generalLimiter);
   app.use('/api/deepseek', generalLimiter);
   app.use('/api/validate-token', tokenLimiter);
-  app.use('/api/check-limit', generalLimiter);
-  app.use('/api/admin/generate-token', adminLimiter);
+  app.use('/api/admin', adminLimiter);
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
 

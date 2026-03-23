@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { summarizeUrl, fetchPdfContent, detectContentType, type Provider, type ApiKeys } from '../services/geminiService';
+import { summarizeUrl, fetchPdfContent, type Provider, type ApiKeys } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
@@ -87,7 +87,10 @@ export function useAppState() {
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
-    () => UI_TRANSLATIONS[uiLanguage as TranslationKey] || UI_TRANSLATIONS.English,
+    () => ({
+      ...UI_TRANSLATIONS.English,
+      ...(UI_TRANSLATIONS[uiLanguage as TranslationKey] || {}),
+    }),
     [uiLanguage]
   );
 
@@ -181,20 +184,6 @@ export function useAppState() {
   }, []);
 
   // ─── Open external links in browser (PWA) ──────────────────────────────────
-  useEffect(() => {
-    const handleExternalLinks = (e: MouseEvent) => {
-      const anchor = (e.target as HTMLElement).closest('a');
-      if (!anchor) return;
-      const href = anchor.getAttribute('href');
-      if (href?.startsWith('http://') || href?.startsWith('https://')) {
-        e.preventDefault();
-        window.open(href, '_blank', 'noopener,noreferrer');
-      }
-    };
-    document.addEventListener('click', handleExternalLinks);
-    return () => document.removeEventListener('click', handleExternalLinks);
-  }, []);
-
   // ─── Load persisted state ───────────────────────────────────────────────────
   useEffect(() => {
     const savedProvider = localStorage.getItem('api_provider') as Provider;
@@ -477,15 +466,15 @@ export function useAppState() {
       setLoadingMessage('');
       if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
       setLoadingProgress(100);
-      setSummary(summaryResult);
+      setSummary(summaryResult.summary);
 
       // FIX: Eliminado el segundo fetch al servidor solo para obtener el título.
       // El título ya está disponible en prefetchedContent (si es PDF) o en el
       // contenido pre-descargado dentro de summarizeUrl. Si no hay título, se
       // deja vacío — no vale la pena un request extra solo por eso.
-      const resolvedTitle = prefetchedContent?.title || '';
+      const resolvedTitle = summaryResult.title || prefetchedContent?.title || '';
       if (resolvedTitle) setArticleTitle(resolvedTitle);
-      summaryCacheRef.current.set(cacheKey, { summary: summaryResult, title: resolvedTitle });
+      summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
 
       if (!isPremium) {
         fetch('/api/check-limit', {
@@ -522,6 +511,8 @@ export function useAppState() {
         message = t.quotaError;
       } else if (err.message === 'insufficient_content' || err.message?.includes('INSUFFICIENT_CONTENT')) {
         message = t.insufficientContentError;
+      } else if (err.message === 'provider_temporary_failure') {
+        message = t.providerTemporaryError;
       } else if (err.message?.includes('pdf_no_text') || err.message?.includes('scanned') || err.message?.includes('image-based')) {
         message = t.pdfNoTextError;
       } else if (err.message?.includes('Could not read') || err.message?.includes('PDF')) {
@@ -546,7 +537,13 @@ export function useAppState() {
   const handleSpeak = useCallback(() => {
     if (!summary) return;
     if (isSpeaking) { window.speechSynthesis.cancel(); setIsSpeaking(false); return; }
-    const utterance = new SpeechSynthesisUtterance(summary);
+    const speechText = summary
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/[`#>-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const utterance = new SpeechSynthesisUtterance(speechText);
     const langMap: Record<string, string> = {
       Spanish: 'es-ES', English: 'en-US', Portuguese: 'pt-BR',
       French: 'fr-FR', German: 'de-DE', Italian: 'it-IT',

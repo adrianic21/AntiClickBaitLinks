@@ -10,6 +10,11 @@ export interface ApiKeys {
   deepseek?: string;
 }
 
+export interface SummaryResult {
+  summary: string;
+  title: string;
+}
+
 // ─── Detectar si el error es de cuota/límite ─────────────────────────────────
 
 function isQuotaError(error: any): boolean {
@@ -354,7 +359,7 @@ export async function summarizeUrl(
   language: string,
   length: 'short' | 'medium' | 'long' | 'child' = 'medium',
   prefetchedContent?: { text: string; title: string; type: string }
-): Promise<string> {
+): Promise<SummaryResult> {
   const lengthInstruction = getLengthInstruction(length);
 
   let content = prefetchedContent;
@@ -383,13 +388,25 @@ export async function summarizeUrl(
     try {
       switch (p) {
         case 'gemini':
-          return await callGemini(key, url, language, lengthInstruction, length, content);
+          return {
+            summary: await callGemini(key, url, language, lengthInstruction, length, content),
+            title: content.title || '',
+          };
         case 'openrouter':
-          return await callOpenRouter(key, url, language, lengthInstruction, length, content);
+          return {
+            summary: await callOpenRouter(key, url, language, lengthInstruction, length, content),
+            title: content.title || '',
+          };
         case 'mistral':
-          return await callMistral(key, url, language, lengthInstruction, length, content);
+          return {
+            summary: await callMistral(key, url, language, lengthInstruction, length, content),
+            title: content.title || '',
+          };
         case 'deepseek':
-          return await callDeepSeek(key, url, language, lengthInstruction, length, content);
+          return {
+            summary: await callDeepSeek(key, url, language, lengthInstruction, length, content),
+            title: content.title || '',
+          };
       }
     } catch (error: any) {
       lastError = error;
@@ -407,6 +424,10 @@ export async function summarizeUrl(
 
       throw error;
     }
+  }
+
+  if (isTransientError(lastError)) {
+    throw new Error('provider_temporary_failure');
   }
 
   throw lastError || new Error('quota_exceeded_all');

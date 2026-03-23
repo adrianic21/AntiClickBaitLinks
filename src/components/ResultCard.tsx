@@ -142,8 +142,11 @@ export function ResultCard({
 
             {/* Original headline */}
             {articleTitle && (
-              <div className="pb-3 border-b border-zinc-100">
-                <p className="text-sm font-semibold text-zinc-600 leading-snug break-words">{articleTitle}</p>
+              <div className="pb-3 border-b border-zinc-100 space-y-1">
+                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                  {t.originalTitle}
+                </p>
+                <p className="text-base font-semibold text-zinc-700 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 

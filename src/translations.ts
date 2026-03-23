@@ -724,7 +724,6 @@ export const UI_TRANSLATIONS = {
     loadingMessages: ['获取文章中...', '分析内容中...', '过滤标题党...', '即将完成...'],
   },
 };
-};
 
 export type TranslationKey = keyof typeof UI_TRANSLATIONS;
 export type Translations = typeof UI_TRANSLATIONS.English;

@@ -7,8 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import crypto from 'crypto';
 import multer from 'multer';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+
 // ─── PDF text extraction (pdfjs-dist, no test-runner issues) ────────────────
 async function extractPdfText(buffer: Buffer): Promise<{ text: string; title: string }> {
   // Dynamic import to avoid ESM/CJS issues at startup
@@ -146,7 +145,7 @@ async function getUsageCount(ip: string): Promise<number> {
 
 async function incrementUsage(ip: string): Promise<number> {
   const existing = await redisGet(`usage:${ip}` as any);
-  const usage = existing as any;
+  let usage = existing as any;
   const now = Date.now();
 
   let count = 1;
@@ -155,6 +154,9 @@ async function incrementUsage(ip: string): Promise<number> {
   if (usage && (now - (usage.windowStart || 0)) < USAGE_WINDOW_MS) {
     count = (usage.count || 0) + 1;
     windowStart = usage.windowStart || now;
+  } else {
+    // If window expired or no usage, reset count and windowStart
+    usage = null;
   }
 
   await redisSet(`usage:${ip}` as any, { count, windowStart, email: '', createdAt: new Date().toISOString(), used: false } as any);
@@ -398,7 +400,7 @@ async function startServer() {
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     // ── Handle PDF URLs directly ──────────────────────────────────────────
-    if (url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf')) {
+    if (url.toLowerCase().endsWith('.pdf')) {
       try {
         const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
         if (pdfRes.ok) {
@@ -432,7 +434,7 @@ async function startServer() {
             'Upgrade-Insecure-Requests': '1',
           },
           redirect: 'follow',
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(8000),
         });
 
         if (!response.ok) continue;
@@ -658,7 +660,7 @@ async function startServer() {
           'Accept-Language': 'en-US,en;q=0.9',
           'Accept': 'text/html,application/xhtml+xml',
         },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(8000),
       });
       if (ytRes.ok) {
         const html = await ytRes.text();

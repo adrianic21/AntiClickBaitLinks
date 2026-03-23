@@ -41,6 +41,7 @@ export function useAppState() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentLength, setCurrentLength] = useState<'short' | 'medium' | 'long' | 'child'>('short');
+  const [preferredLength, setPreferredLengthState] = useState<'short' | 'medium' | 'long'>('short');
 
   // API
   const [userApiKey, setUserApiKey] = useState('');
@@ -201,6 +202,10 @@ export function useAppState() {
     // Provider
     const savedProvider = localStorage.getItem('api_provider') as Provider;
     if (savedProvider) setProvider(savedProvider);
+
+    // Preferred summary length
+    const savedLength = localStorage.getItem('preferred_length') as 'short' | 'medium' | 'long';
+    if (savedLength) setPreferredLengthState(savedLength);
 
     // API keys (all four providers)
     const savedKeys: ApiKeys = {
@@ -405,6 +410,11 @@ export function useAppState() {
     }
   }, [t.pasteError]);
 
+  const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
+    setPreferredLengthState(len);
+    localStorage.setItem('preferred_length', len);
+  }, []);
+
   const handleClear = useCallback(() => {
     setUrl('');
     setSummary(null);
@@ -414,8 +424,9 @@ export function useAppState() {
 
   const handleSummarize = useCallback(async (
     e?: React.FormEvent,
-    length: 'short' | 'medium' | 'long' | 'child' = 'short'
+    length?: 'short' | 'medium' | 'long' | 'child'
   ) => {
+    const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
     if (!url && !pdfFile || isLoading) return;
     if (!checkUsageLimit()) return;
@@ -435,8 +446,8 @@ export function useAppState() {
 
     setIsLoading(true);
     setError(null);
-    setCurrentLength(length);
-    if (length === 'short') { setSummary(null); setArticleTitle(null); }
+    setCurrentLength(resolvedLength);
+    if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
     // Rotate loading messages for better UX
     const loadingMessages = t.loadingMessages;
@@ -455,7 +466,7 @@ export function useAppState() {
       }
 
       // Summarize using pre-fetched content
-      const summaryResult = await summarizeUrl(finalUrl, uiLanguage, apiKeys, length, provider, prefetchedContent);
+      const summaryResult = await summarizeUrl(finalUrl, uiLanguage, apiKeys, resolvedLength, provider, prefetchedContent);
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');
@@ -463,7 +474,7 @@ export function useAppState() {
 
       // Get title: from prefetched content or fetch separately for web/YouTube
       const resolvedTitle = prefetchedContent?.title ||
-        (length === 'short' && !pdfFile
+        (resolvedLength === 'short' && !pdfFile
           ? await fetch('/api/' + (detectContentType(finalUrl) === 'youtube' ? 'youtube' : 'fetch-url'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -474,7 +485,7 @@ export function useAppState() {
       if (resolvedTitle) setArticleTitle(resolvedTitle);
 
       // Save to summary history (last 10, only on new short summaries)
-      if (length === 'short') {
+      if (resolvedLength === 'short') {
         const newEntry = {
           url: finalUrl,
           title: resolvedTitle || finalUrl,
@@ -544,7 +555,7 @@ export function useAppState() {
       setLoadingMessage('');
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, searchHistory, t, openPopup]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, searchHistory, t, openPopup]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -591,6 +602,7 @@ via AntiClickBaitLinks.com`;
   return {
     // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
+    preferredLength, setPreferredLength,
     userApiKey, setUserApiKey, apiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
@@ -605,7 +617,7 @@ via AntiClickBaitLinks.com`;
     // handlers
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
-    handleUnlock, handlePaste, handleClear, handleSummarize,
+    handleUnlock, handlePaste, handleClear, handleSummarize, setPreferredLength,
     handleSpeak, handleInstall, handleShare, handleClearHistory,
   };
 }

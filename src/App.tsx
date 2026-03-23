@@ -23,6 +23,7 @@ export default function App() {
     loadingMessage, summaryHistory, showHistory, setShowHistory, pdfFile, setPdfFile,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
+    preferredLength, setPreferredLength,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare, handleClearHistory,
   } = state;
@@ -236,7 +237,7 @@ export default function App() {
   onClick={() => handleSummarize()}
   className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
 >
-  {t.summarize}
+  {t.summarizePdf}
 </button>
               )}
               {!pdfFile && (
@@ -250,6 +251,28 @@ export default function App() {
               )}
             </div>
           )}
+        </div>
+
+        {/* Default summary length preset */}
+        <div className="flex items-center gap-2 justify-center">
+          <span className="text-[11px] text-zinc-400 font-medium">{t.presetLabel}</span>
+          <div className="flex gap-1 bg-zinc-100/80 p-0.5 rounded-xl">
+            {(['short', 'medium', 'long'] as const).map((len) => (
+              <button
+                key={len}
+                type="button"
+                onClick={() => setPreferredLength(len)}
+                className={cn(
+                  "px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
+                  preferredLength === len
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "text-zinc-400 hover:text-zinc-600"
+                )}
+              >
+                {len === 'short' ? t.presetShort : len === 'medium' ? t.presetMedium : t.presetLong}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Results + API key status */}

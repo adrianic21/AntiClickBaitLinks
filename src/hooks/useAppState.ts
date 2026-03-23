@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { summarizeUrl, fetchPdfContent, detectContentType, isAuthError, type Provider, type ApiKeys } from '../services/geminiService';
+import { summarizeUrl, fetchPdfContent, detectContentType, type Provider, type ApiKeys } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
 function getDeviceId(): string {
@@ -146,16 +144,13 @@ export function useAppState() {
 
   // ─── Web Share Target — receive URLs shared from other apps ──────────────
   useEffect(() => {
-    // Case 1: app was closed, opened via share → URL is in query param
     const params = new URLSearchParams(window.location.search);
     const sharedUrl = params.get('shared');
     if (sharedUrl && sharedUrl.startsWith('http')) {
       setUrl(sharedUrl);
-      // Clean the URL bar without reload
       window.history.replaceState({}, '', '/');
     }
 
-    // Case 2: app was already open → service worker sends a postMessage
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'SHARE_TARGET' && event.data.url) {
         setUrl(event.data.url);
@@ -322,7 +317,6 @@ export function useAppState() {
 
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
-    // Quick local pre-check to avoid unnecessary server call
     if (serverRemaining !== null && serverRemaining <= 0) {
       if (serverResetAt) setResetTimestamp(serverResetAt);
       openLockModal();
@@ -411,7 +405,6 @@ export function useAppState() {
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
-    // Rotate loading messages for better UX
     const loadingMessages = t.loadingMessages;
     let msgIndex = 0;
     setLoadingMessage(loadingMessages[0]);
@@ -421,20 +414,17 @@ export function useAppState() {
     }, 2500);
 
     try {
-      // Pre-fetch content (PDF upload, YouTube, or web)
       let prefetchedContent: { text: string; title: string; type: string } | undefined;
       if (pdfFile) {
         prefetchedContent = await fetchPdfContent(pdfFile).then(r => ({ ...r, type: 'pdf' }));
       }
 
-      // Summarize using pre-fetched content
       const summaryResult = await summarizeUrl(finalUrl, uiLanguage, apiKeys, resolvedLength, provider, prefetchedContent);
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');
       setSummary(summaryResult);
 
-      // Get title: from prefetched content or fetch separately for web/YouTube
       const resolvedTitle = prefetchedContent?.title ||
         (resolvedLength === 'short' && !pdfFile
           ? await fetch('/api/' + (detectContentType(finalUrl) === 'youtube' ? 'youtube' : 'fetch-url'), {
@@ -447,7 +437,6 @@ export function useAppState() {
       if (resolvedTitle) setArticleTitle(resolvedTitle);
 
       if (!isPremium) {
-        // Record usage on server (IP-based) — this is the authoritative counter
         fetch('/api/check-limit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -462,13 +451,12 @@ export function useAppState() {
               openLockModal();
             }
           })
-          .catch(() => { /* server unreachable, counter will sync on next load */ });
+          .catch(() => { /* counter syncs on next load */ });
       }
     } catch (err: any) {
-      clearInterval(msgInterval);
+      if (msgInterval) { clearInterval(msgInterval); }
       setLoadingMessage('');
       let message = t.genericError;
-      console.error('Summarize error:', err.message, err);
       if (
         err.message === 'quota_exceeded_all' ||
         err.message?.includes('429') ||
@@ -513,9 +501,7 @@ export function useAppState() {
   }, [summary, isSpeaking, uiLanguage]);
 
   const handleShare = useCallback(async (shareSummary: string) => {
-    const text = `${shareSummary}
-
-via AntiClickBaitLinks.com`;
+    const text = `${shareSummary}\n\nvia AntiClickBaitLinks.com`;
     try {
       await navigator.clipboard.writeText(text);
     } catch { /* ignore */ }
@@ -552,7 +538,7 @@ via AntiClickBaitLinks.com`;
     // handlers
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
-    handleUnlock, handlePaste, handleClear, handleSummarize, setPreferredLength,
+    handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
   };
 }

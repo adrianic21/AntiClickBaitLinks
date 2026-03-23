@@ -235,7 +235,9 @@ async function bindTokenToDevice(token: string, deviceData: DeviceData): Promise
 
 function isDeviceTransferEnabled(): boolean {
   const value = String(process.env.PREMIUM_TRANSFER_ON_MISMATCH || '').toLowerCase().trim();
-  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+  if (!value) return true;
+  if (value === '0' || value === 'false' || value === 'no' || value === 'off') return false;
+  return true;
 }
 
 // ─── Email sender (Brevo REST API) ───────────────────────────────────────────

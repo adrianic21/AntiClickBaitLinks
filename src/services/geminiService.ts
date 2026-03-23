@@ -354,24 +354,7 @@ SI EL TÍTULO ES UNA LISTA (EJ. "10 HERRAMIENTAS"), TU RESPUESTA DEBE SER LA LIS
 PROHIBIDO EMPEZAR CON "ESTE ARTÍCULO...". VE DIRECTO A LA INFORMACIÓN.
   `.trim();
 
-  // ─── LLAMADA AL PROVEEDOR ────────────────────────────────────────────────
-  try {
-    if (provider === 'gemini') {
-      return await callGemini(finalPrompt, apiKeys.gemini || '');
-    } else if (provider === 'mistral') {
-      return await callMistral(finalPrompt, apiKeys.mistral || '');
-    } else {
-      return await callDeepSeek(finalPrompt, apiKeys.deepseek || '');
-    }
-  } catch (error: any) {
-    // Si falla el proveedor principal, intentamos fallback a Gemini (si no es el actual)
-    if (provider !== 'gemini' && apiKeys.gemini) {
-      console.warn(`🔄 Fallback to Gemini due to ${provider} error...`);
-      return await callGemini(finalPrompt, apiKeys.gemini);
-    }
-    throw error;
-  }
-}
+  // ─── LLAMADA AL PROVEEDOR CON FALLBACK ──────────────────────────────────
   // Definir orden de providers (el seleccionado primero, luego el resto)
   const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
   const providersToTry = [provider, ...allProviders.filter(p => p !== provider)];

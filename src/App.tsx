@@ -21,7 +21,8 @@ export default function App() {
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
     showInstallButton, resultsRef, t,
-    loadingMessage, pdfFile, setPdfFile,
+    loadingMessage, loadingProgress, pdfFile, setPdfFile,
+    showSharedToast,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     preferredLength, setPreferredLength,
@@ -284,6 +285,7 @@ export default function App() {
           error={error}
           isLoading={isLoading}
           loadingMessage={loadingMessage}
+          loadingProgress={loadingProgress}
           currentLength={currentLength}
           isSpeaking={isSpeaking}
           speechRate={speechRate}
@@ -311,6 +313,19 @@ export default function App() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      <AnimatePresence>
+        {showSharedToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-semibold shadow-xl"
+          >
+            Link recibido. Generando resumen...
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

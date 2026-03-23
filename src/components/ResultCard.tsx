@@ -12,6 +12,7 @@ interface ResultCardProps {
   error: string | null;
   isLoading: boolean;
   loadingMessage: string;
+  loadingProgress: number;
   currentLength: 'short' | 'medium' | 'long' | 'child';
   isSpeaking: boolean;
   speechRate: number;
@@ -41,7 +42,7 @@ function FormattedText({ text }: { text: string }) {
 }
 
 export function ResultCard({
-  t, summary, articleTitle, url, error, isLoading, loadingMessage, currentLength,
+  t, summary, articleTitle, url, error, isLoading, loadingMessage, loadingProgress, currentLength,
   isSpeaking, speechRate, apiKeys, resultsRef,
   onSpeak, onSpeechRateChange, onExpand, onShare,
 }: ResultCardProps) {
@@ -72,6 +73,15 @@ export function ResultCard({
                 {loadingMessage}
               </motion.p>
             </AnimatePresence>
+            <div className="w-full max-w-md space-y-1">
+              <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${Math.max(4, Math.min(100, loadingProgress))}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-zinc-400 text-center">{Math.round(loadingProgress)}%</p>
+            </div>
           </motion.div>
         )}
 

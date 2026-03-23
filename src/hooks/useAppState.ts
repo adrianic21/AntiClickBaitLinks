@@ -71,10 +71,12 @@ export function useAppState() {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [serverRemaining, setServerRemaining] = useState<number | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
   const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
+  const [showSharedToast, setShowSharedToast] = useState(false);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
@@ -160,6 +162,7 @@ export function useAppState() {
     if (sharedUrl && sharedUrl.startsWith('http')) {
       setPendingSharedUrl(sharedUrl);
       setUrl(sharedUrl);
+      setShowSharedToast(true);
       window.history.replaceState({}, '', '/');
     }
 
@@ -169,6 +172,7 @@ export function useAppState() {
         if (incomingUrl.startsWith('http')) {
           setPendingSharedUrl(incomingUrl);
           setUrl(incomingUrl);
+          setShowSharedToast(true);
         }
       }
     };
@@ -426,6 +430,7 @@ export function useAppState() {
     }
 
     setIsLoading(true);
+    setLoadingProgress(8);
     setError(null);
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
@@ -446,6 +451,12 @@ export function useAppState() {
       msgIndex = (msgIndex + 1) % loadingMessages.length;
       setLoadingMessage(loadingMessages[msgIndex]);
     }, 2500);
+    let progressInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+      setLoadingProgress((prev) => {
+        if (prev >= 92) return prev;
+        return prev + Math.max(1, Math.round((92 - prev) / 8));
+      });
+    }, 400);
 
     try {
       let prefetchedContent: { text: string; title: string; type: string } | undefined;
@@ -464,6 +475,8 @@ export function useAppState() {
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');
+      if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+      setLoadingProgress(100);
       setSummary(summaryResult);
 
       // FIX: Eliminado el segundo fetch al servidor solo para obtener el título.
@@ -493,6 +506,7 @@ export function useAppState() {
       }
     } catch (err: any) {
       if (msgInterval) { clearInterval(msgInterval); }
+      if (progressInterval) { clearInterval(progressInterval); }
       setLoadingMessage('');
 
       // FIX: No mostrar error si el request fue cancelado intencionalmente
@@ -522,7 +536,9 @@ export function useAppState() {
       setError(message);
     } finally {
       if (msgInterval) { clearInterval(msgInterval); }
+      if (progressInterval) { clearInterval(progressInterval); }
       setLoadingMessage('');
+      setLoadingProgress(0);
       setIsLoading(false);
     }
   }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, t, openPopup, openLockModal]);
@@ -572,6 +588,12 @@ export function useAppState() {
     }, 50);
   }, [pendingSharedUrl, url, isLoading, handleSummarize]);
 
+  useEffect(() => {
+    if (!showSharedToast) return;
+    const id = setTimeout(() => setShowSharedToast(false), 2500);
+    return () => clearTimeout(id);
+  }, [showSharedToast]);
+
   const handleInstall = useCallback(async () => {
     if (!installPrompt) return;
     installPrompt.prompt();
@@ -598,7 +620,8 @@ export function useAppState() {
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
     showInstallButton, resultsRef,
-    loadingMessage, pdfFile, setPdfFile,
+    loadingMessage, loadingProgress, pdfFile, setPdfFile,
+    showSharedToast,
     // derived
     t,
     // handlers

@@ -20,8 +20,8 @@ interface ResultCardProps {
   onExpand: (length: 'medium' | 'long' | 'child') => void;
   onShare: (summary: string, url?: string) => void;
 }
+
 function FormattedText({ text }: { text: string }) {
-  // Convert **bold** and *bold* to <strong>
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
   return (
     <>
@@ -37,6 +37,7 @@ function FormattedText({ text }: { text: string }) {
     </>
   );
 }
+
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, currentLength,
   isSpeaking, apiKeys, resultsRef,
@@ -44,6 +45,11 @@ export function ResultCard({
 }: ResultCardProps) {
   const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
 
+  // FIX: No mostrar el link de fuente cuando es un PDF subido localmente.
+  // En ese caso, url es "pdf:nombre-archivo.pdf" y no tiene sentido mostrarlo
+  // como enlace ni intentar abrirlo en el navegador.
+  const isLocalPdf = url.startsWith('pdf:');
+  const displayUrl = isLocalPdf ? url.replace('pdf:', '') : url;
 
   return (
     <div ref={resultsRef}>
@@ -99,19 +105,19 @@ export function ResultCard({
                 {isSpeaking ? t.stop : t.listen}
               </button>
               <button onClick={() => onShare(summary, url)}
-  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
->
-  <Share2 size={14} />
-  {t.share}
-</button>
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+              >
+                <Share2 size={14} />
+                {t.share}
+              </button>
             </div>
 
-            {/* Original headline — only show if we have a real title, not the URL */}
+            {/* Original headline */}
             {articleTitle && (
-  <div className="pb-3 border-b border-zinc-100">
-    <p className="text-sm font-semibold text-zinc-600 leading-snug">{articleTitle}</p>
-  </div>
-)}
+              <div className="pb-3 border-b border-zinc-100">
+                <p className="text-sm font-semibold text-zinc-600 leading-snug">{articleTitle}</p>
+              </div>
+            )}
 
             {/* Summary text */}
             <div className="relative">
@@ -121,10 +127,10 @@ export function ResultCard({
                 </div>
               )}
               <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 space-y-3">
-  {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
-    <p key={i}><FormattedText text={paragraph} /></p>
-  ))}
-</div>
+                {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
+                  <p key={i}><FormattedText text={paragraph} /></p>
+                ))}
+              </div>
             </div>
 
             {/* Expansion buttons */}
@@ -152,20 +158,25 @@ export function ResultCard({
               )}
             </div>
 
-            {/* Source link */}
+            {/* Source link — oculto para PDFs subidos localmente */}
             <div className="pt-4 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-sm">
               <Search size={14} />
-              <a href={url} target="_blank" rel="noopener noreferrer"
-                className="truncate max-w-[250px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors"
-              >
-                {url}
-              </a>
+              {isLocalPdf ? (
+                // PDF subido: mostrar solo el nombre del archivo, sin enlace
+                <span className="truncate max-w-[250px] sm:max-w-md text-zinc-400">
+                  {displayUrl}
+                </span>
+              ) : (
+                <a href={url} target="_blank" rel="noopener noreferrer"
+                  className="truncate max-w-[250px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors"
+                >
+                  {displayUrl}
+                </a>
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-
-
 
       {/* API Key status */}
       <div className={cn(

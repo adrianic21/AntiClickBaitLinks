@@ -29,38 +29,31 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // ── Handle Web Share Target ───────────────────────────────────────────────
-  // When the user shares a URL to our app from another app, the OS sends a
-  // GET request to /share-target?url=...&text=...&title=...
-  // We intercept it here, extract the URL, and redirect to the app root
-  // with the shared URL stored in sessionStorage so the app can pick it up.
   if (url.pathname === '/share-target' && event.request.method === 'GET') {
     event.respondWith(
       (async () => {
-        // Extract the shared content from query params
         const sharedUrl = url.searchParams.get('url') || '';
         const sharedText = url.searchParams.get('text') || '';
         const sharedTitle = url.searchParams.get('title') || '';
 
-        // The actual URL to summarize: prefer explicit url param,
-        // then try to extract a URL from the text param
         const urlToSummarize = sharedUrl ||
           (sharedText.match(/https?:\/\/[^\s]+/)?.[0] ?? '') ||
           sharedTitle;
 
-        // Open (or focus) the app window and send the URL to it
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
 
         if (clients.length > 0) {
-          // App is already open — send message to it
+          // App ya está abierta — enviar mensaje y enfocar
           clients[0].postMessage({ type: 'SHARE_TARGET', url: urlToSummarize });
           clients[0].focus();
+          // Redirigir a raíz para que no quede la URL /share-target en la barra
+          return Response.redirect('/', 302);
         } else {
-          // App is not open — open it with the URL as a query param
-          self.clients.openWindow(`/?shared=${encodeURIComponent(urlToSummarize)}`);
+          // FIX: App no está abierta — antes se llamaba openWindow() Y se hacía
+          // Response.redirect(), lo que podía abrir dos pestañas simultáneamente.
+          // Ahora solo se hace el redirect; el navegador abre la URL directamente.
+          return Response.redirect('/?shared=' + encodeURIComponent(urlToSummarize), 302);
         }
-
-        // Redirect to the app root
-        return Response.redirect('/?shared=' + encodeURIComponent(urlToSummarize), 302);
       })()
     );
     return;

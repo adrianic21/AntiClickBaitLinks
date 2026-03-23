@@ -62,36 +62,38 @@ function isTransientError(error: any): boolean {
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a rigorous fact-preserving journalist assistant. Your job is to summarize news articles and web content with absolute accuracy, never omitting details that change the meaning or scope of the story.
+const SYSTEM_PROMPT = `Eres un asistente de periodista riguroso y conservador de hechos. Tu trabajo es resumir artículos de noticias y contenido web con absoluta precisión, sin omitir nunca detalles que cambien el significado o el alcance de la historia.
 
-CRITICAL RULES — follow all of them without exception:
+REGLAS CRÍTICAS — síguelas todas sin excepción:
 
-1. PRESERVE LIMITING CONTEXT: If a study, discovery, or claim applies only to a specific group (animals, a particular country, a specific age group, a lab setting, etc.), you MUST explicitly state that limitation. Never generalize a finding beyond what the source states.
+1. PRESERVAR EL CONTEXTO LIMITANTE: Si un estudio, descubrimiento o afirmación se aplica solo a un grupo específico (animales, un país en particular, un grupo de edad específico, un entorno de laboratorio, etc.), DEBES indicar explícitamente esa limitación. Nunca generalices un hallazgo más allá de lo que establece la fuente.
 
-2. ANTI-HYPE: If the headline exaggerates or implies more than the content actually says, correct it in your summary. State what the content actually shows, not what the headline implies.
+2. ANTI-CLICKBAIT: Si el titular exagera o implica más de lo que el contenido realmente dice, corrígelo en tu resumen. Indica lo que el contenido realmente muestra, no lo que el titular implica.
 
-3. ACCURACY OVER BREVITY: It is better to include a crucial qualifying detail than to omit it for the sake of a shorter response. A summary that omits a key nuance is worse than no summary.
+3. PRECISIÓN SOBRE BREVEDAD: Es mejor incluir un detalle calificativo crucial que omitirlo en aras de una respuesta más corta. Un resumen que omite un matiz clave es peor que ningún resumen.
 
-4. NO LABELS OR META-COMMENTARY: Do not use labels like "Summary:", "Headline:", "Answer:", or phrases like "This article explains...". Output only the factual content directly.
+4. SIN ETIQUETAS NI META-COMENTARIOS: No uses etiquetas como "Resumen:", "Titular:", "Respuesta:", o frases como "Este artículo explica...". Genera solo el contenido fáctico directamente.
 
-5. UNCERTAINTY: If the article itself is speculative or uses hedged language ("may", "could", "suggests"), reflect that uncertainty in your summary — do not present it as confirmed fact.
+5. INCERTIDUMBRE: Si el artículo es especulativo o utiliza un lenguaje cauteloso ("puede", "podría", "sugiere"), refleja esa incertidumbre en tu resumen; no lo presentes como un hecho confirmado.
 
-6. SCOPE: Only summarize what is actually in the article. Do not add outside knowledge or context not present in the source.
+6. ALCANCE: Resume solo lo que realmente está en el artículo. No añadas conocimientos externos o contexto no presente en la fuente.
 
-7. CONTENT QUALITY: If the extracted content is clearly not an article (e.g. it is a login page, error page, cookie consent wall, or technical gibberish), respond only with: "INSUFFICIENT_CONTENT". Do not describe the error — just output that exact token.`;
+7. CALIDAD DEL CONTENIDO: Si el contenido extraído claramente no es un artículo (por ejemplo, es una página de inicio de sesión, una página de error, un muro de consentimiento de cookies o galimatías técnico), responde solo con: "INSUFFICIENT_CONTENT". No describas el error, solo genera ese token exacto.
+
+8. LISTICLES Y PROMESAS DEL TITULAR: Tu objetivo principal es revelar la información que el titular oculta o promete. Si el titular dice "10 herramientas...", "5 formas de...", "Los mejores X...", tu respuesta DEBE nombrar esos elementos directamente. NUNCA respondas con un meta-resumen del tipo "Este artículo lista 10 herramientas". Eso ya lo sabe el usuario. Ve directo a los datos.`;
 
 // ─── Length instructions ──────────────────────────────────────────────────────
 
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
-      return `Write exactly 1-2 sentences maximum. State the core fact directly. Only add a critical qualifier (e.g. animal study, single country) if it fundamentally changes the meaning. Be ruthlessly concise — the user will click for more if they want it.`;
+      return `Escribe exactamente 1-2 oraciones como máximo. Responde directamente a la premisa del titular. Si el artículo es una lista (ej. "10 herramientas"), DEBES enumerar los elementos separados por comas sin explicarlos. Sé despiadadamente conciso. El usuario hará clic para obtener más detalles si los desea.`;
     case 'medium':
-      return `Write 3-5 sentences. Answer the headline directly, then add the most important supporting details and any critical qualifiers or limitations from the article (e.g. sample size, scope, caveats mentioned by researchers or experts quoted).`;
+      return `Escribe 3-5 oraciones. Responde directamente a la premisa del titular. Si es una lista, nombra todos los elementos y destaca brevemente los más importantes o los que tienen mayor impacto. Incluye los detalles de apoyo más importantes y cualquier calificativo o limitación crítica del artículo (ej. tamaño de la muestra, alcance, advertencias mencionadas por investigadores o expertos citados).`;
     case 'long':
-      return `Write a thorough multi-paragraph summary. Cover: (1) the direct answer to the headline, (2) the key evidence or findings, (3) important limitations, caveats, or dissenting views mentioned in the article, (4) broader context if provided by the article itself. Do not omit any detail that materially affects how the reader should interpret the story.`;
+      return `Escribe un resumen exhaustivo de varios párrafos. Cubre: (1) la respuesta directa a la premisa del titular, (2) la evidencia o hallazgos clave, (3) limitaciones importantes, advertencias o puntos de vista discrepantes mencionados en el artículo, (4) contexto más amplio si lo proporciona el propio artículo. No omitas ningún detalle que afecte materialmente cómo el lector debe interpretar la historia. Si es una lista, detalla cada elemento con su contexto, pros, contras y la información de fondo del artículo.`;
     case 'child':
-      return `Explain this article to a 10-year-old using simple words and a friendly tone. Make sure to include any important limitations in a way a child can understand — for example, "but this was only tested on mice, not people yet". Do not oversimplify to the point of being misleading.`;
+      return `Explica este artículo a un niño de 10 años usando palabras sencillas y un tono amigable. Asegúrate de incluir cualquier limitación importante de una manera que un niño pueda entender; por ejemplo, "pero esto solo se probó en ratones, no en personas todavía". No simplifiques demasiado hasta el punto de ser engañoso.`;
   }
 }
 
@@ -171,15 +173,13 @@ ${articleContent}`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: prompt,
-      config: { systemInstruction: SYSTEM_PROMPT },
+      contents: [{ role: "user", content: prompt }],
+      systemInstruction: SYSTEM_PROMPT,
     });
     const result = response.text || '';
     if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
     return result || "No summary available.";
   } catch (error: any) {
-    // Gemini SDK handles its own retries for 429s.
-    // We just rethrow and let the main flow handle provider fallback.
     throw error;
   }
 }
@@ -202,13 +202,7 @@ async function callOpenRouter(
     dangerouslyAllowBrowser: true
   });
 
-  const completion = await openai.chat.completions.create({
-    model: "google/gemini-2.5-flash",
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
+  const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -217,8 +211,13 @@ IMPORTANT: If the content describes a study or discovery that only applies to an
 The response must be written in ${language}.
 
 CONTENT:
-${articleContent}`
-      }
+${articleContent}`;
+
+  const completion = await openai.chat.completions.create({
+    model: "google/gemini-2.5-flash",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt }
     ],
   });
 
@@ -239,7 +238,7 @@ async function callMistral(
   const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
 
-  const userMessage = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
+  const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -256,10 +255,8 @@ ${articleContent}`;
     body: JSON.stringify({
       apiKey,
       model: 'mistral-small-latest',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
+      messages: [{ role: 'user', content: userPrompt }],
+      systemInstruction: SYSTEM_PROMPT,
     }),
   });
 
@@ -286,7 +283,7 @@ async function callDeepSeek(
   const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
 
-  const userMessage = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
+  const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
 
 ${lengthInstruction}
 
@@ -303,10 +300,8 @@ ${articleContent}`;
     body: JSON.stringify({
       apiKey,
       model: 'deepseek-chat',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
+      messages: [{ role: 'user', content: userPrompt }],
+      systemInstruction: SYSTEM_PROMPT,
     }),
   });
 
@@ -321,110 +316,70 @@ ${articleContent}`;
   return deepseekResult || 'No summary available.';
 }
 
-// ─── Función principal con fallback automático ────────────────────────────────
+// ─── Orquestador principal con Fallbacks ──────────────────────────────────────
 
 export async function summarizeUrl(
   url: string,
-  language: string = "Spanish",
-  userApiKeys?: ApiKeys | string,
-  length: 'short' | 'medium' | 'long' | 'child' = 'short',
-  provider: Provider = 'gemini',
+  apiKeys: ApiKeys,
+  provider: Provider,
+  language: string,
+  length: 'short' | 'medium' | 'long' | 'child' = 'medium',
   prefetchedContent?: { text: string; title: string; type: string }
-) {
-  let keys: ApiKeys;
-  if (typeof userApiKeys === 'string') {
-    keys = { [provider]: userApiKeys } as ApiKeys;
-  } else {
-    keys = userApiKeys || {};
-  }
-
-  const hasGemini = !!(keys.gemini && keys.gemini !== "undefined");
-  const hasOpenRouter = !!(keys.openrouter && keys.openrouter !== "undefined");
-  const hasMistral = !!(keys.mistral && keys.mistral !== "undefined");
-  const hasDeepSeek = !!(keys.deepseek && keys.deepseek !== "undefined");
-
-  if (!hasGemini && !hasOpenRouter && !hasMistral && !hasDeepSeek) {
-    throw new Error("API Key no configurada. Por favor, introduce tu propia API Key en la configuración.");
-  }
-
+): Promise<string> {
   const lengthInstruction = getLengthInstruction(length);
 
-  const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
-  const orderedProviders: Provider[] = [
-    provider,
-    ...allProviders.filter(p => p !== provider)
-  ];
-
-  const availableProviders = orderedProviders.filter(p => {
-    if (p === 'gemini') return hasGemini;
-    if (p === 'openrouter') return hasOpenRouter;
-    if (p === 'mistral') return hasMistral;
-    if (p === 'deepseek') return hasDeepSeek;
-    return false;
-  });
-
-  let lastError: any;
-
-  // Pre-fetch content once so all provider retries share it
-  let sharedContent = prefetchedContent;
-  if (!sharedContent) {
+  // Intentar primero con el prefetchedContent si existe, si no, descargarlo una vez
+  let content = prefetchedContent;
+  if (!content) {
     try {
-      sharedContent = await fetchArticleContent(url);
-    } catch (fetchErr: any) {
-      throw new Error(fetchErr.message || 'insufficient_content');
-    }
-    if (!sharedContent.text || sharedContent.text.length < 50) {
-      throw new Error('insufficient_content');
+      content = await fetchArticleContent(url);
+    } catch (e: any) {
+      throw e; // Si falla la descarga, no podemos seguir con ningún provider
     }
   }
 
-  const callProvider = async (p: Provider, key: string): Promise<string> => {
-    if (p === 'gemini') return callGemini(key, url, language, lengthInstruction, sharedContent);
-    if (p === 'openrouter') return callOpenRouter(key, url, language, lengthInstruction, sharedContent);
-    if (p === 'mistral') return callMistral(key, url, language, lengthInstruction, sharedContent);
-    return callDeepSeek(key, url, language, lengthInstruction, sharedContent);
-  };
+  if (!content.text || content.text.length < 100) {
+    throw new Error('insufficient_content');
+  }
 
-  for (const p of availableProviders) {
-    const key = keys[p]!;
+  // Definir orden de providers (el seleccionado primero, luego el resto)
+  const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
+  const providersToTry = [provider, ...allProviders.filter(p => p !== provider)];
+
+  let lastError: any = null;
+
+  for (const p of providersToTry) {
+    const key = apiKeys[p as keyof ApiKeys];
+    if (!key) continue;
+
     try {
-      console.log(`🔄 Trying provider: ${p}`);
-      return await callProvider(p, key);
+      switch (p) {
+        case 'gemini':
+          return await callGemini(key, url, language, lengthInstruction, content);
+        case 'openrouter':
+          return await callOpenRouter(key, url, language, lengthInstruction, content);
+        case 'mistral':
+          return await callMistral(key, url, language, lengthInstruction, content);
+        case 'deepseek':
+          return await callDeepSeek(key, url, language, lengthInstruction, content);
+      }
     } catch (error: any) {
       lastError = error;
 
-      if (isQuotaError(error)) {
-        console.warn(`⚠️ Quota exceeded for ${p}, trying next provider...`);
-        continue;
-      }
+      if (isAuthError(error)) throw error;
+      if (error.message === 'insufficient_content') throw error;
 
-      // Insufficient content — no point trying other providers with same content
-      if (error.message === 'insufficient_content') {
-        throw new Error('insufficient_content');
-      }
-
-      // Auth errors — propagate immediately with a clear message
-      if (isAuthError(error)) {
-        throw new Error('api_key_invalid');
-      }
-
-      // Transient errors (network, server down) — retry once after 2s
-      if (isTransientError(error)) {
-        console.warn(`⚠️ Transient error for ${p}, retrying in 2s...`);
-        await new Promise(r => setTimeout(r, 2000));
-        try {
-          return await callProvider(p, key);
-        } catch (retryError: any) {
-          lastError = retryError;
-          // If still failing after retry, try next provider if available
-          console.warn(`⚠️ Retry failed for ${p}, trying next provider...`);
-          continue;
+      if (isQuotaError(error) || isTransientError(error)) {
+        console.warn(`Provider ${p} failed, trying next...`, error);
+        if (isTransientError(error)) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
+        continue;
       }
 
       throw error;
     }
   }
 
-  throw new Error("quota_exceeded_all");
+  throw lastError || new Error('quota_exceeded_all');
 }

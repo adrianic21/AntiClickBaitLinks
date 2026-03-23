@@ -333,7 +333,7 @@ async function startServer() {
   // FIX: Eliminado el `app.set('trust proxy', 1)` duplicado — solo se necesita uno
   app.set('trust proxy', 1);
 
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));
   app.use(express.json());
 

@@ -124,7 +124,6 @@ npm run start
 | `/api/validate-token` | POST | Validates Premium tokens with device binding |
 | `/api/check-limit` | POST | Checks and records IP-based usage |
 | `/api/paypal-webhook` | POST | Handles PayPal payment events |
-| `/api/admin/generate-token` | POST | Manually generates Premium tokens |
 
 ---
 
@@ -139,7 +138,7 @@ npm run start
 
 ## Premium System
 
-Premium tokens are UUIDs generated on payment via PayPal webhook. Each token is stored in Upstash Redis and bound to a single device on first activation. Tokens cannot be shared across devices. Refunds automatically revoke the associated token.
+Premium tokens are UUIDs generated on payment via PayPal webhook. Each token is stored in Upstash Redis and bound to a single device on first activation. Tokens cannot be shared across devices.
 
 ---
 

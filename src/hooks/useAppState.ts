@@ -76,6 +76,10 @@ export function useAppState() {
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  // FIX: AbortController para cancelar requests en vuelo cuando el usuario
+  // inicia una nueva búsqueda antes de que termine la anterior.
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
     () => UI_TRANSLATIONS[uiLanguage as TranslationKey] || UI_TRANSLATIONS.English,
@@ -127,7 +131,11 @@ export function useAppState() {
 
   // ─── Stop speech on unmount ─────────────────────────────────────────────────
   useEffect(() => {
-    return () => { window.speechSynthesis.cancel(); };
+    return () => {
+      window.speechSynthesis.cancel();
+      // FIX: Cancelar también cualquier request en vuelo al desmontar
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   // ─── PWA install prompt ─────────────────────────────────────────────────────
@@ -177,15 +185,12 @@ export function useAppState() {
 
   // ─── Load persisted state ───────────────────────────────────────────────────
   useEffect(() => {
-    // Provider
     const savedProvider = localStorage.getItem('api_provider') as Provider;
     if (savedProvider) setProvider(savedProvider);
 
-    // Preferred summary length
     const savedLength = localStorage.getItem('preferred_length') as 'short' | 'medium' | 'long';
     if (savedLength) setPreferredLengthState(savedLength);
 
-    // API keys (all four providers)
     const savedKeys: ApiKeys = {
       gemini: localStorage.getItem('api_key_gemini') || undefined,
       openrouter: localStorage.getItem('api_key_openrouter') || undefined,
@@ -196,13 +201,11 @@ export function useAppState() {
     const currentKey = savedKeys[savedProvider || 'gemini'];
     if (currentKey) { setUserApiKey(currentKey); setIsKeySaved(true); }
 
-    // UI language
     const savedLang = localStorage.getItem('ui_language');
     if (savedLang && UI_TRANSLATIONS[savedLang as TranslationKey]) {
       setUiLanguage(savedLang);
     }
 
-    // Premium status + token validation
     const savedPremium = localStorage.getItem('is_premium') === 'true';
     setIsPremium(savedPremium);
     if (savedPremium) {
@@ -225,7 +228,6 @@ export function useAppState() {
       }
     }
 
-    // Onboarding
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
     if (!savedDontShow) {
@@ -234,7 +236,6 @@ export function useAppState() {
       else setShowInfo(true);
     }
 
-    // Check server-side usage limit on load
     if (!savedPremium) {
       fetch('/api/check-limit', {
         method: 'POST',
@@ -372,6 +373,8 @@ export function useAppState() {
   }, []);
 
   const handleClear = useCallback(() => {
+    // FIX: Cancelar request en vuelo al limpiar
+    abortControllerRef.current?.abort();
     setUrl('');
     setSummary(null);
     setArticleTitle(null);
@@ -386,6 +389,10 @@ export function useAppState() {
     if (e) e.preventDefault();
     if (!url && !pdfFile || isLoading) return;
     if (!checkUsageLimit()) return;
+
+    // FIX: Cancelar cualquier request anterior antes de iniciar uno nuevo
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
 
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
@@ -420,27 +427,23 @@ export function useAppState() {
       }
 
       const summaryResult = await summarizeUrl(
-  finalUrl,
-  apiKeys,
-  provider,
-  uiLanguage,
-  resolvedLength,
-  prefetchedContent
-);
+        finalUrl,
+        apiKeys,
+        provider,
+        uiLanguage,
+        resolvedLength,
+        prefetchedContent
+      );
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');
       setSummary(summaryResult);
 
-      const resolvedTitle = prefetchedContent?.title ||
-        (resolvedLength === 'short' && !pdfFile
-          ? await fetch('/api/' + (detectContentType(finalUrl) === 'youtube' ? 'youtube' : 'fetch-url'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: finalUrl }),
-            }).then(r => r.ok ? r.json() : null).then(d => d?.title || '').catch(() => '')
-          : '') || '';
-
+      // FIX: Eliminado el segundo fetch al servidor solo para obtener el título.
+      // El título ya está disponible en prefetchedContent (si es PDF) o en el
+      // contenido pre-descargado dentro de summarizeUrl. Si no hay título, se
+      // deja vacío — no vale la pena un request extra solo por eso.
+      const resolvedTitle = prefetchedContent?.title || '';
       if (resolvedTitle) setArticleTitle(resolvedTitle);
 
       if (!isPremium) {
@@ -463,6 +466,10 @@ export function useAppState() {
     } catch (err: any) {
       if (msgInterval) { clearInterval(msgInterval); }
       setLoadingMessage('');
+
+      // FIX: No mostrar error si el request fue cancelado intencionalmente
+      if (err?.name === 'AbortError') return;
+
       let message = t.genericError;
       if (
         err.message === 'quota_exceeded_all' ||

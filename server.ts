@@ -53,6 +53,9 @@ interface UsageData {
 
 interface DeviceData {
   deviceId: string;
+  fingerprint?: string;
+  boundAt?: string;
+  lastValidatedAt?: string;
 }
 
 async function redisGet<T>(key: string): Promise<T | null> {
@@ -200,13 +203,33 @@ async function getUsageResetTime(ip: string): Promise<number | null> {
 
 // ─── Token device binding ─────────────────────────────────────────────────────
 
-async function getTokenDevice(token: string): Promise<string | null> {
-  const data = await redisGet<DeviceData>(`device:${token}`);
-  return data?.deviceId || null;
+function buildDeviceFingerprint(req: express.Request, deviceId: string): string {
+  const userAgent = String(req.headers['user-agent'] || '');
+  const acceptLanguage = String(req.headers['accept-language'] || '');
+  const secChUa = String(req.headers['sec-ch-ua'] || '');
+  const secChUaPlatform = String(req.headers['sec-ch-ua-platform'] || '');
+  const secChUaMobile = String(req.headers['sec-ch-ua-mobile'] || '');
+  const serverSalt = process.env.DEVICE_FINGERPRINT_SALT || process.env.ADMIN_SECRET || 'anticlickbait-default-salt';
+
+  const raw = [
+    deviceId,
+    userAgent,
+    acceptLanguage,
+    secChUa,
+    secChUaPlatform,
+    secChUaMobile,
+    serverSalt,
+  ].join('|');
+
+  return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
-async function bindTokenToDevice(token: string, deviceId: string): Promise<void> {
-  await redisSet<DeviceData>(`device:${token}`, { deviceId });
+async function getTokenDevice(token: string): Promise<DeviceData | null> {
+  return redisGet<DeviceData>(`device:${token}`);
+}
+
+async function bindTokenToDevice(token: string, deviceData: DeviceData): Promise<void> {
+  await redisSet<DeviceData>(`device:${token}`, deviceData);
 }
 
 // ─── Email sender (Brevo REST API) ───────────────────────────────────────────
@@ -616,19 +639,44 @@ async function startServer() {
   app.post("/api/validate-token", tokenLimiter, async (req, res) => {
     const { token, deviceId } = req.body;
     if (!token) return res.status(400).json({ valid: false, error: "Token required" });
+    if (!deviceId || typeof deviceId !== 'string') {
+      return res.status(400).json({ valid: false, error: "Device ID required" });
+    }
+    const normalizedDeviceId = deviceId.trim();
+    if (normalizedDeviceId.length < 8 || normalizedDeviceId.length > 128) {
+      return res.status(400).json({ valid: false, error: "Invalid device ID" });
+    }
 
     const tokenData = await getToken(token);
     if (!tokenData || tokenData.used || tokenData.revokedAt) {
       return res.status(200).json({ valid: false });
     }
 
-    if (deviceId) {
-      const boundDevice = await getTokenDevice(token);
-      if (!boundDevice) {
-        await bindTokenToDevice(token, deviceId);
-      } else if (boundDevice !== deviceId) {
+    const currentFingerprint = buildDeviceFingerprint(req, normalizedDeviceId);
+    const boundDevice = await getTokenDevice(token);
+
+    if (!boundDevice) {
+      await bindTokenToDevice(token, {
+        deviceId: normalizedDeviceId,
+        fingerprint: currentFingerprint,
+        boundAt: new Date().toISOString(),
+        lastValidatedAt: new Date().toISOString(),
+      });
+    } else {
+      if (boundDevice.deviceId !== normalizedDeviceId) {
         return res.status(200).json({ valid: false, reason: 'device_mismatch' });
       }
+
+      // Compatibilidad con bindings antiguos (solo deviceId): se migra en caliente.
+      if (boundDevice.fingerprint && boundDevice.fingerprint !== currentFingerprint) {
+        return res.status(200).json({ valid: false, reason: 'device_mismatch' });
+      }
+
+      await bindTokenToDevice(token, {
+        ...boundDevice,
+        fingerprint: currentFingerprint,
+        lastValidatedAt: new Date().toISOString(),
+      });
     }
 
     res.status(200).json({ valid: true, email: tokenData.email });

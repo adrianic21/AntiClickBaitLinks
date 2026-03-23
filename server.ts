@@ -144,19 +144,15 @@ async function getUsageCount(ip: string): Promise<number> {
 }
 
 async function incrementUsage(ip: string): Promise<number> {
-  const existing = await redisGet(`usage:${ip}` as any);
-  let usage = existing as any;
   const now = Date.now();
-
   let count = 1;
   let windowStart = now;
 
-  if (usage && (now - (usage.windowStart || 0)) < USAGE_WINDOW_MS) {
-    count = (usage.count || 0) + 1;
-    windowStart = usage.windowStart || now;
-  } else {
-    // If window expired or no usage, reset count and windowStart
-    usage = null;
+  const existingUsage = await redisGet(`usage:${ip}` as any) as any;
+
+  if (existingUsage && (now - (existingUsage.windowStart || 0)) < USAGE_WINDOW_MS) {
+    count = (existingUsage.count || 0) + 1;
+    windowStart = existingUsage.windowStart || now;
   }
 
   await redisSet(`usage:${ip}` as any, { count, windowStart, email: '', createdAt: new Date().toISOString(), used: false } as any);
@@ -253,6 +249,7 @@ function verifyPaypalWebhook(req: express.Request): boolean {
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", 1); // Confiar en el proxy de Railway para obtener la IP real del cliente
   const PORT = process.env.PORT || 3000;
 
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));

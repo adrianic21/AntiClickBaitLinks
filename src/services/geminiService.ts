@@ -65,6 +65,32 @@ function isTransientError(error: any): boolean {
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function retryTransientOperation<T>(
+  operation: () => Promise<T>,
+  attempts = 2,
+  baseDelayMs = 450
+): Promise<T> {
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      if (!isTransientError(error) || attempt === attempts) {
+        throw error;
+      }
+      await sleep(baseDelayMs * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Eres un extractor de datos anti-clickbait. Tu única misión es entregar la información que el titular promete, ELIMINANDO todo el relleno descriptivo.
@@ -128,11 +154,11 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
   const contentType = detectContentType(url);
   const endpoint = contentType === 'youtube' ? '/api/youtube' : '/api/fetch-url';
 
-  const fetchResponse = await fetch(endpoint, {
+  const fetchResponse = await retryTransientOperation(() => fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url })
-  });
+  }), 2, 350);
 
   if (!fetchResponse.ok) {
     const err = await fetchResponse.json().catch(() => ({}));
@@ -389,22 +415,38 @@ export async function summarizeUrl(
       switch (p) {
         case 'gemini':
           return {
-            summary: await callGemini(key, url, language, lengthInstruction, length, content),
+            summary: await retryTransientOperation(
+              () => callGemini(key, url, language, lengthInstruction, length, content),
+              2,
+              500
+            ),
             title: content.title || '',
           };
         case 'openrouter':
           return {
-            summary: await callOpenRouter(key, url, language, lengthInstruction, length, content),
+            summary: await retryTransientOperation(
+              () => callOpenRouter(key, url, language, lengthInstruction, length, content),
+              2,
+              500
+            ),
             title: content.title || '',
           };
         case 'mistral':
           return {
-            summary: await callMistral(key, url, language, lengthInstruction, length, content),
+            summary: await retryTransientOperation(
+              () => callMistral(key, url, language, lengthInstruction, length, content),
+              2,
+              500
+            ),
             title: content.title || '',
           };
         case 'deepseek':
           return {
-            summary: await callDeepSeek(key, url, language, lengthInstruction, length, content),
+            summary: await retryTransientOperation(
+              () => callDeepSeek(key, url, language, lengthInstruction, length, content),
+              2,
+              500
+            ),
             title: content.title || '',
           };
       }

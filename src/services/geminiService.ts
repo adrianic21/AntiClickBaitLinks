@@ -340,7 +340,7 @@ export async function summarizeUrl(
     }
   }
 
-  if (!content.text || content.text.length < 100) {
+  if (!content.text || content.text.length < 30) {
     throw new Error('insufficient_content');
   }
 

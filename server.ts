@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+// pdf-parse is imported lazily inside functions to avoid startup crash
 
 // ─── Upstash Redis (token database) ──────────────────────────────────────────
 
@@ -374,6 +374,7 @@ async function startServer() {
         const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
         if (pdfRes.ok) {
           const buffer = Buffer.from(await pdfRes.arrayBuffer());
+          const pdfParse = require('pdf-parse');
           const data = await pdfParse(buffer);
           const text = data.text?.replace(/\s+/g, ' ').trim() || '';
           if (text.length > 100) {
@@ -676,6 +677,7 @@ async function startServer() {
     if (!req.file) return res.status(400).json({ error: "No PDF file provided" });
 
     try {
+      const pdfParse = require('pdf-parse');
       const data = await pdfParse(req.file.buffer);
       const text = data.text?.replace(/\s+/g, ' ').trim() || '';
 

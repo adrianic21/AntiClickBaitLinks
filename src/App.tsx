@@ -232,12 +232,12 @@ export default function App() {
               )}
               {pdfFile && (
                 <button
-                  type="submit"
-                  onClick={(e) => handleSummarize(e as any)}
-                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
-                >
-                  {t.summarize}
-                </button>
+  type="button"
+  onClick={() => handleSummarize()}
+  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
+>
+  {t.summarize}
+</button>
               )}
               {!pdfFile && (
                 <>

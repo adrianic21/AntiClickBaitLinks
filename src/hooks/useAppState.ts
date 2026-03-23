@@ -525,6 +525,11 @@ export function useAppState() {
         message = t.quotaError;
       } else if (err.message === 'insufficient_content' || err.message?.includes('INSUFFICIENT_CONTENT')) {
         message = t.insufficientContentError;
+      } else if (err.message?.includes('pdf_no_text') || err.message?.includes('scanned') || err.message?.includes('image-based')) {
+        message = t.pdfNoTextError;
+      } else if (err.message?.includes('Could not read') || err.message?.includes('PDF')) {
+        // PDF processing error — show a PDF-specific message, not the generic link error
+        message = pdfFile ? t.pdfNoTextError : t.genericError;
       } else if (err.message === 'api_key_invalid' || err.message?.includes('API Key')) {
         message = t.apiKeyInvalidError;
         openPopup('settings');

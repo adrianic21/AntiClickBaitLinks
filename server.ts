@@ -705,8 +705,8 @@ async function startServer() {
     try {
       const { text, title: pdfTitle } = await extractPdfText(req.file.buffer);
 
-      if (text.length < 100) {
-        return res.status(422).json({ error: 'PDF appears to be scanned or image-based. Only text PDFs are supported.' });
+      if (text.length < 20) {
+        return res.status(422).json({ error: 'pdf_no_text' });
       }
 
       const title = pdfTitle || req.file.originalname.replace('.pdf', '') || 'PDF Document';

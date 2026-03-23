@@ -419,7 +419,14 @@ export function useAppState() {
         prefetchedContent = await fetchPdfContent(pdfFile).then(r => ({ ...r, type: 'pdf' }));
       }
 
-      const summaryResult = await summarizeUrl(finalUrl, uiLanguage, apiKeys, resolvedLength, provider, prefetchedContent);
+      const summaryResult = await summarizeUrl(
+  finalUrl,
+  apiKeys,
+  provider,
+  uiLanguage,
+  resolvedLength,
+  prefetchedContent
+);
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');

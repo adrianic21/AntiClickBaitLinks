@@ -16,16 +16,16 @@ export default function App() {
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
-    showLockModal, setShowLockModal, timeLeft, resetTimestamp,
+    showLockModal, setShowLockModal, timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     showInstallButton, resultsRef, t,
-    loadingMessage, summaryHistory, showHistory, setShowHistory, pdfFile, setPdfFile,
+    loadingMessage, pdfFile, setPdfFile,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
     preferredLength, setPreferredLength,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleInstall, handleShare, handleClearHistory,
+    handleSpeak, handleInstall, handleShare,
   } = state;
 
   // PDF file input ref
@@ -38,12 +38,6 @@ export default function App() {
       setUrl('');
     }
     e.target.value = '';
-  };
-
-  // Load a history entry back into the view
-  const handleSelectHistory = (entry: { url: string; title: string; summary: string; date: number }) => {
-    setUrl(entry.url);
-    setShowHistory(false);
   };
 
   return (
@@ -233,12 +227,12 @@ export default function App() {
               )}
               {pdfFile && (
                 <button
-  type="button"
-  onClick={() => handleSummarize()}
-  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
->
-  {t.summarizePdf}
-</button>
+                  type="button"
+                  onClick={() => handleSummarize()}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
+                >
+                  {t.summarizePdf}
+                </button>
               )}
               {!pdfFile && (
                 <>
@@ -288,14 +282,9 @@ export default function App() {
           isSpeaking={isSpeaking}
           apiKeys={apiKeys}
           resultsRef={resultsRef}
-          summaryHistory={summaryHistory}
-          showHistory={showHistory}
-          setShowHistory={setShowHistory}
           onSpeak={handleSpeak}
           onExpand={(length) => handleSummarize(undefined, length)}
           onShare={handleShare}
-          onSelectHistory={handleSelectHistory}
-          onClearHistory={handleClearHistory}
         />
 
         {/* Install App button */}

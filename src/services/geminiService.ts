@@ -270,8 +270,16 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
           }),
         });
         if (!response.ok) {
-          const err = await response.json().catch(() => ({ error: response.statusText }));
-          throw new Error(err.error || 'DeepSeek validation failed');
+          const errorText = await response.text().catch(() => response.statusText);
+          const error = new Error(errorText || 'DeepSeek validation failed');
+
+          if (response.status === 401 || response.status === 403 || isAuthError(error)) {
+            return false;
+          }
+
+          // DeepSeek puede devolver errores de saldo, cuota o bloqueos temporales
+          // aunque la key sea correcta. En esos casos la damos por valida.
+          return true;
         }
         return true;
       }

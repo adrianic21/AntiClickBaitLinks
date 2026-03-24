@@ -12,7 +12,7 @@ export default function App() {
   const state = useAppState();
   const {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
-    userApiKey, setUserApiKey, apiKeys, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
@@ -289,7 +289,7 @@ export default function App() {
           currentLength={currentLength}
           isSpeaking={isSpeaking}
           speechRate={speechRate}
-          apiKeys={apiKeys}
+          apiKeys={validatedApiKeys}
           resultsRef={resultsRef}
           onSpeak={handleSpeak}
           onSpeechRateChange={setSpeechRate}

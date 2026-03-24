@@ -124,6 +124,19 @@ function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): st
   }
 }
 
+function getResponseLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
+  switch (length) {
+    case 'short':
+      return `RESPUESTA DIRECTA DE 2-3 ORACIONES con contexto minimo suficiente para entender el titular sin abrir el enlace. Longitud aproximada: entre 220 y 420 caracteres.`;
+    case 'medium':
+      return `Escribe 4-6 oraciones con buen contexto y sin relleno. Longitud aproximada: entre 450 y 900 caracteres.`;
+    case 'long':
+      return `Resumen exhaustivo de varios parrafos. Longitud aproximada: entre 900 y 1700 caracteres.`;
+    case 'child':
+      return `Explica el nucleo del articulo a un nino de 10 anos con lenguaje muy claro, breve y facil de seguir. Longitud aproximada: entre 260 y 520 caracteres.`;
+  }
+}
+
 function normalizeContentForSpeed(
   content: string,
   length: 'short' | 'medium' | 'long' | 'child'
@@ -148,6 +161,20 @@ export function detectContentType(url: string): 'youtube' | 'pdf' | 'web' {
   return 'web';
 }
 
+function deriveTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname;
+    const decoded = decodeURIComponent(lastSegment)
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[-_]+/g, ' ')
+      .trim();
+    return decoded || parsed.hostname;
+  } catch {
+    return '';
+  }
+}
+
 // ─── Fetch article content via our server ────────────────────────────────────
 
 export async function fetchArticleContent(url: string): Promise<{ text: string; title: string; type: string }> {
@@ -166,7 +193,7 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
   }
 
   const data = await fetchResponse.json();
-  return { text: data.text || '', title: data.title || '', type: data.type || contentType };
+  return { text: data.text || '', title: data.title || deriveTitleFromUrl(url), type: data.type || contentType };
 }
 
 // ─── Fetch PDF from uploaded file (base64) ───────────────────────────────────
@@ -187,6 +214,73 @@ export async function fetchPdfContent(file: File): Promise<{ text: string; title
 
   const data = await response.json();
   return { text: data.text || '', title: data.title || file.name };
+}
+
+export async function validateApiKey(provider: Provider, apiKey: string): Promise<boolean> {
+  const trimmedKey = apiKey.trim();
+  if (!trimmedKey) return false;
+
+  try {
+    switch (provider) {
+      case 'gemini': {
+        const ai = new GoogleGenAI({ apiKey: trimmedKey });
+        await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: "Reply with OK",
+        });
+        return true;
+      }
+      case 'openrouter': {
+        const openai = new OpenAI({
+          apiKey: trimmedKey,
+          baseURL: "https://openrouter.ai/api/v1",
+          dangerouslyAllowBrowser: true
+        });
+        await openai.chat.completions.create({
+          model: "google/gemini-2.5-flash",
+          messages: [{ role: "user", content: "Reply with OK" }],
+          max_tokens: 5,
+        });
+        return true;
+      }
+      case 'mistral': {
+        const response = await fetch('/api/mistral', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            apiKey: trimmedKey,
+            model: 'mistral-small-latest',
+            messages: [{ role: 'user', content: 'Reply with OK' }],
+          }),
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ error: response.statusText }));
+          throw new Error(err.error || 'Mistral validation failed');
+        }
+        return true;
+      }
+      case 'deepseek': {
+        const response = await fetch('/api/deepseek', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            apiKey: trimmedKey,
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: 'Reply with OK' }],
+          }),
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ error: response.statusText }));
+          throw new Error(err.error || 'DeepSeek validation failed');
+        }
+        return true;
+      }
+    }
+  } catch (error: any) {
+    if (isAuthError(error)) return false;
+    if (isQuotaError(error) || isTransientError(error)) return true;
+    return false;
+  }
 }
 
 // ─── Llamada a Gemini 2.5 Flash ───────────────────────────────────────────────
@@ -386,7 +480,7 @@ export async function summarizeUrl(
   length: 'short' | 'medium' | 'long' | 'child' = 'medium',
   prefetchedContent?: { text: string; title: string; type: string }
 ): Promise<SummaryResult> {
-  const lengthInstruction = getLengthInstruction(length);
+  const lengthInstruction = `${getLengthInstruction(length)} ${getResponseLengthInstruction(length)}`;
 
   let content = prefetchedContent;
   if (!content) {

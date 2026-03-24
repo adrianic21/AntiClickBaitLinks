@@ -152,10 +152,8 @@ function getUsageId(req: express.Request): string {
 }
 
 async function getUsageCount(ip: string): Promise<number> {
-  const usage = await redisGet<UsageData>(`usage:${ip}`);
-  if (!usage) return 0;
-  if (Date.now() - usage.windowStart > USAGE_WINDOW_MS) return 0;
-  return usage.count || 0;
+  const count = await redisGet<number>(`usage_count:${ip}`);
+  return typeof count === 'number' && Number.isFinite(count) ? count : 0;
 }
 
 // FIX: Operación atómica con INCR de Redis para evitar race condition.
@@ -235,7 +233,7 @@ async function bindTokenToDevice(token: string, deviceData: DeviceData): Promise
 
 function isDeviceTransferEnabled(): boolean {
   const value = String(process.env.PREMIUM_TRANSFER_ON_MISMATCH || '').toLowerCase().trim();
-  if (!value) return true;
+  if (!value) return false;
   if (value === '0' || value === 'false' || value === 'no' || value === 'off') return false;
   return true;
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { summarizeUrl, fetchPdfContent, type Provider, type ApiKeys } from '../services/geminiService';
+import { summarizeUrl, fetchPdfContent, validateApiKey, type Provider, type ApiKeys } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
@@ -44,6 +44,7 @@ export function useAppState() {
   // API
   const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
+  const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
 
@@ -87,10 +88,16 @@ export function useAppState() {
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
-    () => ({
-      ...UI_TRANSLATIONS.English,
-      ...(UI_TRANSLATIONS[uiLanguage as TranslationKey] || {}),
-    }),
+    () => {
+      const merged = {
+        ...UI_TRANSLATIONS.English,
+        ...(UI_TRANSLATIONS[uiLanguage as TranslationKey] || {}),
+      };
+      if (uiLanguage === 'Spanish') {
+        merged.originalTitle = 'Titulo original';
+      }
+      return merged;
+    },
     [uiLanguage]
   );
 
@@ -126,6 +133,53 @@ export function useAppState() {
     openPopup('');
     setShowLockModal(true);
   }, [openPopup]);
+
+  const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
+    const entries = await Promise.all(
+      (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
+        const trimmedKey = keyValue?.trim();
+        if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
+        const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
+        return [providerName, isValid ? trimmedKey : undefined] as const;
+      })
+    );
+
+    const nextValidatedKeys = entries.reduce<ApiKeys>((acc, [providerName, keyValue]) => {
+      if (keyValue) acc[providerName] = keyValue;
+      return acc;
+    }, {});
+
+    setValidatedApiKeys(nextValidatedKeys);
+    setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    return nextValidatedKeys;
+  }, []);
+
+  const validatePremiumSession = useCallback(async (): Promise<boolean> => {
+    const savedToken = localStorage.getItem('premium_token');
+    if (!savedToken) return false;
+
+    try {
+      const res = await fetch('/api/validate-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: savedToken, deviceId: getDeviceId() }),
+      });
+      const data = await res.json();
+      if (data.valid) return true;
+
+      setIsPremium(false);
+      localStorage.removeItem('is_premium');
+      localStorage.removeItem('premium_token');
+      if (data.reason === 'device_mismatch') {
+        setLockError(true);
+        setDeviceMismatchError(true);
+        setShowLockModal(true);
+      }
+      return false;
+    } catch {
+      return true;
+    }
+  }, []);
 
   // ─── Load font ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -203,8 +257,10 @@ export function useAppState() {
       deepseek: localStorage.getItem('api_key_deepseek') || undefined,
     };
     setApiKeys(savedKeys);
+    setValidatedApiKeys({});
     const currentKey = savedKeys[savedProvider || 'gemini'];
-    if (currentKey) { setUserApiKey(currentKey); setIsKeySaved(true); }
+    if (currentKey) { setUserApiKey(currentKey); }
+    refreshValidatedApiKeys(savedKeys).catch(() => { /* keep local keys even if validation fails */ });
 
     const savedLang = localStorage.getItem('ui_language');
     if (savedLang && UI_TRANSLATIONS[savedLang as TranslationKey]) {
@@ -214,23 +270,7 @@ export function useAppState() {
     const savedPremium = localStorage.getItem('is_premium') === 'true';
     setIsPremium(savedPremium);
     if (savedPremium) {
-      const savedToken = localStorage.getItem('premium_token');
-      if (savedToken) {
-        fetch('/api/validate-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: savedToken, deviceId: getDeviceId() }),
-        })
-          .then(r => r.json())
-          .then(data => {
-            if (!data.valid) {
-              setIsPremium(false);
-              localStorage.removeItem('is_premium');
-              localStorage.removeItem('premium_token');
-            }
-          })
-          .catch(() => { /* keep premium on network error */ });
-      }
+      validatePremiumSession().catch(() => { /* keep premium on network error */ });
     }
 
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
@@ -258,7 +298,7 @@ export function useAppState() {
         })
         .catch(() => { /* fall back to server count */ });
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshValidatedApiKeys, validatePremiumSession]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Countdown timer ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -294,20 +334,39 @@ export function useAppState() {
   }, [summary]);
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
-  const saveApiKey = useCallback(() => {
+  const saveApiKey = useCallback(async () => {
+    const trimmedKey = userApiKey.trim();
+
+    if (trimmedKey) {
+      const isValid = await validateApiKey(provider, trimmedKey).catch(() => false);
+      if (!isValid) {
+        setError(t.apiKeyInvalidError);
+        const nextValidatedKeys = { ...validatedApiKeys };
+        delete nextValidatedKeys[provider];
+        setValidatedApiKeys(nextValidatedKeys);
+        setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+        return;
+      }
+    }
+
     const newKeys = { ...apiKeys };
-    if (userApiKey) {
-      newKeys[provider] = userApiKey;
-      localStorage.setItem(`api_key_${provider}`, userApiKey);
+    if (trimmedKey) {
+      newKeys[provider] = trimmedKey;
+      localStorage.setItem(`api_key_${provider}`, trimmedKey);
     } else {
       delete newKeys[provider];
       localStorage.removeItem(`api_key_${provider}`);
     }
     setApiKeys(newKeys);
+    const nextValidatedKeys = { ...validatedApiKeys };
+    if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
+    else delete nextValidatedKeys[provider];
+    setValidatedApiKeys(nextValidatedKeys);
     localStorage.setItem('api_provider', provider);
-    setIsKeySaved(Object.values(newKeys).some(k => k && k !== 'undefined'));
+    setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    setError(null);
     setShowSettings(false);
-  }, [apiKeys, provider, userApiKey]);
+  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys]);
 
   const changeUiLanguage = useCallback((lang: string) => {
     setUiLanguage(lang);
@@ -399,6 +458,10 @@ export function useAppState() {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
     if (!url && !pdfFile || isLoading) return;
+    if (isPremium) {
+      const stillValidPremium = await validatePremiumSession();
+      if (!stillValidPremium) return;
+    }
     if (!checkUsageLimit()) return;
 
     // FIX: Cancelar cualquier request anterior antes de iniciar uno nuevo
@@ -532,7 +595,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, t, openPopup, openLockModal]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, t, openPopup, openLockModal, validatePremiumSession]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -564,8 +627,10 @@ export function useAppState() {
     window.speechSynthesis.speak(utterance);
   }, [summary, isSpeaking, uiLanguage, speechRate]);
 
-  const handleShare = useCallback(async (shareSummary: string) => {
-    const text = `${shareSummary}\n\nvia AntiClickBaitLinks.com`;
+  const handleShare = useCallback(async (shareSummary: string, shareUrl?: string) => {
+    const text = shareUrl && !shareUrl.startsWith('pdf:')
+      ? `${shareSummary}\n\n${shareUrl}\n\nresumido por AntiClickBaitLinks.com`
+      : `${shareSummary}\n\nresumido por AntiClickBaitLinks.com`;
     try {
       await navigator.clipboard.writeText(text);
     } catch { /* ignore */ }
@@ -608,7 +673,7 @@ export function useAppState() {
     // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength,
-    userApiKey, setUserApiKey, apiKeys, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,

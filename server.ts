@@ -68,6 +68,18 @@ interface ArticleCacheEntry {
 
 const ARTICLE_CACHE_TTL_MS = 10 * 60 * 1000;
 const articleCache = new Map<string, ArticleCacheEntry>();
+const TRUSTED_NEWS_DOMAINS = [
+  'reuters.com',
+  'apnews.com',
+  'bbc.com',
+  'dw.com',
+  'elpais.com',
+  'ft.com',
+  'theguardian.com',
+  'lemonde.fr',
+  'nytimes.com',
+  'washingtonpost.com',
+];
 
 async function redisGet<T>(key: string): Promise<T | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -657,6 +669,59 @@ async function startServer() {
     return cachedEntry;
   }
 
+  async function fetchReadableArticle(url: string): Promise<{ text: string; title: string; type: string }> {
+    const cachedArticle = getCachedArticle(url);
+    if (cachedArticle) {
+      return {
+        text: cachedArticle.text,
+        title: cachedArticle.title,
+        type: cachedArticle.type || 'web',
+      };
+    }
+
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+    ];
+
+    for (const userAgent of userAgents) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': userAgent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+            'Cache-Control': 'no-cache',
+            'Upgrade-Insecure-Requests': '1',
+          },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (!response.ok) continue;
+
+        const html = await response.text();
+        const { text, title } = extractFromHtml(html);
+
+        if (scoreReadableCandidate(text) > 180) {
+          const cachedHtml = setCachedArticle(url, {
+            text: text.substring(0, 20000),
+            title,
+            type: 'web',
+          });
+          return { text: cachedHtml.text, title: cachedHtml.title, type: 'web' };
+        }
+      } catch {
+        // Try next agent
+      }
+    }
+
+    const { text, title } = await fetchViaJina(url);
+    const cachedJina = setCachedArticle(url, { text, title, type: 'web' });
+    return { text: cachedJina.text, title: cachedJina.title, type: 'web' };
+  }
+
   app.post("/api/fetch-url", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
@@ -750,6 +815,66 @@ async function startServer() {
 
     console.error("All fetch strategies failed for:", url);
     res.status(500).json({ error: 'Failed to fetch URL' });
+  });
+
+  app.post("/api/deep-investigate", async (req, res) => {
+    const { url, title } = req.body;
+    if (!url || !title) {
+      return res.status(400).json({ error: 'URL and title are required' });
+    }
+
+    try {
+      const query = encodeURIComponent(`"${String(title).slice(0, 140)}"`);
+      const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
+      const rssResponse = await fetch(rssUrl, { signal: AbortSignal.timeout(12000) });
+      if (!rssResponse.ok) {
+        return res.status(500).json({ error: 'search_failed' });
+      }
+
+      const xml = await rssResponse.text();
+      const $ = cheerio.load(xml, { xmlMode: true });
+
+      const candidates = $('item').map((_index, item) => {
+        const link = $(item).find('link').first().text().trim();
+        const itemTitle = $(item).find('title').first().text().trim();
+        const source = $(item).find('source').first().text().trim();
+        return { link, title: itemTitle, source };
+      }).get()
+        .filter((item) => item.link && item.title)
+        .filter((item) => item.link !== url)
+        .filter((item) => TRUSTED_NEWS_DOMAINS.some((domain) => item.link.includes(domain)))
+        .slice(0, 6);
+
+      const sources = [];
+
+      for (const candidate of candidates) {
+        try {
+          const article = await fetchReadableArticle(candidate.link);
+          if (!article.text || article.text.length < 140) continue;
+          const sourceHost = (() => {
+            try {
+              return new URL(candidate.link).hostname.replace(/^www\./, '');
+            } catch {
+              return 'source';
+            }
+          })();
+          sources.push({
+            title: candidate.title,
+            url: candidate.link,
+            source: candidate.source || sourceHost,
+            snippet: article.text.slice(0, 320).replace(/\s+/g, ' ').trim(),
+          });
+        } catch {
+          // Keep trying other trusted sources.
+        }
+
+        if (sources.length >= 3) break;
+      }
+
+      return res.json({ sources });
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || 'deep_investigation_failed' });
+    }
   });
 
   // ── PayPal Webhook ────────────────────────────────────────────────────────

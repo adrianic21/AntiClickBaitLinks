@@ -18,6 +18,20 @@ export interface SummaryResult {
   attemptedProviders: Provider[];
 }
 
+export interface InvestigationSource {
+  title: string;
+  url: string;
+  source: string;
+  snippet: string;
+}
+
+export interface InvestigationResult {
+  verdict: string;
+  confidence: 'low' | 'medium' | 'high';
+  findings: string[];
+  relatedSources: InvestigationSource[];
+}
+
 // ─── Detectar si el error es de cuota/límite ─────────────────────────────────
 
 function isQuotaError(error: any): boolean {
@@ -154,6 +168,36 @@ function normalizeContentForSpeed(
   const maxChars = maxCharsByLength[length];
   if (content.length <= maxChars) return content;
   return `${content.slice(0, maxChars)}\n\n[TRUNCATED_FOR_SPEED]`;
+}
+
+function normalizeTitleForScoring(title: string): string[] {
+  return title
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 3);
+}
+
+export function estimateLieScore(title: string, content: string): number {
+  if (!title || !content) return 0;
+
+  const titleWords = normalizeTitleForScoring(title);
+  const contentLower = content.toLowerCase();
+  const matchedWords = titleWords.filter(word => contentLower.includes(word));
+  const mismatchRatio = titleWords.length > 0 ? 1 - (matchedWords.length / titleWords.length) : 0;
+
+  const hypePatterns = [
+    /shock|shocking|brutal|bombshell|increible|incredible|unbelievable|viral|secret|nadie te cuenta|nadie vio|ultima hora/i,
+    /you won['’]t believe|te dejara|te dejará|explota|destroza|humilla|arrasa|caos/i,
+    /\b\d+\s+(trucos|secrets|formas|ways|errores|mistakes)\b/i,
+  ];
+  const punctuationBoost = (title.match(/[!?]/g) || []).length * 6;
+  const capsBoost = (title.match(/\b[A-ZÁÉÍÓÚÜÑ]{4,}\b/g) || []).length * 7;
+  const hypeBoost = hypePatterns.reduce((acc, pattern) => acc + (pattern.test(title) ? 16 : 0), 0);
+
+  const rawScore = (mismatchRatio * 62) + punctuationBoost + capsBoost + hypeBoost;
+  return Math.max(0, Math.min(100, Math.round(rawScore)));
 }
 
 // ─── Detect content type from URL ────────────────────────────────────────────
@@ -481,6 +525,64 @@ ${optimizedContent}`;
   return deepseekResult || 'No summary available.';
 }
 
+async function callProviderWithPrompt(
+  provider: Provider,
+  apiKey: string,
+  prompt: string
+): Promise<string> {
+  switch (provider) {
+    case 'gemini': {
+      const ai = new GoogleGenAI({ apiKey });
+      const result = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+      });
+      return result.text || '';
+    }
+    case 'openrouter': {
+      const openai = new OpenAI({
+        apiKey,
+        baseURL: "https://openrouter.ai/api/v1",
+        dangerouslyAllowBrowser: true
+      });
+      const result = await openai.chat.completions.create({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 500,
+      });
+      return result.choices?.[0]?.message?.content || '';
+    }
+    case 'mistral': {
+      const response = await fetch('/api/mistral', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          model: 'mistral-small-latest',
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Mistral request failed');
+      return data.choices?.[0]?.message?.content || '';
+    }
+    case 'deepseek': {
+      const response = await fetch('/api/deepseek', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'DeepSeek request failed');
+      return data.choices?.[0]?.message?.content || '';
+    }
+  }
+}
+
 // ─── Orquestador principal con Fallbacks ──────────────────────────────────────
 
 export async function summarizeUrl(
@@ -596,4 +698,86 @@ export async function summarizeUrl(
   }
 
   throw lastError || new Error('quota_exceeded_all');
+}
+
+export async function investigateClaim(
+  url: string,
+  articleTitle: string,
+  articleSummary: string,
+  apiKeys: ApiKeys,
+  providerPriority: Provider[]
+): Promise<InvestigationResult> {
+  const response = await fetch('/api/deep-investigate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, title: articleTitle }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || 'deep_investigation_failed');
+  }
+
+  const relatedSources = Array.isArray(data.sources) ? data.sources as InvestigationSource[] : [];
+  if (relatedSources.length === 0) {
+    throw new Error('deep_investigation_failed');
+  }
+
+  const prompt = `Analiza si esta noticia parece fiable o si su titular exagera o distorsiona los hechos.
+
+Devuelve SOLO JSON valido con esta forma:
+{
+  "verdict": "texto corto",
+  "confidence": "low|medium|high",
+  "findings": ["hallazgo 1", "hallazgo 2", "hallazgo 3"]
+}
+
+Noticia original:
+Titulo: ${articleTitle}
+URL: ${url}
+Resumen: ${articleSummary}
+
+Fuentes de contraste:
+${relatedSources.map((source, index) => `${index + 1}. ${source.source} | ${source.title}\nURL: ${source.url}\nSnippet: ${source.snippet}`).join('\n\n')}
+
+Evalua si las otras fuentes apoyan, matizan o contradicen la noticia original.`;
+
+  let raw = '';
+  let providerUsed: Provider | null = null;
+  let lastError: unknown = null;
+
+  for (const provider of providerPriority) {
+    const key = apiKeys[provider];
+    if (!key) continue;
+    try {
+      raw = await retryTransientOperation(() => callProviderWithPrompt(provider, key, prompt), 2, 350);
+      providerUsed = provider;
+      break;
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+  }
+
+  if (!raw) {
+    throw (lastError instanceof Error ? lastError : new Error('deep_investigation_failed'));
+  }
+
+  try {
+    const jsonText = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+    const parsed = JSON.parse(jsonText) as Omit<InvestigationResult, 'relatedSources'>;
+    return {
+      verdict: parsed.verdict || `Veredicto generado con ${providerUsed || 'IA'}`,
+      confidence: parsed.confidence || 'medium',
+      findings: Array.isArray(parsed.findings) ? parsed.findings.slice(0, 4) : [],
+      relatedSources,
+    };
+  } catch {
+    return {
+      verdict: 'Las fuentes externas aportan contexto adicional, pero la verificacion automatica no pudo estructurarse del todo.',
+      confidence: 'medium',
+      findings: relatedSources.slice(0, 3).map(source => `${source.source}: ${source.title}`),
+      relatedSources,
+    };
+  }
 }

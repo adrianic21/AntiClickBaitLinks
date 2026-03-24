@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { summarizeUrl, fetchPdfContent, validateApiKey, type Provider, type ApiKeys } from '../services/geminiService';
+import {
+  summarizeUrl,
+  fetchPdfContent,
+  validateApiKey,
+  investigateClaim,
+  estimateLieScore,
+  type Provider,
+  type ApiKeys,
+  type InvestigationResult,
+} from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 import {
   deriveInsights,
@@ -55,6 +64,9 @@ export function useAppState() {
   const [currentLength, setCurrentLength] = useState<'short' | 'medium' | 'long' | 'child'>('short');
   const [preferredLength, setPreferredLengthState] = useState<'short' | 'medium' | 'long'>('short');
   const [summaryLanguage, setSummaryLanguageState] = useState('English');
+  const [deepResearchEnabled, setDeepResearchEnabled] = useState(false);
+  const [lieScore, setLieScore] = useState(0);
+  const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
   const [summaryHistory, setSummaryHistory] = useState<SummaryHistoryEntry[]>([]);
   const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0, topSources: [] });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
@@ -99,6 +111,7 @@ export function useAppState() {
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
+  const lastAutoSummarizedUrlRef = useRef('');
 
   // FIX: AbortController para cancelar requests en vuelo cuando el usuario
   // inicia una nueva búsqueda antes de que termine la anterior.
@@ -318,6 +331,7 @@ export function useAppState() {
     } else if (savedLang && UI_TRANSLATIONS[savedLang as TranslationKey]) {
       setSummaryLanguageState(savedLang);
     }
+    setDeepResearchEnabled(localStorage.getItem('deep_research_enabled') === 'true');
 
     const loadedHistory = getSummaryHistory();
     setSummaryHistory(loadedHistory);
@@ -376,8 +390,15 @@ export function useAppState() {
   // ─── Auto-summarize on URL paste ────────────────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (url && !isLoading && !summary) {
-        try { new URL(url); handleSummarize(); } catch { /* invalid url, wait */ }
+      if (url && !isLoading) {
+        try {
+          const normalizedUrl = extractUrlFromText(url);
+          new URL(normalizedUrl);
+          if (normalizedUrl !== lastAutoSummarizedUrlRef.current) {
+            lastAutoSummarizedUrlRef.current = normalizedUrl;
+            handleSummarize();
+          }
+        } catch { /* invalid url, wait */ }
       }
     }, 500);
     return () => clearTimeout(timer);
@@ -498,6 +519,11 @@ export function useAppState() {
     localStorage.setItem('summary_language', lang);
   }, []);
 
+  const setDeepResearchMode = useCallback((enabled: boolean) => {
+    setDeepResearchEnabled(enabled);
+    localStorage.setItem('deep_research_enabled', enabled ? 'true' : 'false');
+  }, []);
+
   const setSpeechRate = useCallback((rate: number) => {
     setSpeechRateState(rate);
     localStorage.setItem('speech_rate', String(rate));
@@ -509,7 +535,10 @@ export function useAppState() {
     setUrl('');
     setSummary(null);
     setArticleTitle(null);
+    setLieScore(0);
+    setInvestigationResult(null);
     setError(null);
+    lastAutoSummarizedUrlRef.current = '';
     summaryCacheRef.current.clear();
   }, []);
 
@@ -546,6 +575,7 @@ export function useAppState() {
     setIsLoading(true);
     setLoadingProgress(8);
     setError(null);
+    setInvestigationResult(null);
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
@@ -554,6 +584,16 @@ export function useAppState() {
     if (cached) {
       setSummary(cached.summary);
       setArticleTitle(cached.title || null);
+       setLieScore(estimateLieScore(cached.title || finalUrl, cached.summary));
+      if (deepResearchEnabled && !finalUrl.startsWith('pdf:')) {
+        investigateClaim(
+          finalUrl,
+          cached.title || finalUrl,
+          cached.summary,
+          apiKeys,
+          providerPriority
+        ).then(setInvestigationResult).catch(() => setInvestigationResult(null));
+      }
       setIsLoading(false);
       return;
     }
@@ -566,6 +606,16 @@ export function useAppState() {
       });
       setSummary(persistedCached.summary);
       setArticleTitle(persistedCached.title || null);
+      setLieScore(estimateLieScore(persistedCached.title || finalUrl, persistedCached.summary));
+      if (deepResearchEnabled && !finalUrl.startsWith('pdf:')) {
+        investigateClaim(
+          finalUrl,
+          persistedCached.title || finalUrl,
+          persistedCached.summary,
+          apiKeys,
+          providerPriority
+        ).then(setInvestigationResult).catch(() => setInvestigationResult(null));
+      }
       setIsLoading(false);
       return;
     }
@@ -612,6 +662,7 @@ export function useAppState() {
       // deja vacío — no vale la pena un request extra solo por eso.
       const resolvedTitle = summaryResult.title || prefetchedContent?.title || '';
       if (resolvedTitle) setArticleTitle(resolvedTitle);
+      setLieScore(estimateLieScore(resolvedTitle || finalUrl, summaryResult.summary));
       summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
       saveCachedSummary({
         key: cacheKey,
@@ -645,6 +696,17 @@ export function useAppState() {
       const nextHistory = saveSummaryHistoryEntry(historyEntry);
       setSummaryHistory(nextHistory);
       setAppInsights(deriveInsights(nextHistory));
+
+      if (deepResearchEnabled && !finalUrl.startsWith('pdf:')) {
+        const investigation = await investigateClaim(
+          finalUrl,
+          resolvedTitle || finalUrl,
+          summaryResult.summary,
+          apiKeys,
+          providerPriority
+        );
+        setInvestigationResult(investigation);
+      }
 
       if (!isPremium) {
         fetch('/api/check-limit', {
@@ -708,7 +770,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -786,6 +848,7 @@ export function useAppState() {
     // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
+    deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,

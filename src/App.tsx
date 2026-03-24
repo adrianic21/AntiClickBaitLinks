@@ -12,7 +12,7 @@ import { InsightsPanel } from './components/InsightsPanel';
 export default function App() {
   const state = useAppState();
   const {
-    url, setUrl, uiLanguage, summaryLanguage, summaryHistory, appInsights, summary, articleTitle, isLoading, error,
+    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult, summaryHistory, appInsights, summary, articleTitle, isLoading, error,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
@@ -26,7 +26,7 @@ export default function App() {
     showSharedToast,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
-    preferredLength, setPreferredLength, setSummaryLanguage,
+    preferredLength, setPreferredLength, setSummaryLanguage, setDeepResearchMode,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
   } = state;
@@ -223,6 +223,15 @@ export default function App() {
                 onChange={handlePdfSelect}
                 className="hidden"
               />
+              {!!url && !pdfFile && (
+                <button
+                  type="button"
+                  onClick={() => handleSummarize()}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
+                >
+                  {t.summarize}
+                </button>
+              )}
               {!pdfFile && (
                 <button
                   type="button"
@@ -286,6 +295,21 @@ export default function App() {
           history={summaryHistory}
         />
 
+        <div className="flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => setDeepResearchMode(!deepResearchEnabled)}
+            className={cn(
+              "px-4 py-2 rounded-2xl text-sm font-bold transition-all border",
+              deepResearchEnabled
+                ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                : "bg-white/80 text-zinc-600 border-zinc-200 hover:bg-zinc-50"
+            )}
+          >
+            {deepResearchEnabled ? (t.deepResearchOn || 'Investigacion profunda activada') : (t.deepResearchOff || 'Activar investigacion profunda')}
+          </button>
+        </div>
+
         {/* Results + API key status */}
         <ResultCard
           t={t}
@@ -299,6 +323,8 @@ export default function App() {
           currentLength={currentLength}
           isSpeaking={isSpeaking}
           speechRate={speechRate}
+          lieScore={lieScore}
+          investigationResult={investigationResult}
           apiKeys={validatedApiKeys}
           resultsRef={resultsRef}
           onSpeak={handleSpeak}

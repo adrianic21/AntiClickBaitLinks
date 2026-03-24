@@ -2,7 +2,7 @@ import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2 } from 'l
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations } from '../translations';
-import type { ApiKeys } from '../services/geminiService';
+import type { ApiKeys, InvestigationResult } from '../services/geminiService';
 
 interface ResultCardProps {
   t: Translations;
@@ -16,6 +16,8 @@ interface ResultCardProps {
   currentLength: 'short' | 'medium' | 'long' | 'child';
   isSpeaking: boolean;
   speechRate: number;
+  lieScore: number;
+  investigationResult: InvestigationResult | null;
   apiKeys: ApiKeys;
   resultsRef: React.RefObject<HTMLDivElement>;
   onSpeak: () => void;
@@ -43,7 +45,7 @@ function FormattedText({ text }: { text: string }) {
 
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, loadingProgress, currentLength,
-  isSpeaking, speechRate, apiKeys, resultsRef,
+  isSpeaking, speechRate, lieScore, investigationResult, apiKeys, resultsRef,
   onSpeak, onSpeechRateChange, onExpand, onShare,
 }: ResultCardProps) {
   const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
@@ -55,6 +57,20 @@ export function ResultCard({
   // No mostrar el link de fuente cuando es un PDF subido localmente.
   const isLocalPdf = url.startsWith('pdf:');
   const displayUrl = isLocalPdf ? url.replace('pdf:', '') : url;
+  const lieMeterColor = lieScore < 26
+    ? 'from-emerald-500 to-lime-400'
+    : lieScore < 51
+      ? 'from-yellow-400 to-amber-500'
+      : lieScore < 76
+        ? 'from-orange-500 to-red-500'
+        : 'from-red-600 to-red-800';
+  const lieMeterLabel = lieScore < 26
+    ? 'Low'
+    : lieScore < 51
+      ? 'Medium'
+      : lieScore < 76
+        ? 'High'
+        : 'Very high';
 
   return (
     <div ref={resultsRef}>
@@ -161,6 +177,22 @@ export function ResultCard({
               </div>
             )}
 
+            <div className="rounded-2xl border border-zinc-100 bg-white/80 p-4 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                  {t.lieMeterTitle || 'Lie meter'}
+                </p>
+                <span className="text-sm font-bold text-zinc-700">{lieScore}/100 · {lieMeterLabel}</span>
+              </div>
+              <div className="h-3 rounded-full bg-zinc-100 overflow-hidden">
+                <div
+                  className={`h-full bg-gradient-to-r ${lieMeterColor} transition-all duration-500`}
+                  style={{ width: `${lieScore}%` }}
+                />
+              </div>
+              <p className="text-xs text-zinc-500">{t.lieMeterHelp || 'Estimates how much the headline exaggerates or distorts the actual content.'}</p>
+            </div>
+
             <div className="relative">
               {isLoading && currentLength !== 'short' && (
                 <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
@@ -221,6 +253,46 @@ export function ResultCard({
                 </a>
               )}
             </div>
+
+            {investigationResult && (
+              <div className="rounded-2xl border border-zinc-100 bg-white/80 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                    {t.deepResearchTitle || 'Deep research'}
+                  </p>
+                  <span className="text-xs font-bold px-2 py-1 rounded-full bg-zinc-100 text-zinc-700">
+                    {(t.confidenceLabel || 'Confidence')} {investigationResult.confidence}
+                  </span>
+                </div>
+                <p className="text-base font-semibold text-zinc-800">{investigationResult.verdict}</p>
+                {investigationResult.findings.length > 0 && (
+                  <div className="space-y-2">
+                    {investigationResult.findings.map((finding, index) => (
+                      <p key={`${finding}-${index}`} className="text-sm text-zinc-600">
+                        {finding}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {investigationResult.relatedSources.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-zinc-100">
+                    {investigationResult.relatedSources.map((source) => (
+                      <a
+                        key={source.url}
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded-xl bg-zinc-50 px-3 py-3 hover:bg-zinc-100 transition-colors"
+                      >
+                        <p className="text-sm font-semibold text-zinc-800">{source.source}</p>
+                        <p className="text-sm text-zinc-700">{source.title}</p>
+                        <p className="text-xs text-zinc-500 mt-1">{source.snippet}</p>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

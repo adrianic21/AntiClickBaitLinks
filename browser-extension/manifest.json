@@ -3,13 +3,20 @@
   "name": "AntiClickBaitLinks",
   "version": "1.0.0",
   "description": "Resume la pagina actual con un clic usando AntiClickBaitLinks.",
+  "icons": {
+    "192": "icon-192.png",
+    "512": "icon-512.png"
+  },
   "permissions": ["tabs", "activeTab", "contextMenus"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_title": "AntiClickBaitLinks",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "192": "icon-192.png"
+    }
   },
   "host_permissions": ["https://anticlickbaitlinks.com/*"],
   "web_accessible_resources": [

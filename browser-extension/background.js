@@ -2,6 +2,7 @@ importScripts('shared.js');
 
 const MENU_SUMMARIZE_LINK = 'anticlickbait-summarize-link';
 const MENU_SUMMARIZE_PAGE = 'anticlickbait-summarize-page';
+const MENU_SUMMARIZE_SELECTION = 'anticlickbait-summarize-selection';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -15,6 +16,12 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'Resumir esta pagina con AntiClickBaitLinks',
     contexts: ['page'],
   });
+
+  chrome.contextMenus.create({
+    id: MENU_SUMMARIZE_SELECTION,
+    title: 'Resumir texto seleccionado con AntiClickBaitLinks',
+    contexts: ['selection'],
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -26,6 +33,14 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (info.menuItemId === MENU_SUMMARIZE_PAGE) {
     targetUrl = tab?.url || '';
+  }
+
+  if (info.menuItemId === MENU_SUMMARIZE_SELECTION) {
+    const selectedText = (info.selectionText || '').trim();
+    if (selectedText.length >= 80) {
+      chrome.tabs.create({ url: buildTextSummaryUrl(selectedText) });
+    }
+    return;
   }
 
   if (!isSupportedPage(targetUrl)) {

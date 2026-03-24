@@ -222,6 +222,13 @@ function deriveTitleFromUrl(url: string): string {
   }
 }
 
+function deriveTitleFromText(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'Texto seleccionado';
+}
+
 // ─── Fetch article content via our server ────────────────────────────────────
 
 export async function fetchArticleContent(url: string): Promise<{ text: string; title: string; type: string }> {
@@ -780,4 +787,76 @@ Evalua si las otras fuentes apoyan, matizan o contradicen la noticia original.`;
       relatedSources,
     };
   }
+}
+
+export async function summarizeTextContent(
+  rawText: string,
+  apiKeys: ApiKeys,
+  provider: Provider,
+  language: string,
+  length: 'short' | 'medium' | 'long' | 'child' = 'medium',
+  providerPriority?: Provider[]
+): Promise<SummaryResult> {
+  const normalizedText = rawText.replace(/\s+/g, ' ').trim();
+  if (normalizedText.length < 80) {
+    throw new Error('insufficient_content');
+  }
+
+  const lengthInstruction = `${getLengthInstruction(length)} ${getResponseLengthInstruction(length)}`;
+  const prompt = `${SYSTEM_PROMPT}
+
+Analiza este texto seleccionado por el usuario y resumelo con precision.
+
+${lengthInstruction}
+
+The response must be written in ${language}.
+
+Selected text:
+${normalizeContentForSpeed(normalizedText, length)}`;
+
+  const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
+  const orderedProviders = providerPriority?.length
+    ? providerPriority
+    : [provider, ...allProviders.filter(p => p !== provider)];
+  const providersToTry = orderedProviders.filter((value, index, array) => array.indexOf(value) === index);
+  const attemptedProviders: Provider[] = [];
+  let lastError: any = null;
+
+  for (const currentProvider of providersToTry) {
+    const key = apiKeys[currentProvider];
+    if (!key) continue;
+    attemptedProviders.push(currentProvider);
+
+    try {
+      const summary = await retryTransientOperation(
+        () => callProviderWithPrompt(currentProvider, key, prompt),
+        2,
+        400
+      );
+
+      if (!summary.trim() || summary.trim() === 'INSUFFICIENT_CONTENT') {
+        throw new Error('insufficient_content');
+      }
+
+      return {
+        summary,
+        title: deriveTitleFromText(normalizedText),
+        articleLength: normalizedText.length,
+        providerUsed: currentProvider,
+        attemptedProviders,
+      };
+    } catch (error: any) {
+      lastError = error;
+      if (isAuthError(error)) throw error;
+      if (error.message === 'insufficient_content') throw error;
+      if (isQuotaError(error) || isTransientError(error)) continue;
+      throw error;
+    }
+  }
+
+  if (isTransientError(lastError)) {
+    throw new Error('provider_temporary_failure');
+  }
+
+  throw lastError || new Error('quota_exceeded_all');
 }

@@ -16,6 +16,7 @@ Extension ligera para Chrome, Edge o Brave.
 - Anade menu contextual con clic derecho para:
   - resumir un enlace concreto,
   - resumir la pagina actual.
+  - resumir texto seleccionado si tiene suficiente contenido.
 
 ### Nota
 

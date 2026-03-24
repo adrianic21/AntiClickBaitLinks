@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   summarizeUrl,
+  summarizeTextContent,
   fetchPdfContent,
   validateApiKey,
   investigateClaim,
@@ -107,6 +108,7 @@ export function useAppState() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
   const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
+  const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
 
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -273,10 +275,17 @@ export function useAppState() {
       || params.get('url')
       || extractUrlFromText(params.get('text') || '')
       || (currentUrl.pathname === '/share-target' ? extractUrlFromText(params.get('title') || '') : '');
+    const sharedTextCandidate = params.get('sharedText') || '';
 
     if (sharedCandidate && sharedCandidate.startsWith('http')) {
       setPendingSharedUrl(sharedCandidate);
       setUrl(sharedCandidate);
+      setShowSharedToast(true);
+      window.history.replaceState({}, '', '/');
+    } else if (sharedTextCandidate.trim()) {
+      const normalizedText = sharedTextCandidate.trim();
+      setPendingSharedText(normalizedText);
+      setUrl(normalizedText);
       setShowSharedToast(true);
       window.history.replaceState({}, '', '/');
     }
@@ -398,7 +407,13 @@ export function useAppState() {
             lastAutoSummarizedUrlRef.current = normalizedUrl;
             handleSummarize();
           }
-        } catch { /* invalid url, wait */ }
+        } catch {
+          const normalizedText = url.trim();
+          if (normalizedText.length >= 80 && normalizedText !== lastAutoSummarizedUrlRef.current) {
+            lastAutoSummarizedUrlRef.current = normalizedText;
+            handleSummarize();
+          }
+        }
       }
     }, 500);
     return () => clearTimeout(timer);
@@ -562,10 +577,13 @@ export function useAppState() {
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
 
-    const finalUrl = pdfFile ? `pdf:${pdfFile.name}` : extractUrlFromText(url);
-    if (!pdfFile && finalUrl !== url) setUrl(finalUrl);
+    const normalizedInput = url.trim();
+    const extractedUrl = pdfFile ? '' : extractUrlFromText(normalizedInput);
+    const isTextInput = !pdfFile && (!/^https?:\/\//i.test(extractedUrl) || normalizedInput.length > extractedUrl.length + 40);
+    const finalUrl = pdfFile ? `pdf:${pdfFile.name}` : (isTextInput ? normalizedInput : extractedUrl);
+    if (!pdfFile && !isTextInput && finalUrl !== url) setUrl(finalUrl);
 
-    if (!pdfFile) {
+    if (!pdfFile && !isTextInput) {
       try { new URL(finalUrl); } catch {
         setError(t.invalidUrl);
         return;
@@ -579,13 +597,13 @@ export function useAppState() {
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
-    const cacheKey = `${finalUrl}|${summaryLanguage}|${resolvedLength}`;
+    const cacheKey = `${isTextInput ? `text:${finalUrl.slice(0, 120)}` : finalUrl}|${summaryLanguage}|${resolvedLength}`;
     const cached = summaryCacheRef.current.get(cacheKey);
     if (cached) {
       setSummary(cached.summary);
       setArticleTitle(cached.title || null);
        setLieScore(estimateLieScore(cached.title || finalUrl, cached.summary));
-      if (deepResearchEnabled && !finalUrl.startsWith('pdf:')) {
+      if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         investigateClaim(
           finalUrl,
           cached.title || finalUrl,
@@ -607,7 +625,7 @@ export function useAppState() {
       setSummary(persistedCached.summary);
       setArticleTitle(persistedCached.title || null);
       setLieScore(estimateLieScore(persistedCached.title || finalUrl, persistedCached.summary));
-      if (deepResearchEnabled && !finalUrl.startsWith('pdf:')) {
+      if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         investigateClaim(
           finalUrl,
           persistedCached.title || finalUrl,
@@ -640,15 +658,24 @@ export function useAppState() {
         prefetchedContent = await fetchPdfContent(pdfFile).then(r => ({ ...r, type: 'pdf' }));
       }
 
-      const summaryResult = await summarizeUrl(
-        finalUrl,
-        apiKeys,
-        provider,
-        summaryLanguage,
-        resolvedLength,
-        prefetchedContent,
-        providerPriority
-      );
+      const summaryResult = isTextInput
+        ? await summarizeTextContent(
+            finalUrl,
+            apiKeys,
+            provider,
+            summaryLanguage,
+            resolvedLength,
+            providerPriority
+          )
+        : await summarizeUrl(
+            finalUrl,
+            apiKeys,
+            provider,
+            summaryLanguage,
+            resolvedLength,
+            prefetchedContent,
+            providerPriority
+          );
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');
@@ -684,9 +711,9 @@ export function useAppState() {
       const historyEntry: SummaryHistoryEntry = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         url: finalUrl,
-        title: resolvedTitle || extractSourceHost(finalUrl),
+        title: resolvedTitle || (isTextInput ? 'Texto seleccionado' : extractSourceHost(finalUrl)),
         summary: summaryResult.summary,
-        sourceHost: extractSourceHost(finalUrl),
+        sourceHost: isTextInput ? 'Texto seleccionado' : extractSourceHost(finalUrl),
         createdAt: Date.now(),
         language: summaryLanguage,
         length: resolvedLength,
@@ -697,7 +724,7 @@ export function useAppState() {
       setSummaryHistory(nextHistory);
       setAppInsights(deriveInsights(nextHistory));
 
-      if (deepResearchEnabled && !finalUrl.startsWith('pdf:')) {
+      if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         const investigation = await investigateClaim(
           finalUrl,
           resolvedTitle || finalUrl,

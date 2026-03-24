@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "AntiClickBaitLinks",
+  "version": "1.0.0",
+  "description": "Resume la pagina actual con un clic usando AntiClickBaitLinks.",
+  "permissions": ["tabs", "activeTab"],
+  "action": {
+    "default_title": "AntiClickBaitLinks",
+    "default_popup": "popup.html"
+  }
+}

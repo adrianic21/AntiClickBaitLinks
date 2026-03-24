@@ -419,14 +419,85 @@ async function startServer() {
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
 
+  function cleanReadableText(text: string): string {
+    return text
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/(Suscr[ií]bete|Subscribe|Sign in|Inicia sesi[oó]n|Reg[ií]strate|Accept cookies|Aceptar cookies|Cookie Policy).{0,120}/gi, ' ')
+      .trim();
+  }
+
+  function scoreReadableCandidate(text: string): number {
+    if (!text) return 0;
+    const cleaned = cleanReadableText(text);
+    if (cleaned.length < 120) return 0;
+
+    const paragraphishBreaks = (text.match(/\n/g) || []).length;
+    const sentenceCount = (cleaned.match(/[.!?](?:\s|$)/g) || []).length;
+    const penaltyTerms = [
+      'cookie', 'cookies', 'subscribe', 'subscription', 'sign in', 'newsletter',
+      'advertisement', 'publicidad', 'anuncio', 'related articles', 'artículos relacionados',
+      'latest news', 'últimas noticias', 'read more', 'seguir leyendo',
+    ];
+    const penalties = penaltyTerms.reduce((total, term) => (
+      total + ((cleaned.toLowerCase().match(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length * 120)
+    ), 0);
+
+    return cleaned.length + (paragraphishBreaks * 80) + (sentenceCount * 25) - penalties;
+  }
+
+  function extractStructuredArticleData($: cheerio.CheerioAPI): { text: string; title: string } {
+    let bestText = '';
+    let bestTitle = '';
+
+    $('script[type="application/ld+json"]').each((_i, el) => {
+      const raw = $(el).contents().text().trim();
+      if (!raw) return;
+
+      try {
+        const parsed = JSON.parse(raw);
+        const nodes = Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(parsed?.['@graph'])
+            ? parsed['@graph']
+            : [parsed];
+
+        for (const node of nodes) {
+          const articleBody = typeof node?.articleBody === 'string' ? node.articleBody : '';
+          const description = typeof node?.description === 'string' ? node.description : '';
+          const candidateText = cleanReadableText([articleBody, description].filter(Boolean).join('\n\n'));
+          const candidateTitle =
+            typeof node?.headline === 'string' ? node.headline :
+            typeof node?.name === 'string' ? node.name :
+            '';
+
+          if (scoreReadableCandidate(candidateText) > scoreReadableCandidate(bestText)) {
+            bestText = candidateText;
+            bestTitle = candidateTitle || bestTitle;
+          }
+        }
+      } catch {
+        // Ignore malformed structured data blocks.
+      }
+    });
+
+    return { text: bestText, title: bestTitle };
+  }
+
   function extractFromHtml(html: string): { text: string; title: string } {
     const $ = cheerio.load(html);
 
-    const title =
+    const metaTitle =
       $('meta[property="og:title"]').attr('content') ||
       $('meta[name="twitter:title"]').attr('content') ||
       $('title').text() ||
       '';
+    const metaDescription =
+      $('meta[property="og:description"]').attr('content') ||
+      $('meta[name="twitter:description"]').attr('content') ||
+      $('meta[name="description"]').attr('content') ||
+      '';
+    const structured = extractStructuredArticleData($);
 
     $(
       'script, style, noscript, iframe, ' +
@@ -453,6 +524,10 @@ async function startServer() {
     ).remove();
 
     const contentSelectors = [
+      '[itemprop="articleBody"]', '[data-testid="articleBody"]',
+      '[data-component="text-block"]', '[data-module="ArticleBody"]',
+      '.articleBody', '.article-body__content', '.article-content__content-group',
+      '.StoryBodyCompanionColumn', '.caas-body', '.story-content',
       'article .article-body', 'article .article__body',
       'article .article-content', 'article .article__content',
       '.article-body', '.article__body',
@@ -460,25 +535,51 @@ async function startServer() {
       '.a_c', '.article_body', '.articulo-cuerpo',
       '.cuerpo-articulo', '.noticia__cuerpo',
       '.entry-content', '.post-content', '.post__content', '.body-content',
-      '[data-component="text-block"]', '.story-body',
-      '.story-body__inner', '.article__body-content',
+      '.story-body', '.story-body__inner', '.article__body-content',
       '.content-body', '.content__body', '.main-content', '.page-content',
       'article', 'main', '.content', '#content',
     ];
 
-    let text = '';
+    const candidates: string[] = [];
+    if (structured.text) candidates.push(structured.text);
+
     for (const sel of contentSelectors) {
       const el = $(sel).first();
       if (el.length) {
-        const candidate = el.text().replace(/\s+/g, ' ').trim();
-        if (candidate.length > 150) { text = candidate; break; }
+        const paragraphText = el.find('p')
+          .map((_i, p) => $(p).text().trim())
+          .get()
+          .filter(Boolean)
+          .filter(p => p.length > 35)
+          .join('\n');
+        const candidate = cleanReadableText(paragraphText || el.text());
+        if (candidate.length > 120) candidates.push(candidate);
       }
     }
-    if (!text || text.length < 150) {
-      text = $('body').text().replace(/\s+/g, ' ').trim();
+
+    const bodyParagraphs = $('article p, main p, [role="main"] p, body p')
+      .map((_i, p) => $(p).text().trim())
+      .get()
+      .filter(Boolean)
+      .filter(p => p.length > 40);
+    if (bodyParagraphs.length) {
+      candidates.push(cleanReadableText(bodyParagraphs.join('\n')));
     }
 
-    return { text, title: title.trim() };
+    candidates.push(cleanReadableText($('body').text()));
+
+    const bestText = candidates
+      .map(candidate => cleanReadableText(candidate))
+      .sort((a, b) => scoreReadableCandidate(b) - scoreReadableCandidate(a))[0] || '';
+
+    const text = bestText.length < 220 && metaDescription
+      ? cleanReadableText(`${bestText}\n\n${metaDescription}`)
+      : bestText;
+
+    return {
+      text,
+      title: (structured.title || metaTitle).trim(),
+    };
   }
 
   async function fetchViaJina(url: string): Promise<{ text: string; title: string }> {
@@ -558,7 +659,7 @@ async function startServer() {
         const html = await response.text();
         const { text, title } = extractFromHtml(html);
 
-        if (text.length > 150) {
+        if (scoreReadableCandidate(text) > 220) {
           console.log(`✅ Fetched via Cheerio (${text.length} chars)`);
           return res.json({ text: text.substring(0, 20000), title });
         }

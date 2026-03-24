@@ -1,17 +1,7 @@
-const APP_URL = 'https://anticlickbaitlinks.com/';
-
 const statusEl = document.getElementById('status');
 const currentUrlEl = document.getElementById('current-url');
 const openButton = document.getElementById('open-app');
 const copyButton = document.getElementById('copy-link');
-
-function buildSummaryUrl(pageUrl) {
-  return `${APP_URL}?shared=${encodeURIComponent(pageUrl)}`;
-}
-
-function isSupportedPage(url) {
-  return /^https?:\/\//i.test(url || '');
-}
 
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   const activeTab = tabs[0];

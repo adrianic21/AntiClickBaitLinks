@@ -11,7 +11,12 @@ Extension ligera para Chrome, Edge o Brave.
 
 ### Funcion
 
-- Detecta la URL de la pestaña actual.
+- Detecta la URL de la pestana actual desde el popup.
 - Abre `https://anticlickbaitlinks.com/?shared=...` para que la app genere el resumen automaticamente.
+- Anade menu contextual con clic derecho para:
+  - resumir un enlace concreto,
+  - resumir la pagina actual.
 
-Si cambias el dominio final de produccion, actualiza `APP_URL` en `popup.js`.
+### Nota
+
+Si cambias el dominio final de produccion, actualiza `APP_URL` en `shared.js`.

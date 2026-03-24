@@ -59,6 +59,16 @@ interface DeviceData {
   transferCount?: number;
 }
 
+interface ArticleCacheEntry {
+  text: string;
+  title: string;
+  type?: string;
+  cachedAt: number;
+}
+
+const ARTICLE_CACHE_TTL_MS = 10 * 60 * 1000;
+const articleCache = new Map<string, ArticleCacheEntry>();
+
 async function redisGet<T>(key: string): Promise<T | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -463,14 +473,20 @@ async function startServer() {
         for (const node of nodes) {
           const articleBody = typeof node?.articleBody === 'string' ? node.articleBody : '';
           const description = typeof node?.description === 'string' ? node.description : '';
+          const alternativeText = Array.isArray(node?.text)
+            ? node.text.filter((value: unknown) => typeof value === 'string').join('\n\n')
+            : typeof node?.text === 'string'
+              ? node.text
+              : '';
           const candidateText = cleanReadableText([articleBody, description].filter(Boolean).join('\n\n'));
+          const enrichedCandidate = cleanReadableText([candidateText, alternativeText].filter(Boolean).join('\n\n'));
           const candidateTitle =
             typeof node?.headline === 'string' ? node.headline :
             typeof node?.name === 'string' ? node.name :
             '';
 
-          if (scoreReadableCandidate(candidateText) > scoreReadableCandidate(bestText)) {
-            bestText = candidateText;
+          if (scoreReadableCandidate(enrichedCandidate) > scoreReadableCandidate(bestText)) {
+            bestText = enrichedCandidate;
             bestTitle = candidateTitle || bestTitle;
           }
         }
@@ -523,9 +539,13 @@ async function startServer() {
 
     const contentSelectors = [
       '[itemprop="articleBody"]', '[data-testid="articleBody"]',
+      '[data-testid="storyBody"]', '[data-testid="article-content"]',
       '[data-component="text-block"]', '[data-module="ArticleBody"]',
+      '[data-qa="article-body"]', '[data-cy="article-content"]',
       '.articleBody', '.article-body__content', '.article-content__content-group',
       '.StoryBodyCompanionColumn', '.caas-body', '.story-content',
+      '.article-main-content', '.article__main', '.post-body',
+      '.article-text', '.article__text', '.story__content',
       'article .article-body', 'article .article__body',
       'article .article-content', 'article .article__content',
       '.article-body', '.article__body',
@@ -570,9 +590,22 @@ async function startServer() {
       .map(candidate => cleanReadableText(candidate))
       .sort((a, b) => scoreReadableCandidate(b) - scoreReadableCandidate(a))[0] || '';
 
-    const text = bestText.length < 220 && metaDescription
+    const withMetaDescription = metaDescription
       ? cleanReadableText(`${bestText}\n\n${metaDescription}`)
       : bestText;
+    const withLeadParagraph = cleanReadableText([
+      withMetaDescription,
+      $('article h2, main h2, article strong, main strong')
+        .map((_i, el) => $(el).text().trim())
+        .get()
+        .filter(Boolean)
+        .slice(0, 4)
+        .join('\n'),
+    ].filter(Boolean).join('\n\n'));
+
+    const text = scoreReadableCandidate(withLeadParagraph) > scoreReadableCandidate(withMetaDescription)
+      ? withLeadParagraph
+      : withMetaDescription;
 
     return {
       text,
@@ -605,6 +638,25 @@ async function startServer() {
     return { text: body.substring(0, 20000), title };
   }
 
+  function getCachedArticle(url: string): ArticleCacheEntry | null {
+    const cached = articleCache.get(url);
+    if (!cached) return null;
+    if (Date.now() - cached.cachedAt > ARTICLE_CACHE_TTL_MS) {
+      articleCache.delete(url);
+      return null;
+    }
+    return cached;
+  }
+
+  function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'>): ArticleCacheEntry {
+    const cachedEntry: ArticleCacheEntry = {
+      ...entry,
+      cachedAt: Date.now(),
+    };
+    articleCache.set(url, cachedEntry);
+    return cachedEntry;
+  }
+
   app.post("/api/fetch-url", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
@@ -612,6 +664,16 @@ async function startServer() {
     // FIX: Validar URL para prevenir SSRF antes de hacer cualquier fetch
     if (!isAllowedUrl(url)) {
       return res.status(400).json({ error: "Invalid or disallowed URL" });
+    }
+
+    const cachedArticle = getCachedArticle(url);
+    if (cachedArticle) {
+      return res.json({
+        text: cachedArticle.text,
+        title: cachedArticle.title,
+        type: cachedArticle.type || 'web',
+        cached: true,
+      });
     }
 
     // FIX: Usar .endsWith('.pdf') en lugar de .includes('pdf') para evitar falsos positivos
@@ -624,7 +686,12 @@ async function startServer() {
           const { text, title: pdfTitle } = await extractPdfText(buffer);
           if (text.length > 100) {
             console.log(`✅ Fetched PDF via URL (${text.length} chars)`);
-            return res.json({ text: text.substring(0, 20000), title: pdfTitle, type: 'pdf' });
+            const cachedPdf = setCachedArticle(url, {
+              text: text.substring(0, 20000),
+              title: pdfTitle,
+              type: 'pdf',
+            });
+            return res.json({ text: cachedPdf.text, title: cachedPdf.title, type: 'pdf' });
           }
         }
       } catch (pdfErr: any) {
@@ -657,9 +724,14 @@ async function startServer() {
         const html = await response.text();
         const { text, title } = extractFromHtml(html);
 
-        if (scoreReadableCandidate(text) > 220) {
+        if (scoreReadableCandidate(text) > 180) {
           console.log(`✅ Fetched via Cheerio (${text.length} chars)`);
-          return res.json({ text: text.substring(0, 20000), title });
+          const cachedHtml = setCachedArticle(url, {
+            text: text.substring(0, 20000),
+            title,
+            type: 'web',
+          });
+          return res.json({ text: cachedHtml.text, title: cachedHtml.title, type: 'web' });
         }
       } catch {
         // Try next user agent
@@ -670,7 +742,8 @@ async function startServer() {
       console.log(`🔄 Cheerio failed, trying Jina Reader...`);
       const { text, title } = await fetchViaJina(url);
       console.log(`✅ Fetched via Jina (${text.length} chars)`);
-      return res.json({ text, title });
+      const cachedJina = setCachedArticle(url, { text, title, type: 'web' });
+      return res.json({ text: cachedJina.text, title: cachedJina.title, type: 'web' });
     } catch (jinaError: any) {
       console.error('Jina fetch failed:', jinaError.message);
     }

@@ -7,11 +7,12 @@ import { TopBar } from './components/TopBar';
 import { InfoPanel } from './components/InfoPanel';
 import { LockModal } from './components/LockModal';
 import { ResultCard } from './components/ResultCard';
+import { InsightsPanel } from './components/InsightsPanel';
 
 export default function App() {
   const state = useAppState();
   const {
-    url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
+    url, setUrl, uiLanguage, summaryLanguage, summaryHistory, appInsights, summary, articleTitle, isLoading, error,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
@@ -25,7 +26,7 @@ export default function App() {
     showSharedToast,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
-    preferredLength, setPreferredLength,
+    preferredLength, setPreferredLength, setSummaryLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
   } = state;
@@ -275,6 +276,15 @@ export default function App() {
             ))}
           </div>
         </div>
+
+        <InsightsPanel
+          t={t}
+          summaryLanguage={summaryLanguage}
+          onSummaryLanguageChange={setSummaryLanguage}
+          languages={LANGUAGES}
+          insights={appInsights}
+          history={summaryHistory}
+        />
 
         {/* Results + API key status */}
         <ResultCard

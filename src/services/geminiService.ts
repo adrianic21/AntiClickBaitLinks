@@ -13,6 +13,9 @@ export interface ApiKeys {
 export interface SummaryResult {
   summary: string;
   title: string;
+  articleLength: number;
+  providerUsed: Provider;
+  attemptedProviders: Provider[];
 }
 
 // ─── Detectar si el error es de cuota/límite ─────────────────────────────────
@@ -486,7 +489,8 @@ export async function summarizeUrl(
   provider: Provider,
   language: string,
   length: 'short' | 'medium' | 'long' | 'child' = 'medium',
-  prefetchedContent?: { text: string; title: string; type: string }
+  prefetchedContent?: { text: string; title: string; type: string },
+  providerPriority?: Provider[]
 ): Promise<SummaryResult> {
   const lengthInstruction = `${getLengthInstruction(length)} ${getResponseLengthInstruction(length)}`;
 
@@ -505,13 +509,18 @@ export async function summarizeUrl(
 
   // ─── LLAMADA AL PROVEEDOR CON FALLBACK ──────────────────────────────────
   const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
-  const providersToTry = [provider, ...allProviders.filter(p => p !== provider)];
+  const orderedProviders = providerPriority?.length
+    ? providerPriority
+    : [provider, ...allProviders.filter(p => p !== provider)];
+  const providersToTry = orderedProviders.filter((value, index, array) => array.indexOf(value) === index);
+  const attemptedProviders: Provider[] = [];
 
   let lastError: any = null;
 
   for (const p of providersToTry) {
     const key = apiKeys[p as keyof ApiKeys];
     if (!key) continue;
+    attemptedProviders.push(p);
 
     try {
       switch (p) {
@@ -523,6 +532,9 @@ export async function summarizeUrl(
               500
             ),
             title: content.title || '',
+            articleLength: content.text.length,
+            providerUsed: p,
+            attemptedProviders,
           };
         case 'openrouter':
           return {
@@ -532,6 +544,9 @@ export async function summarizeUrl(
               500
             ),
             title: content.title || '',
+            articleLength: content.text.length,
+            providerUsed: p,
+            attemptedProviders,
           };
         case 'mistral':
           return {
@@ -541,6 +556,9 @@ export async function summarizeUrl(
               500
             ),
             title: content.title || '',
+            articleLength: content.text.length,
+            providerUsed: p,
+            attemptedProviders,
           };
         case 'deepseek':
           return {
@@ -550,6 +568,9 @@ export async function summarizeUrl(
               500
             ),
             title: content.title || '',
+            articleLength: content.text.length,
+            providerUsed: p,
+            attemptedProviders,
           };
       }
     } catch (error: any) {

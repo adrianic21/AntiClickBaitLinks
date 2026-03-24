@@ -1,6 +1,20 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { summarizeUrl, fetchPdfContent, validateApiKey, type Provider, type ApiKeys } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
+import {
+  deriveInsights,
+  estimateMinutesSaved,
+  extractSourceHost,
+  findCachedSummary,
+  getProviderMetrics,
+  getSummaryHistory,
+  recordProviderMetric,
+  saveCachedSummary,
+  saveSummaryHistoryEntry,
+  type AppInsights,
+  type SummaryHistoryEntry,
+  type ProviderMetrics,
+} from '../lib/appInsights';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
 function getDeviceId(): string {
@@ -40,6 +54,10 @@ export function useAppState() {
   const [error, setError] = useState<string | null>(null);
   const [currentLength, setCurrentLength] = useState<'short' | 'medium' | 'long' | 'child'>('short');
   const [preferredLength, setPreferredLengthState] = useState<'short' | 'medium' | 'long'>('short');
+  const [summaryLanguage, setSummaryLanguageState] = useState('English');
+  const [summaryHistory, setSummaryHistory] = useState<SummaryHistoryEntry[]>([]);
+  const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0, topSources: [] });
+  const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
 
   // API
   const [userApiKey, setUserApiKey] = useState('');
@@ -110,6 +128,28 @@ export function useAppState() {
     () => serverResetAt || null,
     [serverResetAt]
   );
+
+  const providerPriority = useMemo(() => {
+    const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
+    return [...allProviders].sort((a, b) => {
+      const metricA = providerMetrics[a];
+      const metricB = providerMetrics[b];
+
+      const score = (metric?: ProviderMetrics) => {
+        if (!metric) return 0;
+        const successRate = metric.attempts > 0 ? metric.successes / metric.attempts : 0.6;
+        const transientPenalty = metric.transientFailures * 0.12;
+        const authPenalty = metric.authFailures * 0.3;
+        const fallbackPenalty = metric.fallbacks * 0.05;
+        const costPenalty = metric.estimatedCostUnits * 0.015;
+        return successRate - transientPenalty - authPenalty - fallbackPenalty - costPenalty;
+      };
+
+      if (a === provider) return -1;
+      if (b === provider) return 1;
+      return score(metricB) - score(metricA);
+    });
+  }, [provider, providerMetrics]);
 
   // ─── Popup helpers ──────────────────────────────────────────────────────────
   const openPopup = useCallback((popup: string) => {
@@ -214,11 +254,16 @@ export function useAppState() {
 
   // ─── Web Share Target — receive URLs shared from other apps ──────────────
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sharedUrl = params.get('shared');
-    if (sharedUrl && sharedUrl.startsWith('http')) {
-      setPendingSharedUrl(sharedUrl);
-      setUrl(sharedUrl);
+    const currentUrl = new URL(window.location.href);
+    const params = currentUrl.searchParams;
+    const sharedCandidate = params.get('shared')
+      || params.get('url')
+      || extractUrlFromText(params.get('text') || '')
+      || (currentUrl.pathname === '/share-target' ? extractUrlFromText(params.get('title') || '') : '');
+
+    if (sharedCandidate && sharedCandidate.startsWith('http')) {
+      setPendingSharedUrl(sharedCandidate);
+      setUrl(sharedCandidate);
       setShowSharedToast(true);
       window.history.replaceState({}, '', '/');
     }
@@ -266,6 +311,18 @@ export function useAppState() {
     if (savedLang && UI_TRANSLATIONS[savedLang as TranslationKey]) {
       setUiLanguage(savedLang);
     }
+
+    const savedSummaryLanguage = localStorage.getItem('summary_language');
+    if (savedSummaryLanguage && UI_TRANSLATIONS[savedSummaryLanguage as TranslationKey]) {
+      setSummaryLanguageState(savedSummaryLanguage);
+    } else if (savedLang && UI_TRANSLATIONS[savedLang as TranslationKey]) {
+      setSummaryLanguageState(savedLang);
+    }
+
+    const loadedHistory = getSummaryHistory();
+    setSummaryHistory(loadedHistory);
+    setAppInsights(deriveInsights(loadedHistory));
+    setProviderMetrics(getProviderMetrics());
 
     const savedPremium = localStorage.getItem('is_premium') === 'true';
     setIsPremium(savedPremium);
@@ -436,6 +493,11 @@ export function useAppState() {
     localStorage.setItem('preferred_length', len);
   }, []);
 
+  const setSummaryLanguage = useCallback((lang: string) => {
+    setSummaryLanguageState(lang);
+    localStorage.setItem('summary_language', lang);
+  }, []);
+
   const setSpeechRate = useCallback((rate: number) => {
     setSpeechRateState(rate);
     localStorage.setItem('speech_rate', String(rate));
@@ -487,11 +549,23 @@ export function useAppState() {
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
-    const cacheKey = `${finalUrl}|${uiLanguage}|${resolvedLength}`;
+    const cacheKey = `${finalUrl}|${summaryLanguage}|${resolvedLength}`;
     const cached = summaryCacheRef.current.get(cacheKey);
     if (cached) {
       setSummary(cached.summary);
       setArticleTitle(cached.title || null);
+      setIsLoading(false);
+      return;
+    }
+
+    const persistedCached = findCachedSummary(cacheKey);
+    if (persistedCached) {
+      summaryCacheRef.current.set(cacheKey, {
+        summary: persistedCached.summary,
+        title: persistedCached.title,
+      });
+      setSummary(persistedCached.summary);
+      setArticleTitle(persistedCached.title || null);
       setIsLoading(false);
       return;
     }
@@ -520,9 +594,10 @@ export function useAppState() {
         finalUrl,
         apiKeys,
         provider,
-        uiLanguage,
+        summaryLanguage,
         resolvedLength,
-        prefetchedContent
+        prefetchedContent,
+        providerPriority
       );
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
@@ -538,6 +613,38 @@ export function useAppState() {
       const resolvedTitle = summaryResult.title || prefetchedContent?.title || '';
       if (resolvedTitle) setArticleTitle(resolvedTitle);
       summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
+      saveCachedSummary({
+        key: cacheKey,
+        summary: summaryResult.summary,
+        title: resolvedTitle,
+        createdAt: Date.now(),
+      });
+
+      for (const attemptedProvider of summaryResult.attemptedProviders) {
+        recordProviderMetric(attemptedProvider, 'attempt');
+      }
+      if (summaryResult.providerUsed !== provider) {
+        recordProviderMetric(provider, 'fallback');
+      }
+      recordProviderMetric(summaryResult.providerUsed, 'success');
+      setProviderMetrics(getProviderMetrics());
+
+      const minutesSaved = estimateMinutesSaved(summaryResult.articleLength, summaryResult.summary.length);
+      const historyEntry: SummaryHistoryEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        url: finalUrl,
+        title: resolvedTitle || extractSourceHost(finalUrl),
+        summary: summaryResult.summary,
+        sourceHost: extractSourceHost(finalUrl),
+        createdAt: Date.now(),
+        language: summaryLanguage,
+        length: resolvedLength,
+        provider: summaryResult.providerUsed,
+        minutesSaved,
+      };
+      const nextHistory = saveSummaryHistoryEntry(historyEntry);
+      setSummaryHistory(nextHistory);
+      setAppInsights(deriveInsights(nextHistory));
 
       if (!isPremium) {
         fetch('/api/check-limit', {
@@ -582,10 +689,16 @@ export function useAppState() {
         message = pdfFile ? t.pdfNoTextError : t.genericError;
       } else if (err.message === 'api_key_invalid' || err.message?.includes('API Key')) {
         message = t.apiKeyInvalidError;
+        recordProviderMetric(provider, 'auth_failure');
+        setProviderMetrics(getProviderMetrics());
         openPopup('settings');
       } else if (err.message?.includes('no key') || err.message?.includes('API Key no configurada')) {
         message = t.noKeyError;
         openPopup('settings');
+      }
+      if (err.message === 'provider_temporary_failure') {
+        recordProviderMetric(provider, 'transient_failure');
+        setProviderMetrics(getProviderMetrics());
       }
       setError(message);
     } finally {
@@ -595,7 +708,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, uiLanguage, apiKeys, provider, isPremium, t, openPopup, openLockModal, validatePremiumSession]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -611,7 +724,7 @@ export function useAppState() {
       Spanish: 'es-ES', English: 'en-US', Portuguese: 'pt-BR',
       French: 'fr-FR', German: 'de-DE', Italian: 'it-IT',
     };
-    utterance.lang = langMap[uiLanguage] || 'en-US';
+    utterance.lang = langMap[summaryLanguage] || 'en-US';
     utterance.rate = speechRate;
 
     const voices = window.speechSynthesis.getVoices();
@@ -625,7 +738,7 @@ export function useAppState() {
     utterance.onerror = () => setIsSpeaking(false);
     setIsSpeaking(true);
     window.speechSynthesis.speak(utterance);
-  }, [summary, isSpeaking, uiLanguage, speechRate]);
+  }, [summary, isSpeaking, summaryLanguage, speechRate]);
 
   const handleShare = useCallback(async (shareSummary: string, shareUrl?: string) => {
     const text = shareUrl && !shareUrl.startsWith('pdf:')
@@ -672,7 +785,7 @@ export function useAppState() {
   return {
     // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
-    preferredLength, setPreferredLength,
+    preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
@@ -681,7 +794,7 @@ export function useAppState() {
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
-    showInstallButton, resultsRef,
+    showInstallButton, resultsRef, summaryHistory, appInsights, providerMetrics,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     // derived

@@ -908,3 +908,96 @@ export const USE_CASES = {
     { icon: "💡", title: "提示", desc: "使用简短摘要决定主题是否感兴趣，然后点击\"更多详情\"获取更多信息。" },
   ],
 };
+
+const MOJIBAKE_PATTERN =
+  /(?:Ã.|Â|â€|â€”|â€“|ðŸ|Ð|Ñ|Ø|Ù|æ|å|ç|Ãƒ|Ã‚|Å|Ëœ|Â¿|Â¡)/;
+
+function countMojibakeMarkers(text: string): number {
+  const matches = text.match(
+    /(?:Ã.|Â|â€|â€”|â€“|ðŸ|Ð|Ñ|Ø|Ù|æ|å|ç|Ãƒ|Ã‚|Å|Ëœ|Â¿|Â¡)/g
+  );
+  return matches?.length ?? 0;
+}
+
+function decodeLatin1AsUtf8(text: string): string {
+  const bytes = Uint8Array.from(
+    Array.from(text, (char) => char.charCodeAt(0) & 0xff)
+  );
+
+  return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+}
+
+function repairMojibake(text: string): string {
+  if (!MOJIBAKE_PATTERN.test(text)) {
+    return text;
+  }
+
+  let current = text;
+
+  for (let index = 0; index < 3; index += 1) {
+    const decoded = decodeLatin1AsUtf8(current).replace(/\u0000/g, '').trim();
+
+    if (!decoded || decoded === current) {
+      break;
+    }
+
+    const currentScore = countMojibakeMarkers(current);
+    const decodedScore = countMojibakeMarkers(decoded);
+
+    if (decodedScore > currentScore && !decoded.includes('�')) {
+      break;
+    }
+
+    current = decoded;
+
+    if (!MOJIBAKE_PATTERN.test(current)) {
+      break;
+    }
+  }
+
+  return current;
+}
+
+function normalizeDeep(value: unknown): void {
+  if (typeof value === 'string') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const item = value[index];
+
+      if (typeof item === 'string') {
+        value[index] = repairMojibake(item);
+      } else {
+        normalizeDeep(item);
+      }
+    }
+
+    return;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  for (const key of Object.keys(value)) {
+    const record = value as Record<string, unknown>;
+    const item = record[key];
+
+    if (typeof item === 'string') {
+      record[key] = repairMojibake(item);
+    } else {
+      normalizeDeep(item);
+    }
+  }
+}
+
+for (const language of LANGUAGES) {
+  language.name = repairMojibake(language.name);
+  language.flag = repairMojibake(language.flag);
+}
+
+normalizeDeep(UI_TRANSLATIONS);
+normalizeDeep(FAQ_CONTENT);
+normalizeDeep(USE_CASES);

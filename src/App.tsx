@@ -12,7 +12,7 @@ import { InsightsPanel } from './components/InsightsPanel';
 export default function App() {
   const state = useAppState();
   const {
-    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult, summaryHistory, appInsights, summary, articleTitle, isLoading, error,
+    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult, appInsights, summary, articleTitle, isLoading, error,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
@@ -286,15 +286,6 @@ export default function App() {
           </div>
         </div>
 
-        <InsightsPanel
-          t={t}
-          summaryLanguage={summaryLanguage}
-          onSummaryLanguageChange={setSummaryLanguage}
-          languages={LANGUAGES}
-          insights={appInsights}
-          history={summaryHistory}
-        />
-
         <div className="flex items-center justify-center">
           <button
             type="button"
@@ -348,6 +339,14 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <InsightsPanel
+          t={t}
+          summaryLanguage={summaryLanguage}
+          onSummaryLanguageChange={setSummaryLanguage}
+          languages={LANGUAGES}
+          insights={appInsights}
+        />
       </motion.div>
 
       <AnimatePresence>

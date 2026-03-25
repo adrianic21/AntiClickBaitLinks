@@ -7,19 +7,6 @@ export interface CachedSummaryEntry {
   createdAt: number;
 }
 
-export interface SummaryHistoryEntry {
-  id: string;
-  url: string;
-  title: string;
-  summary: string;
-  sourceHost: string;
-  createdAt: number;
-  language: string;
-  length: 'short' | 'medium' | 'long' | 'child';
-  provider: Provider;
-  minutesSaved: number;
-}
-
 export interface ProviderMetrics {
   provider: Provider;
   attempts: number;
@@ -34,13 +21,11 @@ export interface ProviderMetrics {
 export interface AppInsights {
   savedSummaries: number;
   totalMinutesSaved: number;
-  topSources: Array<{ host: string; count: number }>;
 }
 
-const HISTORY_KEY = 'summary_history_v1';
 const CACHE_KEY = 'summary_cache_v1';
+const APP_INSIGHTS_KEY = 'app_insights_v2';
 const PROVIDER_METRICS_KEY = 'provider_metrics_v1';
-const MAX_HISTORY_ITEMS = 30;
 const MAX_CACHE_ITEMS = 40;
 
 const PROVIDER_COST_UNITS: Record<Provider, number> = {
@@ -48,6 +33,11 @@ const PROVIDER_COST_UNITS: Record<Provider, number> = {
   openrouter: 2,
   mistral: 2,
   deepseek: 1,
+};
+
+const EMPTY_INSIGHTS: AppInsights = {
+  savedSummaries: 0,
+  totalMinutesSaved: 0,
 };
 
 function safeJsonParse<T>(value: string | null, fallback: T): T {
@@ -76,17 +66,21 @@ export function saveCachedSummary(entry: CachedSummaryEntry): void {
   localStorage.setItem(CACHE_KEY, JSON.stringify(next));
 }
 
-export function getSummaryHistory(): SummaryHistoryEntry[] {
-  return safeJsonParse<SummaryHistoryEntry[]>(localStorage.getItem(HISTORY_KEY), []);
+export function getAppInsights(): AppInsights {
+  return safeJsonParse<AppInsights>(localStorage.getItem(APP_INSIGHTS_KEY), EMPTY_INSIGHTS);
 }
 
-export function saveSummaryHistoryEntry(entry: SummaryHistoryEntry): SummaryHistoryEntry[] {
-  const next = [
-    entry,
-    ...getSummaryHistory().filter((item) => item.id !== entry.id),
-  ].slice(0, MAX_HISTORY_ITEMS);
+export function saveAppInsights(insights: AppInsights): void {
+  localStorage.setItem(APP_INSIGHTS_KEY, JSON.stringify(insights));
+}
 
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+export function recordSavedSummary(minutesSaved: number): AppInsights {
+  const current = getAppInsights();
+  const next: AppInsights = {
+    savedSummaries: current.savedSummaries + 1,
+    totalMinutesSaved: Math.max(0, Math.round((current.totalMinutesSaved + minutesSaved) * 10) / 10),
+  };
+  saveAppInsights(next);
   return next;
 }
 
@@ -160,34 +154,4 @@ export function estimateMinutesSaved(articleLength: number, summaryLength: numbe
   const articleMinutes = articleWords / 220;
   const summaryMinutes = summaryWords / 220;
   return Math.max(1, Math.round((articleMinutes - summaryMinutes) * 10) / 10);
-}
-
-export function extractSourceHost(url: string): string {
-  if (!url || url.startsWith('pdf:')) return 'PDF';
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return 'Unknown';
-  }
-}
-
-export function deriveInsights(history: SummaryHistoryEntry[]): AppInsights {
-  const sourceCounts = new Map<string, number>();
-  let totalMinutesSaved = 0;
-
-  for (const entry of history) {
-    totalMinutesSaved += entry.minutesSaved;
-    sourceCounts.set(entry.sourceHost, (sourceCounts.get(entry.sourceHost) || 0) + 1);
-  }
-
-  const topSources = Array.from(sourceCounts.entries())
-    .map(([host, count]) => ({ host, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3);
-
-  return {
-    savedSummaries: history.length,
-    totalMinutesSaved: Math.round(totalMinutesSaved * 10) / 10,
-    topSources,
-  };
 }

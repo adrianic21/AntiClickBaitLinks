@@ -15,7 +15,7 @@ export const UI_TRANSLATIONS = {
   English: {
     title: "AntiClickBaitLinks",
     placeholder: "Paste link",
-    summarize: "Reveal Truth",
+    summarize: "Summarize",
     realSummary: "The Reveal",
     clear: "Clear",
     settingsTitle: "API Configuration",
@@ -106,7 +106,7 @@ export const UI_TRANSLATIONS = {
   Spanish: {
     title: "AntiClickBaitLinks",
     placeholder: "Pegar link",
-    summarize: "Revelar Verdad",
+    summarize: "Resumir",
     realSummary: "La Respuesta",
     clear: "Limpiar",
     settingsTitle: "Configuración API",
@@ -179,7 +179,7 @@ export const UI_TRANSLATIONS = {
     originalTitle: "TÃ­tulo original",
     share: "Copiar resumen",
     insightsTitle: "Tu actividad",
-    savedSummariesLabel: "Resumenes guardados",
+    savedSummariesLabel: "Resúmenes",
     timeSavedLabel: "Tiempo ahorrado",
     topSourcesLabel: "Fuentes mas consultadas",
     recentHistoryLabel: "Historial reciente",

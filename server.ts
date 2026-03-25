@@ -679,41 +679,69 @@ async function startServer() {
       };
     }
 
+    const candidateUrls = Array.from(new Set([
+      url,
+      url.includes('?') ? `${url}&output=amp` : `${url}?output=amp`,
+      url.endsWith('/') ? `${url}amp/` : `${url}/amp`,
+    ]));
+
+    if (url.toLowerCase().endsWith('.pdf')) {
+      try {
+        const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        if (pdfRes.ok) {
+          const buffer = Buffer.from(await pdfRes.arrayBuffer());
+          const { text, title: pdfTitle } = await extractPdfText(buffer);
+          if (text.length > 100) {
+            const cachedPdf = setCachedArticle(url, {
+              text: text.substring(0, 20000),
+              title: pdfTitle,
+              type: 'pdf',
+            });
+            return { text: cachedPdf.text, title: cachedPdf.title, type: 'pdf' };
+          }
+        }
+      } catch {
+        // Fall through to HTML strategies
+      }
+    }
+
     const userAgents = [
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
     ];
 
-    for (const userAgent of userAgents) {
-      try {
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': userAgent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Cache-Control': 'no-cache',
-            'Upgrade-Insecure-Requests': '1',
-          },
-          redirect: 'follow',
-          signal: AbortSignal.timeout(8000),
-        });
-
-        if (!response.ok) continue;
-
-        const html = await response.text();
-        const { text, title } = extractFromHtml(html);
-
-        if (scoreReadableCandidate(text) > 180) {
-          const cachedHtml = setCachedArticle(url, {
-            text: text.substring(0, 20000),
-            title,
-            type: 'web',
+    for (const candidateUrl of candidateUrls) {
+      for (const userAgent of userAgents) {
+        try {
+          const response = await fetch(candidateUrl, {
+            headers: {
+              'User-Agent': userAgent,
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+              'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+              'Cache-Control': 'no-cache',
+              'Upgrade-Insecure-Requests': '1',
+            },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(8000),
           });
-          return { text: cachedHtml.text, title: cachedHtml.title, type: 'web' };
+
+          if (!response.ok) continue;
+
+          const html = await response.text();
+          const { text, title } = extractFromHtml(html);
+
+          if (scoreReadableCandidate(text) > 180) {
+            const cachedHtml = setCachedArticle(url, {
+              text: text.substring(0, 20000),
+              title,
+              type: 'web',
+            });
+            return { text: cachedHtml.text, title: cachedHtml.title, type: 'web' };
+          }
+        } catch {
+          // Try next candidate/agent
         }
-      } catch {
-        // Try next agent
       }
     }
 

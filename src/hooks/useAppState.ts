@@ -12,17 +12,14 @@ import {
 } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 import {
-  deriveInsights,
   estimateMinutesSaved,
-  extractSourceHost,
   findCachedSummary,
+  getAppInsights,
   getProviderMetrics,
-  getSummaryHistory,
   recordProviderMetric,
+  recordSavedSummary,
   saveCachedSummary,
-  saveSummaryHistoryEntry,
   type AppInsights,
-  type SummaryHistoryEntry,
   type ProviderMetrics,
 } from '../lib/appInsights';
 
@@ -68,8 +65,7 @@ export function useAppState() {
   const [deepResearchEnabled, setDeepResearchEnabled] = useState(false);
   const [lieScore, setLieScore] = useState(0);
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
-  const [summaryHistory, setSummaryHistory] = useState<SummaryHistoryEntry[]>([]);
-  const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0, topSources: [] });
+  const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0 });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
 
   // API
@@ -127,7 +123,7 @@ export function useAppState() {
         ...(UI_TRANSLATIONS[uiLanguage as TranslationKey] || {}),
       };
       if (uiLanguage === 'Spanish') {
-        merged.originalTitle = 'Titulo original';
+        merged.originalTitle = 'Título original';
       }
       return merged;
     },
@@ -342,9 +338,7 @@ export function useAppState() {
     }
     setDeepResearchEnabled(localStorage.getItem('deep_research_enabled') === 'true');
 
-    const loadedHistory = getSummaryHistory();
-    setSummaryHistory(loadedHistory);
-    setAppInsights(deriveInsights(loadedHistory));
+    setAppInsights(getAppInsights());
     setProviderMetrics(getProviderMetrics());
 
     const savedPremium = localStorage.getItem('is_premium') === 'true';
@@ -708,21 +702,7 @@ export function useAppState() {
       setProviderMetrics(getProviderMetrics());
 
       const minutesSaved = estimateMinutesSaved(summaryResult.articleLength, summaryResult.summary.length);
-      const historyEntry: SummaryHistoryEntry = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        url: finalUrl,
-        title: resolvedTitle || (isTextInput ? 'Texto seleccionado' : extractSourceHost(finalUrl)),
-        summary: summaryResult.summary,
-        sourceHost: isTextInput ? 'Texto seleccionado' : extractSourceHost(finalUrl),
-        createdAt: Date.now(),
-        language: summaryLanguage,
-        length: resolvedLength,
-        provider: summaryResult.providerUsed,
-        minutesSaved,
-      };
-      const nextHistory = saveSummaryHistoryEntry(historyEntry);
-      setSummaryHistory(nextHistory);
-      setAppInsights(deriveInsights(nextHistory));
+      setAppInsights(recordSavedSummary(minutesSaved));
 
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         const investigation = await investigateClaim(
@@ -884,7 +864,7 @@ export function useAppState() {
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
-    showInstallButton, resultsRef, summaryHistory, appInsights, providerMetrics,
+    showInstallButton, resultsRef, appInsights, providerMetrics,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     // derived

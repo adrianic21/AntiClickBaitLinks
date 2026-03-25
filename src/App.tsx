@@ -360,6 +360,25 @@ export default function App() {
           onShare={handleShare}
         />
 
+        {summary && (
+          <div className="flex items-center justify-center">
+            <label className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white/80 px-4 py-3 text-sm text-zinc-600 shadow-sm">
+              <span className="font-medium">{t.summaryLanguageLabel}</span>
+              <select
+                value={summaryLanguage}
+                onChange={(event) => setSummaryLanguage(event.target.value)}
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 outline-none focus:border-emerald-400"
+              >
+                {LANGUAGES.map((language) => (
+                  <option key={language.code} value={language.code}>
+                    {language.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
         {/* Install App button */}
         <AnimatePresence>
           {showInstallButton && (
@@ -392,9 +411,6 @@ export default function App() {
 
         <InsightsPanel
           t={t}
-          summaryLanguage={summaryLanguage}
-          onSummaryLanguageChange={setSummaryLanguage}
-          languages={LANGUAGES}
           insights={appInsights}
         />
       </motion.div>

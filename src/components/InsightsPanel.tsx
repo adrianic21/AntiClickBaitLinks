@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Clock3, History, Globe2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock3, History } from 'lucide-react';
 import { useState } from 'react';
 import type { AppInsights } from '../lib/appInsights';
 
@@ -7,19 +7,12 @@ interface InsightsPanelProps {
     insightsTitle: string;
     savedSummariesLabel: string;
     timeSavedLabel: string;
-    summaryLanguageLabel: string;
   };
-  summaryLanguage: string;
-  onSummaryLanguageChange: (language: string) => void;
-  languages: Array<{ code: string; name: string; flag: string }>;
   insights: AppInsights;
 }
 
 export function InsightsPanel({
   t,
-  summaryLanguage,
-  onSummaryLanguageChange,
-  languages,
   insights,
 }: InsightsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -39,22 +32,6 @@ export function InsightsPanel({
 
       {isOpen && (
         <div className="space-y-4 pt-1">
-          <label className="flex items-center gap-2 text-sm text-zinc-600">
-            <Globe2 size={16} className="text-emerald-600" />
-            <span className="font-medium">{t.summaryLanguageLabel}</span>
-            <select
-              value={summaryLanguage}
-              onChange={(event) => onSummaryLanguageChange(event.target.value)}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 outline-none focus:border-emerald-400"
-            >
-              {languages.map((language) => (
-                <option key={language.code} value={language.code}>
-                  {language.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
               <div className="flex items-center gap-2 text-zinc-500 text-xs font-semibold uppercase tracking-wide">

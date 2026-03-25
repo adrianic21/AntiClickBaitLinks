@@ -299,11 +299,7 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
-  const loadAccount = useCallback(async () => {
-    const response = await fetch('/api/account', { credentials: 'include' });
-    if (!response.ok) throw new Error('account_load_failed');
-    const data = await response.json() as AccountResponse;
-
+  const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
     setIsPremium(premiumEnabled);
@@ -343,6 +339,13 @@ export function useAppState() {
       })
       .catch(() => undefined);
   }, [refreshValidatedApiKeys]);
+
+  const loadAccount = useCallback(async () => {
+    const response = await fetch('/api/account', { credentials: 'include' });
+    if (!response.ok) throw new Error('account_load_failed');
+    const data = await response.json() as AccountResponse;
+    applyAccountData(data);
+  }, [applyAccountData]);
 
   // ─── Load font ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -387,7 +390,10 @@ export function useAppState() {
     const sharedTextCandidate = params.get('sharedText') || '';
 
     if (authErrorParam) {
-      setAuthError('We could not complete that sign-in. Please try again.');
+      const message = authErrorParam.includes('not_configured')
+        ? 'This sign-in provider is not configured yet on the server.'
+        : 'We could not complete that sign-in. Please try again.';
+      setAuthError(message);
       window.history.replaceState({}, '', '/');
       return;
     }
@@ -514,13 +520,17 @@ export function useAppState() {
         throw new Error(data.error || 'Authentication failed');
       }
       setAuthPassword('');
-      await loadAccount();
+      if (data.user && data.account) {
+        applyAccountData(data as AccountResponse);
+      } else {
+        await loadAccount();
+      }
     } catch (error: any) {
       setAuthError(error?.message || 'Authentication failed');
     } finally {
       setIsAuthLoading(false);
     }
-  }, [authMode, authName, authEmail, authPassword, loadAccount]);
+  }, [authMode, authName, authEmail, authPassword, loadAccount, applyAccountData]);
 
   const startOAuth = useCallback((providerName: 'google' | 'github') => {
     window.location.href = `/api/auth/${providerName}/start`;

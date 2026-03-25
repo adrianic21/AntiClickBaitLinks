@@ -364,6 +364,27 @@ function toPublicUser(user: StoredUserAccount) {
   };
 }
 
+function buildAccountResponse(user: StoredUserAccount) {
+  return {
+    user: toPublicUser(user),
+    account: {
+      apiKeys: decryptJson<Record<string, string | undefined>>(user.encryptedApiKeys) || {},
+      preferences: {
+        uiLanguage: user.uiLanguage,
+        summaryLanguage: user.summaryLanguage,
+        preferredLength: user.preferredLength,
+        speechRate: user.speechRate,
+        provider: user.provider,
+        deepResearchEnabled: user.deepResearchEnabled,
+        dontShowAgain: user.dontShowAgain,
+      },
+      appInsights: user.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 },
+      feedSources: user.feedSources || [],
+      premium: user.premium || { isPremium: false },
+    },
+  };
+}
+
 async function revokeTokensByEmail(email: string): Promise<void> {
   const keys = await redisKeys('token:*');
   for (const key of keys) {
@@ -712,7 +733,7 @@ async function startServer() {
     await saveUser(user);
     const session = await createSession(user.id);
     res.setHeader('Set-Cookie', buildSessionCookie(session.token));
-    return res.status(201).json({ user: toPublicUser(user) });
+    return res.status(201).json(buildAccountResponse(user));
   });
 
   app.post('/api/auth/login', tokenLimiter, async (req, res) => {
@@ -729,7 +750,7 @@ async function startServer() {
     await saveUser(user);
     const session = await createSession(user.id);
     res.setHeader('Set-Cookie', buildSessionCookie(session.token));
-    return res.json({ user: toPublicUser(user) });
+    return res.json(buildAccountResponse(user));
   });
 
   app.post('/api/auth/logout', async (req, res) => {
@@ -911,24 +932,7 @@ async function startServer() {
   app.get('/api/account', async (req, res) => {
     const user = await getAuthenticatedUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
-    return res.json({
-      user: toPublicUser(user),
-      account: {
-        apiKeys: decryptJson<Record<string, string | undefined>>(user.encryptedApiKeys) || {},
-        preferences: {
-          uiLanguage: user.uiLanguage,
-          summaryLanguage: user.summaryLanguage,
-          preferredLength: user.preferredLength,
-          speechRate: user.speechRate,
-          provider: user.provider,
-          deepResearchEnabled: user.deepResearchEnabled,
-          dontShowAgain: user.dontShowAgain,
-        },
-        appInsights: user.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 },
-        feedSources: user.feedSources || [],
-        premium: user.premium || { isPremium: false },
-      },
-    });
+    return res.json(buildAccountResponse(user));
   });
 
   app.post('/api/account', async (req, res) => {

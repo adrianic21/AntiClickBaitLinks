@@ -118,6 +118,7 @@ const ARTICLE_CACHE_TTL_MS = 10 * 60 * 1000;
 const articleCache = new Map<string, ArticleCacheEntry>();
 const SESSION_COOKIE_NAME = 'acbl_session';
 const OAUTH_STATE_TTL_SECONDS = 10 * 60;
+const LOCAL_KV_PATH = path.join(process.cwd(), 'data', 'local-kv.json');
 const TRUSTED_NEWS_DOMAINS = [
   'reuters.com',
   'apnews.com',
@@ -131,48 +132,163 @@ const TRUSTED_NEWS_DOMAINS = [
   'washingtonpost.com',
 ];
 
-async function redisGet<T>(key: string): Promise<T | null> {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
+interface LocalKvEntry {
+  value: unknown;
+  expiresAt?: number;
+}
 
-  const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json() as { result: string | null };
-  if (!data.result) return null;
-  try {
-    return JSON.parse(data.result) as T;
-  } catch {
-    return null;
+function ensureLocalKvDir(): void {
+  const dir = path.dirname(LOCAL_KV_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-async function redisSet<T>(key: string, value: T): Promise<void> {
+function readLocalKvStore(): Record<string, LocalKvEntry> {
+  try {
+    ensureLocalKvDir();
+    if (!fs.existsSync(LOCAL_KV_PATH)) return {};
+    return JSON.parse(fs.readFileSync(LOCAL_KV_PATH, 'utf-8')) as Record<string, LocalKvEntry>;
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalKvStore(store: Record<string, LocalKvEntry>): void {
+  ensureLocalKvDir();
+  fs.writeFileSync(LOCAL_KV_PATH, JSON.stringify(store, null, 2), 'utf-8');
+}
+
+function getLocalKvEntry(key: string): LocalKvEntry | null {
+  const store = readLocalKvStore();
+  const entry = store[key];
+  if (!entry) return null;
+  if (entry.expiresAt && entry.expiresAt <= Date.now()) {
+    delete store[key];
+    writeLocalKvStore(store);
+    return null;
+  }
+  return entry;
+}
+
+function setLocalKvEntry(key: string, value: unknown, ttlSeconds?: number): void {
+  const store = readLocalKvStore();
+  store[key] = {
+    value,
+    expiresAt: ttlSeconds ? Date.now() + ttlSeconds * 1000 : undefined,
+  };
+  writeLocalKvStore(store);
+}
+
+function deleteLocalKvEntry(key: string): void {
+  const store = readLocalKvStore();
+  if (store[key]) {
+    delete store[key];
+    writeLocalKvStore(store);
+  }
+}
+
+function listLocalKvKeys(pattern: string): string[] {
+  const escapedPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  const regex = new RegExp(`^${escapedPattern}$`);
+  const store = readLocalKvStore();
+  const keys: string[] = [];
+
+  for (const key of Object.keys(store)) {
+    const entry = store[key];
+    if (entry?.expiresAt && entry.expiresAt <= Date.now()) {
+      delete store[key];
+      continue;
+    }
+    if (regex.test(key)) keys.push(key);
+  }
+
+  writeLocalKvStore(store);
+  return keys;
+}
+
+async function redisGet<T>(key: string): Promise<T | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return;
+  if (!url || !token) {
+    const fallback = getLocalKvEntry(key);
+    return (fallback?.value as T) ?? null;
+  }
 
-  await fetch(`${url}/set/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(JSON.stringify(value)),
-  });
+  try {
+    const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json() as { result: string | null };
+    if (!data.result) return null;
+    return JSON.parse(data.result) as T;
+  } catch {
+    const fallback = getLocalKvEntry(key);
+    return (fallback?.value as T) ?? null;
+  }
+}
+
+async function redisSet<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) {
+    setLocalKvEntry(key, value, ttlSeconds);
+    return;
+  }
+
+  try {
+    await fetch(`${url}/set/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(JSON.stringify(value)),
+    });
+
+    if (ttlSeconds) {
+      await fetch(`${url}/expire/${encodeURIComponent(key)}/${ttlSeconds}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+  } catch {
+    setLocalKvEntry(key, value, ttlSeconds);
+  }
 }
 
 async function redisKeys(pattern: string): Promise<string[]> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return [];
+  if (!url || !token) return listLocalKvKeys(pattern);
 
-  const res = await fetch(`${url}/keys/${encodeURIComponent(pattern)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json() as { result: string[] };
-  return data.result || [];
+  try {
+    const res = await fetch(`${url}/keys/${encodeURIComponent(pattern)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json() as { result: string[] };
+    return data.result || [];
+  } catch {
+    return listLocalKvKeys(pattern);
+  }
+}
+
+async function redisDelete(key: string): Promise<void> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) {
+    deleteLocalKvEntry(key);
+    return;
+  }
+
+  try {
+    await fetch(`${url}/del/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    deleteLocalKvEntry(key);
+  }
 }
 
 function getCookieValue(req: express.Request, name: string): string | null {
@@ -332,25 +448,12 @@ async function getAuthenticatedSession(req: express.Request): Promise<SessionDat
 }
 
 async function deleteSession(token: string): Promise<void> {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const accessToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !accessToken || !token) return;
-  await fetch(`${url}/del/session:${encodeURIComponent(token)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  }).catch(() => undefined);
+  if (!token) return;
+  await redisDelete(`session:${token}`);
 }
 
 async function saveOAuthState(state: string, data: OAuthStateData): Promise<void> {
-  await redisSet<OAuthStateData>(`oauth_state:${state}`, data);
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const accessToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (url && accessToken) {
-    await fetch(`${url}/expire/${encodeURIComponent(`oauth_state:${state}`)}/${OAUTH_STATE_TTL_SECONDS}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).catch(() => undefined);
-  }
+  await redisSet<OAuthStateData>(`oauth_state:${state}`, data, OAUTH_STATE_TTL_SECONDS);
 }
 
 async function getOAuthState(state: string): Promise<OAuthStateData | null> {

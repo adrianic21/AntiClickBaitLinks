@@ -390,9 +390,18 @@ export function useAppState() {
     const sharedTextCandidate = params.get('sharedText') || '';
 
     if (authErrorParam) {
-      const message = authErrorParam.includes('not_configured')
-        ? 'This sign-in provider is not configured yet on the server.'
-        : 'We could not complete that sign-in. Please try again.';
+      let message = 'We could not complete that sign-in. Please try again.';
+      if (authErrorParam === 'google_not_configured') {
+        message = 'Google sign-in is not configured yet on the server.';
+      } else if (authErrorParam === 'google_invalid_state') {
+        message = 'Google sign-in failed because the session expired or the callback URL does not match.';
+      } else if (authErrorParam === 'google_token_exchange_failed') {
+        message = 'Google sign-in failed while exchanging the authorization code. Recheck APP_URL, Client ID, Client Secret and the redirect URI in Google Cloud.';
+      } else if (authErrorParam === 'google_profile_failed') {
+        message = 'Google sign-in reached Google but could not read the user profile. Recheck the OAuth consent screen and required scopes.';
+      } else if (authErrorParam === 'google_access_denied') {
+        message = 'Google sign-in was cancelled before finishing.';
+      }
       setAuthError(message);
       window.history.replaceState({}, '', '/');
       return;
@@ -532,7 +541,7 @@ export function useAppState() {
     }
   }, [authMode, authName, authEmail, authPassword, loadAccount, applyAccountData]);
 
-  const startOAuth = useCallback((providerName: 'google' | 'github') => {
+  const startOAuth = useCallback((providerName: 'google') => {
     window.location.href = `/api/auth/${providerName}/start`;
   }, []);
 

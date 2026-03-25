@@ -109,7 +109,7 @@ interface SessionData {
 }
 
 interface OAuthStateData {
-  provider: 'google' | 'github';
+  provider: 'google';
   redirectTo: string;
   createdAt: string;
 }
@@ -200,6 +200,10 @@ function clearSessionCookie(): string {
 
 function getAccountEncryptionSecret(): string {
   return process.env.ACCOUNT_DATA_SECRET || process.env.ADMIN_SECRET || 'anticlickbait-account-secret';
+}
+
+function getNormalizedAppUrl(): string {
+  return String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
 }
 
 function encryptJson(value: unknown): string {
@@ -762,7 +766,7 @@ async function startServer() {
 
   app.get('/api/auth/google/start', async (_req, res) => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
-    const appUrl = process.env.APP_URL;
+    const appUrl = getNormalizedAppUrl();
     if (!clientId || !appUrl) {
       return res.redirect('/?authError=google_not_configured');
     }
@@ -782,10 +786,14 @@ async function startServer() {
   app.get('/api/auth/google/callback', async (req, res) => {
     const code = String(req.query.code || '');
     const state = String(req.query.state || '');
-    const appUrl = process.env.APP_URL;
+    const denied = String(req.query.error || '');
+    const appUrl = getNormalizedAppUrl();
     const stateData = await getOAuthState(state);
+    if (denied) {
+      return res.redirect('/?authError=google_access_denied');
+    }
     if (!code || !stateData || stateData.provider !== 'google' || !appUrl) {
-      return res.redirect('/?authError=google_failed');
+      return res.redirect('/?authError=google_invalid_state');
     }
 
     try {
@@ -800,14 +808,20 @@ async function startServer() {
           grant_type: 'authorization_code',
         }),
       });
-      const tokenData = await tokenRes.json() as { access_token?: string };
-      if (!tokenData.access_token) throw new Error('missing_access_token');
+      const tokenData = await tokenRes.json() as { access_token?: string; error?: string; error_description?: string };
+      if (!tokenRes.ok || !tokenData.access_token) {
+        console.error('Google token exchange failed:', tokenData);
+        return res.redirect('/?authError=google_token_exchange_failed');
+      }
 
       const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
       });
       const googleUser = await userRes.json() as { id: string; email: string; name?: string; picture?: string };
-      if (!googleUser.id || !googleUser.email) throw new Error('missing_google_profile');
+      if (!userRes.ok || !googleUser.id || !googleUser.email) {
+        console.error('Google profile fetch failed:', googleUser);
+        return res.redirect('/?authError=google_profile_failed');
+      }
 
       let user = await getOAuthLinkedUser('google', googleUser.id);
       if (!user) user = await getUserByEmail(googleUser.email);
@@ -840,92 +854,6 @@ async function startServer() {
     } catch (error) {
       console.error('Google auth failed:', error);
       return res.redirect('/?authError=google_failed');
-    }
-  });
-
-  app.get('/api/auth/github/start', async (_req, res) => {
-    const clientId = process.env.GITHUB_CLIENT_ID;
-    const appUrl = process.env.APP_URL;
-    if (!clientId || !appUrl) {
-      return res.redirect('/?authError=github_not_configured');
-    }
-    const state = crypto.randomBytes(16).toString('hex');
-    await saveOAuthState(state, { provider: 'github', redirectTo: appUrl, createdAt: new Date().toISOString() });
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: `${appUrl}/api/auth/github/callback`,
-      scope: 'read:user user:email',
-      state,
-    });
-    return res.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`);
-  });
-
-  app.get('/api/auth/github/callback', async (req, res) => {
-    const code = String(req.query.code || '');
-    const state = String(req.query.state || '');
-    const stateData = await getOAuthState(state);
-    const appUrl = process.env.APP_URL;
-    if (!code || !stateData || stateData.provider !== 'github' || !appUrl) {
-      return res.redirect('/?authError=github_failed');
-    }
-
-    try {
-      const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          client_id: process.env.GITHUB_CLIENT_ID || '',
-          client_secret: process.env.GITHUB_CLIENT_SECRET || '',
-          code,
-          redirect_uri: `${appUrl}/api/auth/github/callback`,
-          state,
-        }),
-      });
-      const tokenData = await tokenRes.json() as { access_token?: string };
-      if (!tokenData.access_token) throw new Error('missing_access_token');
-
-      const githubRes = await fetch('https://api.github.com/user', {
-        headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: 'application/vnd.github+json' },
-      });
-      const githubUser = await githubRes.json() as { id: number; name?: string; avatar_url?: string; email?: string; login?: string };
-      const emailRes = await fetch('https://api.github.com/user/emails', {
-        headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: 'application/vnd.github+json' },
-      });
-      const emails = await emailRes.json() as Array<{ email: string; primary?: boolean }>;
-      const primaryEmail = githubUser.email || emails.find(item => item.primary)?.email || emails[0]?.email;
-      if (!primaryEmail || !githubUser.id) throw new Error('missing_github_profile');
-
-      let user = await getOAuthLinkedUser('github', String(githubUser.id));
-      if (!user) user = await getUserByEmail(primaryEmail);
-
-      if (!user) {
-        user = {
-          id: uuidv4(),
-          email: primaryEmail.toLowerCase(),
-          displayName: githubUser.name || githubUser.login || primaryEmail.split('@')[0],
-          avatarUrl: githubUser.avatar_url,
-          providers: ['github'],
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          appInsights: { savedSummaries: 0, totalMinutesSaved: 0 },
-          premium: { isPremium: false },
-          feedSources: [],
-        };
-      } else {
-        user.displayName = user.displayName || githubUser.name || githubUser.login || user.email.split('@')[0];
-        user.avatarUrl = githubUser.avatar_url || user.avatarUrl;
-        user.lastLoginAt = new Date().toISOString();
-        if (!user.providers.includes('github')) user.providers.push('github');
-      }
-
-      await saveUser(user);
-      await linkOAuthUser('github', String(githubUser.id), user.id);
-      const session = await createSession(user.id);
-      res.setHeader('Set-Cookie', buildSessionCookie(session.token));
-      return res.redirect('/?auth=success');
-    } catch (error) {
-      console.error('GitHub auth failed:', error);
-      return res.redirect('/?authError=github_failed');
     }
   });
 

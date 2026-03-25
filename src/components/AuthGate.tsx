@@ -1,4 +1,4 @@
-import { Github, Loader2, LogIn, Mail, ShieldCheck } from 'lucide-react';
+import { Loader2, LogIn, Mail, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface AuthGateProps {
@@ -11,7 +11,6 @@ interface AuthGateProps {
     authSignIn?: string;
     authSignUp?: string;
     authContinueGoogle?: string;
-    authContinueGitHub?: string;
     authSwitchToSignUp?: string;
     authSwitchToSignIn?: string;
     authSyncCaption?: string;
@@ -27,7 +26,7 @@ interface AuthGateProps {
   onPasswordChange: (value: string) => void;
   onSubmit: () => void;
   onModeChange: (mode: 'login' | 'signup') => void;
-  onOAuthStart: (provider: 'google' | 'github') => void;
+  onOAuthStart: (provider: 'google') => void;
 }
 
 export function AuthGate({
@@ -134,14 +133,6 @@ export function AuthGate({
             className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition-all hover:border-emerald-300 hover:text-emerald-700"
           >
             {t.authContinueGoogle || 'Continue with Google'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onOAuthStart('github')}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition-all hover:border-emerald-300 hover:text-emerald-700"
-          >
-            <Github size={16} />
-            {t.authContinueGitHub || 'Continue with GitHub'}
           </button>
         </div>
 

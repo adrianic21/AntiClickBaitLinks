@@ -29,6 +29,11 @@ interface TopBarProps {
   openLockModal: () => void;
   changeUiLanguage: (lang: string) => void;
   saveApiKey: () => void;
+  currentUser: {
+    email: string;
+    displayName: string;
+  };
+  logout: () => void;
 }
 
 const PROVIDERS: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
@@ -56,7 +61,7 @@ export function TopBar({
   uiLanguage, timeLeft, nextResetTime, provider, setProvider,
   userApiKey, setUserApiKey, apiKeys,
   togglePopup, setShowStatusPopover, setShowLangMenu, setShowSettings,
-  openLockModal, changeUiLanguage, saveApiKey,
+  openLockModal, changeUiLanguage, saveApiKey, currentUser, logout,
 }: TopBarProps) {
   return (
     <>
@@ -145,6 +150,11 @@ export function TopBar({
                 </button>
               </div>
               <div className="space-y-2">
+                <div className="bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Account</div>
+                  <div className="text-sm font-semibold text-zinc-900">{currentUser.displayName}</div>
+                  <div className="text-xs text-zinc-500 break-all">{currentUser.email}</div>
+                </div>
                 <div className="flex justify-between items-center bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
                   <span className="text-xs text-zinc-500">{t.remainingSearches}</span>
                   <span className="text-sm font-bold text-zinc-900">
@@ -165,6 +175,12 @@ export function TopBar({
                   {t.buyBtn}
                 </button>
               )}
+              <button
+                onClick={() => { setShowStatusPopover(false); logout(); }}
+                className="w-full py-2 border border-zinc-200 text-zinc-600 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+              >
+                {t.authLogout || 'Log out'}
+              </button>
             </motion.div>
           </>
         )}

@@ -9,11 +9,13 @@ import { LockModal } from './components/LockModal';
 import { ResultCard } from './components/ResultCard';
 import { InsightsPanel } from './components/InsightsPanel';
 import { FeedPanel } from './components/FeedPanel';
+import { AuthGate } from './components/AuthGate';
 
 export default function App() {
   const state = useAppState();
   const {
     url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult, appInsights, summary, articleTitle, isLoading, error,
+    currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
@@ -27,6 +29,7 @@ export default function App() {
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     openPopup, togglePopup, openLockModal, closeInfo,
+    submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     preferredLength, setPreferredLength, setSummaryLanguage, setDeepResearchMode,
@@ -48,6 +51,34 @@ export default function App() {
   // FIX: Construir la URL que se pasa a ResultCard correctamente cuando hay un PDF.
   // Sin esto, ResultCard recibe url="" y no puede mostrar ni el nombre del archivo.
   const resultCardUrl = pdfFile ? `pdf:${pdfFile.name}` : url;
+
+  if (isAuthLoading && !currentUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-sm font-semibold text-zinc-500">Loading your account...</div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <AuthGate
+        t={t}
+        mode={authMode}
+        loading={isAuthLoading}
+        error={authError}
+        name={authName}
+        email={authEmail}
+        password={authPassword}
+        onNameChange={setAuthName}
+        onEmailChange={setAuthEmail}
+        onPasswordChange={setAuthPassword}
+        onSubmit={submitAuth}
+        onModeChange={setAuthMode}
+        onOAuthStart={startOAuth}
+      />
+    );
+  }
 
   return (
     // FIX: Eliminado sm:p-6 duplicado (era sobreescrito inmediatamente por sm:p-12)
@@ -86,6 +117,8 @@ export default function App() {
         openLockModal={openLockModal}
         changeUiLanguage={changeUiLanguage}
         saveApiKey={saveApiKey}
+        currentUser={currentUser}
+        logout={logout}
       />
 
       {/* Onboarding language picker */}

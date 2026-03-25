@@ -14,7 +14,6 @@ import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 import {
   estimateMinutesSaved,
   findCachedSummary,
-  getAppInsights,
   getProviderMetrics,
   recordProviderMetric,
   recordSavedSummary,
@@ -24,7 +23,6 @@ import {
 } from '../lib/appInsights';
 import {
   addFeedSource as persistFeedSource,
-  getFeedSources,
   removeFeedSource as deleteFeedSource,
   toggleFeedSource as persistFeedSourceToggle,
   type DailyFeedItem,
@@ -69,6 +67,37 @@ interface RssPreviewResponse {
   }>;
 }
 
+interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  providers: string[];
+  isPremium: boolean;
+}
+
+interface AccountResponse {
+  user: AuthUser;
+  account: {
+    apiKeys?: ApiKeys;
+    preferences?: {
+      uiLanguage?: string;
+      summaryLanguage?: string;
+      preferredLength?: 'short' | 'medium' | 'long';
+      speechRate?: number;
+      provider?: Provider;
+      deepResearchEnabled?: boolean;
+      dontShowAgain?: boolean;
+    };
+    appInsights?: AppInsights;
+    feedSources?: FeedSource[];
+    premium?: {
+      isPremium: boolean;
+      token?: string;
+    };
+  };
+}
+
 export function useAppState() {
   // Core
   const [url, setUrl] = useState('');
@@ -89,6 +118,13 @@ export function useAppState() {
   const [dailyFeedItems, setDailyFeedItems] = useState<DailyFeedItem[]>([]);
   const [isFeedLoading, setIsFeedLoading] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // API
   const [userApiKey, setUserApiKey] = useState('');
@@ -229,7 +265,7 @@ export function useAppState() {
 
   const validatePremiumSession = useCallback(async (): Promise<boolean> => {
     const savedToken = localStorage.getItem('premium_token');
-    if (!savedToken) return false;
+    if (!savedToken) return isPremium;
 
     try {
       const res = await fetch('/api/validate-token', {
@@ -252,7 +288,61 @@ export function useAppState() {
     } catch {
       return true;
     }
-  }, []);
+  }, [isPremium]);
+
+  const syncAccount = useCallback(async (payload: Record<string, unknown>) => {
+    if (!currentUser) return;
+    await fetch('/api/account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => undefined);
+  }, [currentUser]);
+
+  const loadAccount = useCallback(async () => {
+    const response = await fetch('/api/account', { credentials: 'include' });
+    if (!response.ok) throw new Error('account_load_failed');
+    const data = await response.json() as AccountResponse;
+
+    setCurrentUser(data.user);
+    const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
+    setIsPremium(premiumEnabled);
+    localStorage.setItem('is_premium', premiumEnabled ? 'true' : 'false');
+    if (data.account?.premium?.token) {
+      localStorage.setItem('premium_token', data.account.premium.token);
+    } else if (!premiumEnabled) {
+      localStorage.removeItem('premium_token');
+    }
+
+    const accountKeys = data.account?.apiKeys || {};
+    setApiKeys(accountKeys);
+    const selectedProvider = (data.account?.preferences?.provider as Provider) || 'gemini';
+    setProvider(selectedProvider);
+    setUserApiKey(accountKeys[selectedProvider] || '');
+    refreshValidatedApiKeys(accountKeys).catch(() => undefined);
+
+    if (data.account?.preferences?.uiLanguage) setUiLanguage(data.account.preferences.uiLanguage);
+    if (data.account?.preferences?.summaryLanguage) setSummaryLanguageState(data.account.preferences.summaryLanguage);
+    if (data.account?.preferences?.preferredLength) setPreferredLengthState(data.account.preferences.preferredLength);
+    if (typeof data.account?.preferences?.speechRate === 'number') setSpeechRateState(data.account.preferences.speechRate);
+    if (typeof data.account?.preferences?.deepResearchEnabled === 'boolean') setDeepResearchEnabled(data.account.preferences.deepResearchEnabled);
+    if (typeof data.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(data.account.preferences.dontShowAgain);
+
+    setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
+    setFeedSources(data.account?.feedSources || []);
+
+    fetch('/api/check-limit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
+    })
+      .then(r => r.json())
+      .then(limitData => {
+        setServerRemaining(limitData.remaining ?? null);
+        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
+      })
+      .catch(() => undefined);
+  }, [refreshValidatedApiKeys]);
 
   // ─── Load font ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -289,11 +379,18 @@ export function useAppState() {
   useEffect(() => {
     const currentUrl = new URL(window.location.href);
     const params = currentUrl.searchParams;
+    const authErrorParam = params.get('authError') || '';
     const sharedCandidate = params.get('shared')
       || params.get('url')
       || extractUrlFromText(params.get('text') || '')
       || (currentUrl.pathname === '/share-target' ? extractUrlFromText(params.get('title') || '') : '');
     const sharedTextCandidate = params.get('sharedText') || '';
+
+    if (authErrorParam) {
+      setAuthError('We could not complete that sign-in. Please try again.');
+      window.history.replaceState({}, '', '/');
+      return;
+    }
 
     if (sharedCandidate && sharedCandidate.startsWith('http')) {
       setPendingSharedUrl(sharedCandidate);
@@ -325,77 +422,33 @@ export function useAppState() {
   // ─── Open external links in browser (PWA) ──────────────────────────────────
   // ─── Load persisted state ───────────────────────────────────────────────────
   useEffect(() => {
-    const savedProvider = localStorage.getItem('api_provider') as Provider;
-    if (savedProvider) setProvider(savedProvider);
-
-    const savedLength = localStorage.getItem('preferred_length') as 'short' | 'medium' | 'long';
-    if (savedLength) setPreferredLengthState(savedLength);
-    const savedSpeechRate = Number(localStorage.getItem('speech_rate'));
-    if (!Number.isNaN(savedSpeechRate) && savedSpeechRate >= 0.5 && savedSpeechRate <= 2) {
-      setSpeechRateState(savedSpeechRate);
-    }
-
-    const savedKeys: ApiKeys = {
-      gemini: localStorage.getItem('api_key_gemini') || undefined,
-      openrouter: localStorage.getItem('api_key_openrouter') || undefined,
-      mistral: localStorage.getItem('api_key_mistral') || undefined,
-      deepseek: localStorage.getItem('api_key_deepseek') || undefined,
-    };
-    setApiKeys(savedKeys);
-    setValidatedApiKeys({});
-    const currentKey = savedKeys[savedProvider || 'gemini'];
-    if (currentKey) { setUserApiKey(currentKey); }
-    refreshValidatedApiKeys(savedKeys).catch(() => { /* keep local keys even if validation fails */ });
-
     const savedLang = localStorage.getItem('ui_language');
     if (savedLang && UI_TRANSLATIONS[savedLang as TranslationKey]) {
       setUiLanguage(savedLang);
-    }
-
-    const savedSummaryLanguage = localStorage.getItem('summary_language');
-    if (savedSummaryLanguage && UI_TRANSLATIONS[savedSummaryLanguage as TranslationKey]) {
-      setSummaryLanguageState(savedSummaryLanguage);
-    } else if (savedLang && UI_TRANSLATIONS[savedLang as TranslationKey]) {
       setSummaryLanguageState(savedLang);
-    }
-    setDeepResearchEnabled(localStorage.getItem('deep_research_enabled') === 'true');
-
-    setAppInsights(getAppInsights());
-    setProviderMetrics(getProviderMetrics());
-    setFeedSources(getFeedSources());
-
-    const savedPremium = localStorage.getItem('is_premium') === 'true';
-    setIsPremium(savedPremium);
-    if (savedPremium) {
-      validatePremiumSession().catch(() => { /* keep premium on network error */ });
     }
 
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
-    if (!savedDontShow) {
-      const hasChosenLang = localStorage.getItem('ui_language') !== null;
-      if (!hasChosenLang) setShowOnboardingLang(true);
-      else setShowInfo(true);
-    }
 
-    if (!savedPremium) {
-      fetch('/api/check-limit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record: false, isPremium: false, deviceId: getDeviceId() }),
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then(r => r.json())
+      .then(async (data) => {
+        if (data.user) {
+          await loadAccount();
+          if (!savedDontShow) setShowInfo(true);
+        } else {
+          setCurrentUser(null);
+        }
       })
-        .then(r => r.json())
-        .then(data => {
-          setServerRemaining(data.remaining ?? null);
-          if (data.resetAt) setServerResetAt(data.resetAt);
-          if (!data.allowed) {
-            setResetTimestamp(data.resetAt);
-            setShowLockModal(true);
-          }
-        })
-        .catch(() => { /* fall back to server count */ });
-    }
-  }, [refreshValidatedApiKeys, validatePremiumSession]); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(() => {
+        setCurrentUser(null);
+      })
+      .finally(() => {
+        setProviderMetrics(getProviderMetrics());
+        setIsAuthLoading(false);
+      });
+  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Countdown timer ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -415,6 +468,7 @@ export function useAppState() {
 
   // ─── Auto-summarize on URL paste ────────────────────────────────────────────
   useEffect(() => {
+    if (!currentUser) return;
     const timer = setTimeout(() => {
       if (url && !isLoading) {
         try {
@@ -434,7 +488,7 @@ export function useAppState() {
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [url, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Scroll to results ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -444,6 +498,53 @@ export function useAppState() {
   }, [summary]);
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
+  const submitAuth = useCallback(async () => {
+    setAuthError(null);
+    setIsAuthLoading(true);
+    try {
+      const endpoint = authMode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: authName, email: authEmail, password: authPassword }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Authentication failed');
+      }
+      setAuthPassword('');
+      await loadAccount();
+    } catch (error: any) {
+      setAuthError(error?.message || 'Authentication failed');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }, [authMode, authName, authEmail, authPassword, loadAccount]);
+
+  const startOAuth = useCallback((providerName: 'google' | 'github') => {
+    window.location.href = `/api/auth/${providerName}/start`;
+  }, []);
+
+  const logout = useCallback(async () => {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    }).catch(() => undefined);
+    setCurrentUser(null);
+    setApiKeys({});
+    setValidatedApiKeys({});
+    setUserApiKey('');
+    setSummary(null);
+    setArticleTitle(null);
+    setAppInsights({ savedSummaries: 0, totalMinutesSaved: 0 });
+    setFeedSources([]);
+    setDailyFeedItems([]);
+    setIsPremium(false);
+    setServerRemaining(null);
+    setServerResetAt(null);
+  }, []);
+
   const saveApiKey = useCallback(async () => {
     const trimmedKey = userApiKey.trim();
 
@@ -474,13 +575,15 @@ export function useAppState() {
     setValidatedApiKeys(nextValidatedKeys);
     localStorage.setItem('api_provider', provider);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    await syncAccount({ apiKeys: newKeys, preferences: { provider } });
     setError(null);
     setShowSettings(false);
-  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys]);
+  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount]);
 
   const changeUiLanguage = useCallback((lang: string) => {
     setUiLanguage(lang);
     localStorage.setItem('ui_language', lang);
+    syncAccount({ preferences: { uiLanguage: lang } }).catch(() => undefined);
     if (showOnboardingLang) {
       setShowOnboardingLang(false);
       setShowLangMenu(false);
@@ -488,7 +591,7 @@ export function useAppState() {
     } else {
       setShowLangMenu(false);
     }
-  }, [showOnboardingLang]);
+  }, [showOnboardingLang, syncAccount]);
 
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
@@ -514,6 +617,7 @@ export function useAppState() {
         setIsPremium(true);
         localStorage.setItem('is_premium', 'true');
         localStorage.setItem('premium_token', unlockPass.trim());
+        syncAccount({ premium: { isPremium: true, token: unlockPass.trim() } }).catch(() => undefined);
         setShowLockModal(false);
         openPopup('');
         setLockError(false);
@@ -529,7 +633,7 @@ export function useAppState() {
     } finally {
       setIsLoading(false);
     }
-  }, [unlockPass, openPopup]);
+  }, [unlockPass, openPopup, syncAccount]);
 
   const handlePaste = useCallback(async () => {
     try {
@@ -544,22 +648,26 @@ export function useAppState() {
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);
     localStorage.setItem('preferred_length', len);
-  }, []);
+    syncAccount({ preferences: { preferredLength: len } }).catch(() => undefined);
+  }, [syncAccount]);
 
   const setSummaryLanguage = useCallback((lang: string) => {
     setSummaryLanguageState(lang);
     localStorage.setItem('summary_language', lang);
-  }, []);
+    syncAccount({ preferences: { summaryLanguage: lang } }).catch(() => undefined);
+  }, [syncAccount]);
 
   const setDeepResearchMode = useCallback((enabled: boolean) => {
     setDeepResearchEnabled(enabled);
     localStorage.setItem('deep_research_enabled', enabled ? 'true' : 'false');
-  }, []);
+    syncAccount({ preferences: { deepResearchEnabled: enabled } }).catch(() => undefined);
+  }, [syncAccount]);
 
   const setSpeechRate = useCallback((rate: number) => {
     setSpeechRateState(rate);
     localStorage.setItem('speech_rate', String(rate));
-  }, []);
+    syncAccount({ preferences: { speechRate: rate } }).catch(() => undefined);
+  }, [syncAccount]);
 
   const addFeedSource = useCallback((name: string, sourceUrl: string, type: FeedSourceType) => {
     const trimmedUrl = sourceUrl.trim();
@@ -572,15 +680,20 @@ export function useAppState() {
     });
     setFeedSources(nextSources);
     setFeedError(null);
-  }, []);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
 
   const removeFeedSource = useCallback((id: string) => {
-    setFeedSources(deleteFeedSource(id));
-  }, []);
+    const nextSources = deleteFeedSource(id);
+    setFeedSources(nextSources);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
 
   const toggleFeedSource = useCallback((id: string) => {
-    setFeedSources(persistFeedSourceToggle(id));
-  }, []);
+    const nextSources = persistFeedSourceToggle(id);
+    setFeedSources(nextSources);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
 
   const refreshDailyFeed = useCallback(async () => {
     const enabledSources = feedSources.filter((source) => source.enabled);
@@ -676,6 +789,10 @@ export function useAppState() {
   ) => {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
+    if (!currentUser) {
+      setAuthError('Please sign in to use the app.');
+      return;
+    }
     if (!url && !pdfFile || isLoading) return;
     if (isPremium) {
       const stillValidPremium = await validatePremiumSession();
@@ -821,7 +938,9 @@ export function useAppState() {
       setProviderMetrics(getProviderMetrics());
 
       const minutesSaved = estimateMinutesSaved(summaryResult.articleLength, summaryResult.summary.length);
-      setAppInsights(recordSavedSummary(minutesSaved));
+      const nextInsights = recordSavedSummary(minutesSaved);
+      setAppInsights(nextInsights);
+      syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         const investigation = await investigateClaim(
@@ -896,7 +1015,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -976,13 +1095,15 @@ export function useAppState() {
     setShowInfo(false);
     setDontShowAgain(true);
     localStorage.setItem('dont_show_onboarding', 'true');
-  }, []);
+    syncAccount({ preferences: { dontShowAgain: true } }).catch(() => undefined);
+  }, [syncAccount]);
 
   return {
     // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
+    currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
@@ -999,6 +1120,7 @@ export function useAppState() {
     t,
     // handlers
     openPopup, togglePopup, openLockModal, closeInfo,
+    submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     handleUnlock, handlePaste, handleClear, handleSummarize,

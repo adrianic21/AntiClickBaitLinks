@@ -66,8 +66,58 @@ interface ArticleCacheEntry {
   cachedAt: number;
 }
 
+interface StoredUserAccount {
+  id: string;
+  email: string;
+  displayName: string;
+  avatarUrl?: string;
+  passwordHash?: string;
+  providers: string[];
+  createdAt: string;
+  lastLoginAt: string;
+  encryptedApiKeys?: string;
+  uiLanguage?: string;
+  summaryLanguage?: string;
+  preferredLength?: 'short' | 'medium' | 'long';
+  speechRate?: number;
+  provider?: string;
+  deepResearchEnabled?: boolean;
+  dontShowAgain?: boolean;
+  appInsights?: {
+    savedSummaries: number;
+    totalMinutesSaved: number;
+  };
+  feedSources?: Array<{
+    id: string;
+    name: string;
+    url: string;
+    type: string;
+    enabled: boolean;
+    createdAt: number;
+  }>;
+  premium?: {
+    isPremium: boolean;
+    token?: string;
+  };
+}
+
+interface SessionData {
+  token: string;
+  userId: string;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
+interface OAuthStateData {
+  provider: 'google' | 'github';
+  redirectTo: string;
+  createdAt: string;
+}
+
 const ARTICLE_CACHE_TTL_MS = 10 * 60 * 1000;
 const articleCache = new Map<string, ArticleCacheEntry>();
+const SESSION_COOKIE_NAME = 'acbl_session';
+const OAUTH_STATE_TTL_SECONDS = 10 * 60;
 const TRUSTED_NEWS_DOMAINS = [
   'reuters.com',
   'apnews.com',
@@ -125,6 +175,85 @@ async function redisKeys(pattern: string): Promise<string[]> {
   return data.result || [];
 }
 
+function getCookieValue(req: express.Request, name: string): string | null {
+  const header = String(req.headers.cookie || '');
+  const cookies = header.split(';').map(part => part.trim()).filter(Boolean);
+  for (const cookie of cookies) {
+    const separatorIndex = cookie.indexOf('=');
+    if (separatorIndex === -1) continue;
+    const key = cookie.slice(0, separatorIndex).trim();
+    if (key !== name) continue;
+    return decodeURIComponent(cookie.slice(separatorIndex + 1));
+  }
+  return null;
+}
+
+function buildSessionCookie(token: string, maxAgeSeconds = 60 * 60 * 24 * 30): string {
+  const secure = process.env.NODE_ENV === 'production' ? ' Secure;' : '';
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds};${secure}`;
+}
+
+function clearSessionCookie(): string {
+  const secure = process.env.NODE_ENV === 'production' ? ' Secure;' : '';
+  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0;${secure}`;
+}
+
+function getAccountEncryptionSecret(): string {
+  return process.env.ACCOUNT_DATA_SECRET || process.env.ADMIN_SECRET || 'anticlickbait-account-secret';
+}
+
+function encryptJson(value: unknown): string {
+  const secret = crypto.createHash('sha256').update(getAccountEncryptionSecret()).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', secret, iv);
+  const plaintext = Buffer.from(JSON.stringify(value), 'utf-8');
+  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString('base64');
+}
+
+function decryptJson<T>(payload?: string): T | undefined {
+  if (!payload) return undefined;
+  try {
+    const secret = crypto.createHash('sha256').update(getAccountEncryptionSecret()).digest();
+    const buffer = Buffer.from(payload, 'base64');
+    const iv = buffer.subarray(0, 12);
+    const tag = buffer.subarray(12, 28);
+    const encrypted = buffer.subarray(28);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', secret, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf-8');
+    return JSON.parse(decrypted) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const key = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey as Buffer);
+    });
+  });
+  return `${salt}:${key.toString('hex')}`;
+}
+
+async function verifyPassword(password: string, storedHash?: string): Promise<boolean> {
+  if (!storedHash) return false;
+  const [salt, expectedHex] = storedHash.split(':');
+  if (!salt || !expectedHex) return false;
+  const derived = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey as Buffer);
+    });
+  });
+  const expected = Buffer.from(expectedHex, 'hex');
+  return expected.length === derived.length && crypto.timingSafeEqual(expected, derived);
+}
+
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 async function getToken(token: string): Promise<TokenData | null> {
@@ -133,6 +262,106 @@ async function getToken(token: string): Promise<TokenData | null> {
 
 async function saveToken(token: string, data: TokenData): Promise<void> {
   await redisSet<TokenData>(`token:${token}`, data);
+}
+
+async function getUserById(userId: string): Promise<StoredUserAccount | null> {
+  return redisGet<StoredUserAccount>(`user:${userId}`);
+}
+
+async function saveUser(user: StoredUserAccount): Promise<void> {
+  await redisSet<StoredUserAccount>(`user:${user.id}`, user);
+  await redisSet<string>(`user_email:${user.email.toLowerCase()}`, user.id);
+}
+
+async function getUserByEmail(email: string): Promise<StoredUserAccount | null> {
+  const userId = await redisGet<string>(`user_email:${email.toLowerCase()}`);
+  if (!userId) return null;
+  return getUserById(userId);
+}
+
+async function getOAuthLinkedUser(provider: string, providerUserId: string): Promise<StoredUserAccount | null> {
+  const userId = await redisGet<string>(`oauth:${provider}:${providerUserId}`);
+  if (!userId) return null;
+  return getUserById(userId);
+}
+
+async function linkOAuthUser(provider: string, providerUserId: string, userId: string): Promise<void> {
+  await redisSet<string>(`oauth:${provider}:${providerUserId}`, userId);
+}
+
+async function createSession(userId: string): Promise<SessionData> {
+  const session: SessionData = {
+    token: crypto.randomBytes(32).toString('base64url'),
+    userId,
+    createdAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+  };
+  await redisSet<SessionData>(`session:${session.token}`, session);
+  return session;
+}
+
+async function getSessionByToken(token: string): Promise<SessionData | null> {
+  if (!token) return null;
+  return redisGet<SessionData>(`session:${token}`);
+}
+
+async function saveSession(session: SessionData): Promise<void> {
+  await redisSet<SessionData>(`session:${session.token}`, session);
+}
+
+async function getAuthenticatedUser(req: express.Request): Promise<StoredUserAccount | null> {
+  const token = getCookieValue(req, SESSION_COOKIE_NAME);
+  if (!token) return null;
+  const session = await getSessionByToken(token);
+  if (!session) return null;
+  const user = await getUserById(session.userId);
+  if (!user) return null;
+  session.lastSeenAt = new Date().toISOString();
+  await saveSession(session);
+  return user;
+}
+
+async function getAuthenticatedSession(req: express.Request): Promise<SessionData | null> {
+  const token = getCookieValue(req, SESSION_COOKIE_NAME);
+  if (!token) return null;
+  return getSessionByToken(token);
+}
+
+async function deleteSession(token: string): Promise<void> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const accessToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !accessToken || !token) return;
+  await fetch(`${url}/del/session:${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  }).catch(() => undefined);
+}
+
+async function saveOAuthState(state: string, data: OAuthStateData): Promise<void> {
+  await redisSet<OAuthStateData>(`oauth_state:${state}`, data);
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const accessToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && accessToken) {
+    await fetch(`${url}/expire/${encodeURIComponent(`oauth_state:${state}`)}/${OAUTH_STATE_TTL_SECONDS}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }).catch(() => undefined);
+  }
+}
+
+async function getOAuthState(state: string): Promise<OAuthStateData | null> {
+  return redisGet<OAuthStateData>(`oauth_state:${state}`);
+}
+
+function toPublicUser(user: StoredUserAccount) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    avatarUrl: user.avatarUrl || null,
+    providers: user.providers,
+    isPremium: Boolean(user.premium?.isPremium),
+  };
 }
 
 async function revokeTokensByEmail(email: string): Promise<void> {
@@ -171,6 +400,12 @@ function getUsageId(req: express.Request): string {
     return `device:${rawDeviceId}`;
   }
   return `ip:${getClientIp(req)}`;
+}
+
+async function getUsageIdForRequest(req: express.Request): Promise<string> {
+  const user = await getAuthenticatedUser(req);
+  if (user) return `user:${user.id}`;
+  return getUsageId(req);
 }
 
 async function getUsageCount(ip: string): Promise<number> {
@@ -436,6 +671,301 @@ async function startServer() {
   app.use('/api/check-limit', generalLimiter);
   app.use('/api/validate-token', tokenLimiter);
   app.use('/api/admin', adminLimiter);
+
+  app.get('/api/auth/me', async (req, res) => {
+    const user = await getAuthenticatedUser(req);
+    if (!user) return res.status(200).json({ user: null });
+    return res.json({ user: toPublicUser(user) });
+  });
+
+  app.post('/api/auth/signup', tokenLimiter, async (req, res) => {
+    const { email, password, name } = req.body || {};
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'User';
+    const rawPassword = String(password || '');
+
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      return res.status(400).json({ error: 'Valid email required' });
+    }
+    if (rawPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const existing = await getUserByEmail(normalizedEmail);
+    if (existing) {
+      return res.status(409).json({ error: 'This email is already registered' });
+    }
+
+    const user: StoredUserAccount = {
+      id: uuidv4(),
+      email: normalizedEmail,
+      displayName,
+      passwordHash: await hashPassword(rawPassword),
+      providers: ['password'],
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+      appInsights: { savedSummaries: 0, totalMinutesSaved: 0 },
+      premium: { isPremium: false },
+      feedSources: [],
+    };
+
+    await saveUser(user);
+    const session = await createSession(user.id);
+    res.setHeader('Set-Cookie', buildSessionCookie(session.token));
+    return res.status(201).json({ user: toPublicUser(user) });
+  });
+
+  app.post('/api/auth/login', tokenLimiter, async (req, res) => {
+    const { email, password } = req.body || {};
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const rawPassword = String(password || '');
+
+    const user = await getUserByEmail(normalizedEmail);
+    if (!user || !(await verifyPassword(rawPassword, user.passwordHash))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    user.lastLoginAt = new Date().toISOString();
+    await saveUser(user);
+    const session = await createSession(user.id);
+    res.setHeader('Set-Cookie', buildSessionCookie(session.token));
+    return res.json({ user: toPublicUser(user) });
+  });
+
+  app.post('/api/auth/logout', async (req, res) => {
+    const token = getCookieValue(req, SESSION_COOKIE_NAME);
+    if (token) await deleteSession(token);
+    res.setHeader('Set-Cookie', clearSessionCookie());
+    return res.json({ ok: true });
+  });
+
+  app.get('/api/auth/google/start', async (_req, res) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const appUrl = process.env.APP_URL;
+    if (!clientId || !appUrl) {
+      return res.redirect('/?authError=google_not_configured');
+    }
+    const state = crypto.randomBytes(16).toString('hex');
+    await saveOAuthState(state, { provider: 'google', redirectTo: appUrl, createdAt: new Date().toISOString() });
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: `${appUrl}/api/auth/google/callback`,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      prompt: 'select_account',
+    });
+    return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  });
+
+  app.get('/api/auth/google/callback', async (req, res) => {
+    const code = String(req.query.code || '');
+    const state = String(req.query.state || '');
+    const appUrl = process.env.APP_URL;
+    const stateData = await getOAuthState(state);
+    if (!code || !stateData || stateData.provider !== 'google' || !appUrl) {
+      return res.redirect('/?authError=google_failed');
+    }
+
+    try {
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID || '',
+          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+          redirect_uri: `${appUrl}/api/auth/google/callback`,
+          grant_type: 'authorization_code',
+        }),
+      });
+      const tokenData = await tokenRes.json() as { access_token?: string };
+      if (!tokenData.access_token) throw new Error('missing_access_token');
+
+      const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      const googleUser = await userRes.json() as { id: string; email: string; name?: string; picture?: string };
+      if (!googleUser.id || !googleUser.email) throw new Error('missing_google_profile');
+
+      let user = await getOAuthLinkedUser('google', googleUser.id);
+      if (!user) user = await getUserByEmail(googleUser.email);
+
+      if (!user) {
+        user = {
+          id: uuidv4(),
+          email: googleUser.email.toLowerCase(),
+          displayName: googleUser.name || googleUser.email.split('@')[0],
+          avatarUrl: googleUser.picture,
+          providers: ['google'],
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          appInsights: { savedSummaries: 0, totalMinutesSaved: 0 },
+          premium: { isPremium: false },
+          feedSources: [],
+        };
+      } else {
+        user.displayName = user.displayName || googleUser.name || user.email.split('@')[0];
+        user.avatarUrl = googleUser.picture || user.avatarUrl;
+        user.lastLoginAt = new Date().toISOString();
+        if (!user.providers.includes('google')) user.providers.push('google');
+      }
+
+      await saveUser(user);
+      await linkOAuthUser('google', googleUser.id, user.id);
+      const session = await createSession(user.id);
+      res.setHeader('Set-Cookie', buildSessionCookie(session.token));
+      return res.redirect('/?auth=success');
+    } catch (error) {
+      console.error('Google auth failed:', error);
+      return res.redirect('/?authError=google_failed');
+    }
+  });
+
+  app.get('/api/auth/github/start', async (_req, res) => {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    const appUrl = process.env.APP_URL;
+    if (!clientId || !appUrl) {
+      return res.redirect('/?authError=github_not_configured');
+    }
+    const state = crypto.randomBytes(16).toString('hex');
+    await saveOAuthState(state, { provider: 'github', redirectTo: appUrl, createdAt: new Date().toISOString() });
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: `${appUrl}/api/auth/github/callback`,
+      scope: 'read:user user:email',
+      state,
+    });
+    return res.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`);
+  });
+
+  app.get('/api/auth/github/callback', async (req, res) => {
+    const code = String(req.query.code || '');
+    const state = String(req.query.state || '');
+    const stateData = await getOAuthState(state);
+    const appUrl = process.env.APP_URL;
+    if (!code || !stateData || stateData.provider !== 'github' || !appUrl) {
+      return res.redirect('/?authError=github_failed');
+    }
+
+    try {
+      const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          client_id: process.env.GITHUB_CLIENT_ID || '',
+          client_secret: process.env.GITHUB_CLIENT_SECRET || '',
+          code,
+          redirect_uri: `${appUrl}/api/auth/github/callback`,
+          state,
+        }),
+      });
+      const tokenData = await tokenRes.json() as { access_token?: string };
+      if (!tokenData.access_token) throw new Error('missing_access_token');
+
+      const githubRes = await fetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: 'application/vnd.github+json' },
+      });
+      const githubUser = await githubRes.json() as { id: number; name?: string; avatar_url?: string; email?: string; login?: string };
+      const emailRes = await fetch('https://api.github.com/user/emails', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: 'application/vnd.github+json' },
+      });
+      const emails = await emailRes.json() as Array<{ email: string; primary?: boolean }>;
+      const primaryEmail = githubUser.email || emails.find(item => item.primary)?.email || emails[0]?.email;
+      if (!primaryEmail || !githubUser.id) throw new Error('missing_github_profile');
+
+      let user = await getOAuthLinkedUser('github', String(githubUser.id));
+      if (!user) user = await getUserByEmail(primaryEmail);
+
+      if (!user) {
+        user = {
+          id: uuidv4(),
+          email: primaryEmail.toLowerCase(),
+          displayName: githubUser.name || githubUser.login || primaryEmail.split('@')[0],
+          avatarUrl: githubUser.avatar_url,
+          providers: ['github'],
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          appInsights: { savedSummaries: 0, totalMinutesSaved: 0 },
+          premium: { isPremium: false },
+          feedSources: [],
+        };
+      } else {
+        user.displayName = user.displayName || githubUser.name || githubUser.login || user.email.split('@')[0];
+        user.avatarUrl = githubUser.avatar_url || user.avatarUrl;
+        user.lastLoginAt = new Date().toISOString();
+        if (!user.providers.includes('github')) user.providers.push('github');
+      }
+
+      await saveUser(user);
+      await linkOAuthUser('github', String(githubUser.id), user.id);
+      const session = await createSession(user.id);
+      res.setHeader('Set-Cookie', buildSessionCookie(session.token));
+      return res.redirect('/?auth=success');
+    } catch (error) {
+      console.error('GitHub auth failed:', error);
+      return res.redirect('/?authError=github_failed');
+    }
+  });
+
+  app.get('/api/account', async (req, res) => {
+    const user = await getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    return res.json({
+      user: toPublicUser(user),
+      account: {
+        apiKeys: decryptJson<Record<string, string | undefined>>(user.encryptedApiKeys) || {},
+        preferences: {
+          uiLanguage: user.uiLanguage,
+          summaryLanguage: user.summaryLanguage,
+          preferredLength: user.preferredLength,
+          speechRate: user.speechRate,
+          provider: user.provider,
+          deepResearchEnabled: user.deepResearchEnabled,
+          dontShowAgain: user.dontShowAgain,
+        },
+        appInsights: user.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 },
+        feedSources: user.feedSources || [],
+        premium: user.premium || { isPremium: false },
+      },
+    });
+  });
+
+  app.post('/api/account', async (req, res) => {
+    const user = await getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { apiKeys, preferences, appInsights, feedSources, premium } = req.body || {};
+    if (apiKeys && typeof apiKeys === 'object') {
+      user.encryptedApiKeys = encryptJson(apiKeys);
+    }
+    if (preferences && typeof preferences === 'object') {
+      if (typeof preferences.uiLanguage === 'string') user.uiLanguage = preferences.uiLanguage;
+      if (typeof preferences.summaryLanguage === 'string') user.summaryLanguage = preferences.summaryLanguage;
+      if (preferences.preferredLength === 'short' || preferences.preferredLength === 'medium' || preferences.preferredLength === 'long') user.preferredLength = preferences.preferredLength;
+      if (typeof preferences.speechRate === 'number') user.speechRate = preferences.speechRate;
+      if (typeof preferences.provider === 'string') user.provider = preferences.provider;
+      if (typeof preferences.deepResearchEnabled === 'boolean') user.deepResearchEnabled = preferences.deepResearchEnabled;
+      if (typeof preferences.dontShowAgain === 'boolean') user.dontShowAgain = preferences.dontShowAgain;
+    }
+    if (appInsights && typeof appInsights.savedSummaries === 'number' && typeof appInsights.totalMinutesSaved === 'number') {
+      user.appInsights = {
+        savedSummaries: Math.max(0, appInsights.savedSummaries),
+        totalMinutesSaved: Math.max(0, appInsights.totalMinutesSaved),
+      };
+    }
+    if (Array.isArray(feedSources)) {
+      user.feedSources = feedSources.slice(0, 40);
+    }
+    if (premium && typeof premium === 'object') {
+      user.premium = {
+        isPremium: Boolean(premium.isPremium),
+        token: typeof premium.token === 'string' ? premium.token : user.premium?.token,
+      };
+    }
+    await saveUser(user);
+    return res.json({ ok: true, user: toPublicUser(user) });
+  });
 
   // ── Fetch URL content ─────────────────────────────────────────────────────
 
@@ -1088,6 +1618,18 @@ async function startServer() {
       });
     }
 
+    const session = await getAuthenticatedSession(req);
+    if (session) {
+      const user = await getUserById(session.userId);
+      if (user) {
+        user.premium = {
+          isPremium: true,
+          token,
+        };
+        await saveUser(user);
+      }
+    }
+
     res.status(200).json({ valid: true, email: tokenData.email });
   });
 
@@ -1097,7 +1639,7 @@ async function startServer() {
     const { record, isPremium } = req.body;
     if (isPremium) return res.json({ allowed: true, remaining: null, resetAt: null });
 
-    const usageId = getUsageId(req);
+    const usageId = await getUsageIdForRequest(req);
     const count = await getUsageCount(usageId);
 
     if (record) {

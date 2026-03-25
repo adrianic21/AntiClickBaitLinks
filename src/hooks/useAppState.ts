@@ -22,6 +22,15 @@ import {
   type AppInsights,
   type ProviderMetrics,
 } from '../lib/appInsights';
+import {
+  addFeedSource as persistFeedSource,
+  getFeedSources,
+  removeFeedSource as deleteFeedSource,
+  toggleFeedSource as persistFeedSourceToggle,
+  type DailyFeedItem,
+  type FeedSource,
+  type FeedSourceType,
+} from '../lib/feedSources';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
 function getDeviceId(): string {
@@ -51,6 +60,15 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
+interface RssPreviewResponse {
+  title: string;
+  items: Array<{
+    title: string;
+    url: string;
+    publishedAt?: string | null;
+  }>;
+}
+
 export function useAppState() {
   // Core
   const [url, setUrl] = useState('');
@@ -67,6 +85,10 @@ export function useAppState() {
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
   const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0 });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
+  const [feedSources, setFeedSources] = useState<FeedSource[]>([]);
+  const [dailyFeedItems, setDailyFeedItems] = useState<DailyFeedItem[]>([]);
+  const [isFeedLoading, setIsFeedLoading] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
 
   // API
   const [userApiKey, setUserApiKey] = useState('');
@@ -340,6 +362,7 @@ export function useAppState() {
 
     setAppInsights(getAppInsights());
     setProviderMetrics(getProviderMetrics());
+    setFeedSources(getFeedSources());
 
     const savedPremium = localStorage.getItem('is_premium') === 'true';
     setIsPremium(savedPremium);
@@ -536,6 +559,102 @@ export function useAppState() {
   const setSpeechRate = useCallback((rate: number) => {
     setSpeechRateState(rate);
     localStorage.setItem('speech_rate', String(rate));
+  }, []);
+
+  const addFeedSource = useCallback((name: string, sourceUrl: string, type: FeedSourceType) => {
+    const trimmedUrl = sourceUrl.trim();
+    if (!trimmedUrl) return;
+    const nextSources = persistFeedSource({
+      name: name.trim() || trimmedUrl,
+      url: trimmedUrl,
+      type,
+      enabled: true,
+    });
+    setFeedSources(nextSources);
+    setFeedError(null);
+  }, []);
+
+  const removeFeedSource = useCallback((id: string) => {
+    setFeedSources(deleteFeedSource(id));
+  }, []);
+
+  const toggleFeedSource = useCallback((id: string) => {
+    setFeedSources(persistFeedSourceToggle(id));
+  }, []);
+
+  const refreshDailyFeed = useCallback(async () => {
+    const enabledSources = feedSources.filter((source) => source.enabled);
+    if (enabledSources.length === 0) {
+      setDailyFeedItems([]);
+      setFeedError(null);
+      return;
+    }
+
+    setIsFeedLoading(true);
+    setFeedError(null);
+
+    try {
+      const responses = await Promise.all(
+        enabledSources.map(async (source) => {
+          const response = await fetch('/api/rss-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: source.url }),
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.error || `Could not load ${source.name}`);
+          }
+
+          const data = await response.json() as RssPreviewResponse;
+          return data.items.map<DailyFeedItem>((item, index) => ({
+            id: `${source.id}-${index}-${item.url}`,
+            title: item.title,
+            url: item.url,
+            sourceName: source.name || data.title || source.url,
+            sourceType: source.type,
+            publishedAt: item.publishedAt || null,
+          }));
+        })
+      );
+
+      const deduped = new Map<string, DailyFeedItem>();
+      for (const items of responses.flat()) {
+        if (!deduped.has(items.url)) {
+          deduped.set(items.url, items);
+        }
+      }
+
+      const nextItems = Array.from(deduped.values())
+        .sort((a, b) => {
+          const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+          const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+          return timeB - timeA;
+        })
+        .slice(0, 12);
+
+      setDailyFeedItems(nextItems);
+    } catch (err: any) {
+      setFeedError(err?.message || 'Could not load the selected feed.');
+    } finally {
+      setIsFeedLoading(false);
+    }
+  }, [feedSources]);
+
+  const useFeedItem = useCallback((feedUrl: string) => {
+    setPdfFile(null);
+    setError(null);
+    setPendingSharedUrl(null);
+    setUrl(feedUrl);
+  }, []);
+
+  const summarizeFeedItem = useCallback((feedUrl: string) => {
+    setPdfFile(null);
+    setError(null);
+    setUrl(feedUrl);
+    setPendingSharedUrl(feedUrl);
+    setShowSharedToast(true);
   }, []);
 
   const handleClear = useCallback(() => {
@@ -838,6 +957,14 @@ export function useAppState() {
     return () => clearTimeout(id);
   }, [showSharedToast]);
 
+  useEffect(() => {
+    if (feedSources.some((source) => source.enabled)) {
+      refreshDailyFeed().catch(() => { /* surfaced in state */ });
+    } else {
+      setDailyFeedItems([]);
+    }
+  }, [feedSources, refreshDailyFeed]);
+
   const handleInstall = useCallback(async () => {
     if (!installPrompt) return;
     installPrompt.prompt();
@@ -856,6 +983,7 @@ export function useAppState() {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
+    feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
@@ -872,6 +1000,7 @@ export function useAppState() {
     // handlers
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
+    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
   };

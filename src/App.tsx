@@ -8,11 +8,13 @@ import { InfoPanel } from './components/InfoPanel';
 import { LockModal } from './components/LockModal';
 import { ResultCard } from './components/ResultCard';
 import { InsightsPanel } from './components/InsightsPanel';
+import { FeedPanel } from './components/FeedPanel';
 
 export default function App() {
   const state = useAppState();
   const {
     url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult, appInsights, summary, articleTitle, isLoading, error,
+    feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
@@ -26,6 +28,7 @@ export default function App() {
     showSharedToast,
     openPopup, togglePopup, openLockModal, closeInfo,
     saveApiKey, changeUiLanguage,
+    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     preferredLength, setPreferredLength, setSummaryLanguage, setDeepResearchMode,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
@@ -339,6 +342,20 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <FeedPanel
+          t={t}
+          sources={feedSources}
+          items={dailyFeedItems}
+          isLoading={isFeedLoading}
+          error={feedError}
+          onAddSource={addFeedSource}
+          onToggleSource={toggleFeedSource}
+          onRemoveSource={removeFeedSource}
+          onRefresh={refreshDailyFeed}
+          onUseLink={useFeedItem}
+          onSummarizeNow={summarizeFeedItem}
+        />
 
         <InsightsPanel
           t={t}

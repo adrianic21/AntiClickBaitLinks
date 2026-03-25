@@ -845,6 +845,71 @@ async function startServer() {
     res.status(500).json({ error: 'Failed to fetch URL' });
   });
 
+  app.post("/api/rss-preview", async (req, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL is required' });
+    if (!isAllowedUrl(url)) {
+      return res.status(400).json({ error: 'Invalid or disallowed URL' });
+    }
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.8,es;q=0.7',
+          'Cache-Control': 'no-cache',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({ error: 'Could not load this RSS feed' });
+      }
+
+      const xml = await response.text();
+      const $ = cheerio.load(xml, { xmlMode: true });
+      const feedTitle =
+        $('channel > title').first().text().trim() ||
+        $('feed > title').first().text().trim() ||
+        'Custom feed';
+
+      const items = $('item, entry')
+        .map((_index, element) => {
+          const node = $(element);
+          const title = node.find('title').first().text().trim();
+          const atomHref = node.find('link').first().attr('href');
+          const textLink = node.find('link').first().text().trim();
+          const guid = node.find('guid').first().text().trim();
+          const urlValue = atomHref || textLink || (guid.startsWith('http') ? guid : '');
+          const publishedAt =
+            node.find('pubDate').first().text().trim() ||
+            node.find('published').first().text().trim() ||
+            node.find('updated').first().text().trim() ||
+            null;
+
+          if (!title || !urlValue || !/^https?:\/\//i.test(urlValue)) {
+            return null;
+          }
+
+          return {
+            title,
+            url: urlValue,
+            publishedAt,
+          };
+        })
+        .get()
+        .filter(Boolean)
+        .slice(0, 25);
+
+      return res.json({ title: feedTitle, items });
+    } catch (error: any) {
+      console.error('RSS preview failed:', error?.message || error);
+      return res.status(500).json({ error: 'Could not parse this feed' });
+    }
+  });
+
   app.post("/api/deep-investigate", async (req, res) => {
     const { url, title } = req.body;
     if (!url || !title) {

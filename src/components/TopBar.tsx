@@ -1,67 +1,40 @@
-import { ShieldCheck, Languages, Info, Key, Settings, Check, X, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Languages, Info, UserRound, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
 import type { Translations } from '../translations';
-import type { Provider, ApiKeys } from '../services/geminiService';
 
 interface TopBarProps {
   t: Translations;
   isPremium: boolean;
   remainingSearches: number;
-  isKeySaved: boolean;
-  showSettings: boolean;
   showInfo: boolean;
   showLangMenu: boolean;
+  showProfile: boolean;
   showStatusPopover: boolean;
   uiLanguage: string;
   timeLeft: string;
   nextResetTime: number | null;
-  provider: Provider;
-  setProvider: (p: Provider) => void;
-  userApiKey: string;
-  setUserApiKey: (k: string) => void;
-  apiKeys: ApiKeys;
   togglePopup: (p: string) => void;
   setShowStatusPopover: (v: boolean) => void;
   setShowLangMenu: (v: boolean) => void;
-  setShowSettings: (v: boolean) => void;
   openLockModal: () => void;
   changeUiLanguage: (lang: string) => void;
-  saveApiKey: () => void;
   currentUser: {
     email: string;
     displayName: string;
   };
-  logout: () => void;
 }
-
-const PROVIDERS: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
-
-const PROVIDER_LINKS: Record<Provider, string> = {
-  gemini: 'https://aistudio.google.com/app/apikey',
-  openrouter: 'https://openrouter.ai/keys',
-  mistral: 'https://console.mistral.ai/api-keys',
-  deepseek: 'https://platform.deepseek.com/api_keys',
-};
-
-const PROVIDER_PLACEHOLDERS: Record<Provider, string> = {
-  gemini: 'AIzaSy...',
-  openrouter: 'sk-or-...',
-  mistral: 'sk-...',
-  deepseek: 'sk-...',
-};
 
 const BACKDROP = "fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]";
 const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
 
 export function TopBar({
-  t, isPremium, remainingSearches, isKeySaved,
-  showSettings, showInfo, showLangMenu, showStatusPopover,
-  uiLanguage, timeLeft, nextResetTime, provider, setProvider,
-  userApiKey, setUserApiKey, apiKeys,
-  togglePopup, setShowStatusPopover, setShowLangMenu, setShowSettings,
-  openLockModal, changeUiLanguage, saveApiKey, currentUser, logout,
+  t, isPremium, remainingSearches,
+  showInfo, showLangMenu, showProfile, showStatusPopover,
+  uiLanguage, timeLeft, nextResetTime,
+  togglePopup, setShowStatusPopover, setShowLangMenu,
+  openLockModal, changeUiLanguage, currentUser,
 }: TopBarProps) {
   return (
     <>
@@ -118,16 +91,15 @@ export function TopBar({
           <Info size={20} />
         </button>
 
-        {/* Settings */}
+        {/* Profile */}
         <button
-          onClick={() => togglePopup('settings')}
+          onClick={() => togglePopup('profile')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
-            showSettings ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            showProfile ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
           )}
         >
-          {isKeySaved && <Check size={20} className="text-emerald-500" />}
-          <Settings size={20} className={cn(showSettings && "animate-spin-slow")} />
+          <UserRound size={20} />
         </button>
       </div>
 
@@ -175,12 +147,6 @@ export function TopBar({
                   {t.buyBtn}
                 </button>
               )}
-              <button
-                onClick={() => { setShowStatusPopover(false); logout(); }}
-                className="w-full py-2 border border-zinc-200 text-zinc-600 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
-              >
-                {t.authLogout || 'Log out'}
-              </button>
             </motion.div>
           </>
         )}
@@ -208,74 +174,6 @@ export function TopBar({
                   <span>{lang.name}</span>
                 </button>
               ))}
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Settings panel */}
-      <AnimatePresence>
-        {showSettings && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className={BACKDROP} onClick={() => setShowSettings(false)} />
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className={cn(MODAL, "w-[90%] max-w-sm glass rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto")}
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-zinc-900 flex items-center gap-2">
-                  <Key size={18} /> {t.settingsTitle}
-                </h3>
-                <button onClick={() => setShowSettings(false)} className="text-zinc-400 hover:text-zinc-600">
-                  <X size={20} />
-                </button>
-              </div>
-              <p className="text-xs text-zinc-500">{t.settingsDesc}</p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
-                    {t.apiProvider}
-                  </label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {PROVIDERS.map(p => (
-                      <button key={p}
-                        onClick={() => { setProvider(p); setUserApiKey(apiKeys[p] || ''); }}
-                        className={cn(
-                          "px-2 py-2 text-[10px] font-bold rounded-lg border transition-all",
-                          provider === p
-                            ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
-                            : "bg-white border-zinc-200 text-zinc-600 hover:border-emerald-200"
-                        )}
-                      >
-                        {p.charAt(0).toUpperCase() + p.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <input
-                    type="password"
-                    placeholder={PROVIDER_PLACEHOLDERS[provider]}
-                    value={userApiKey}
-                    onChange={e => setUserApiKey(e.target.value)}
-                    className="w-full px-4 py-3 bg-zinc-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                  />
-                  <button onClick={saveApiKey}
-                    className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-100"
-                  >
-                    {t.saveBtn}
-                  </button>
-                </div>
-              </div>
-
-              <a href={PROVIDER_LINKS[provider]} target="_blank" rel="noopener noreferrer"
-                className="block text-center text-[10px] text-emerald-600 hover:underline"
-              >
-                {t.noKeyLink}
-              </a>
             </motion.div>
           </>
         )}

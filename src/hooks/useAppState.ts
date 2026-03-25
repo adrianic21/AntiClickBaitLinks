@@ -138,6 +138,7 @@ export function useAppState() {
   const [showInfo, setShowInfo] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [showOnboardingLang, setShowOnboardingLang] = useState(false);
   const [showApiPrivacy, setShowApiPrivacy] = useState(false);
 
@@ -226,6 +227,7 @@ export function useAppState() {
     setShowLangMenu(popup === 'lang');
     setShowInfo(popup === 'info');
     setShowSettings(popup === 'settings');
+    setShowProfile(popup === 'profile');
     if (popup !== 'info') setShowApiPrivacy(false);
   }, []);
 
@@ -234,9 +236,10 @@ export function useAppState() {
       (popup === 'status' && showStatusPopover) ||
       (popup === 'lang' && showLangMenu) ||
       (popup === 'info' && showInfo) ||
-      (popup === 'settings' && showSettings);
+      (popup === 'settings' && showSettings) ||
+      (popup === 'profile' && showProfile);
     openPopup(isOpen ? '' : popup);
-  }, [showStatusPopover, showLangMenu, showInfo, showSettings, openPopup]);
+  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showProfile, openPopup]);
 
   const openLockModal = useCallback(() => {
     openPopup('');
@@ -597,6 +600,7 @@ export function useAppState() {
     await syncAccount({ apiKeys: newKeys, preferences: { provider } });
     setError(null);
     setShowSettings(false);
+    setShowProfile(false);
   }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount]);
 
   const changeUiLanguage = useCallback((lang: string) => {
@@ -1017,10 +1021,10 @@ export function useAppState() {
         message = t.apiKeyInvalidError;
         recordProviderMetric(provider, 'auth_failure');
         setProviderMetrics(getProviderMetrics());
-        openPopup('settings');
+        openPopup('profile');
       } else if (err.message?.includes('no key') || err.message?.includes('API Key no configurada')) {
         message = t.noKeyError;
-        openPopup('settings');
+        openPopup('profile');
       }
       if (err.message === 'provider_temporary_failure') {
         recordProviderMetric(provider, 'transient_failure');
@@ -1125,7 +1129,7 @@ export function useAppState() {
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
-    showSettings, showInfo, showLangMenu, showStatusPopover,
+    showSettings, showInfo, showLangMenu, showStatusPopover, showProfile,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft, resetTimestamp,

@@ -299,7 +299,7 @@ export function ResultCard({
 
       <div
         className={cn(
-          'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2',
+          'flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2 text-center',
           hasAnyKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
         )}
       >
@@ -311,12 +311,12 @@ export function ResultCard({
             </span>
           </div>
         ) : (
-          <div className="w-full space-y-2">
-            <div className="flex items-center gap-2">
+          <div className="w-full max-w-2xl space-y-2 text-center">
+            <div className="flex items-center justify-center gap-2">
               <AlertCircle size={14} className="shrink-0" />
               <span>{t.apiKeyMissing}</span>
             </div>
-            <div className="text-[10px] text-amber-600 space-y-1 pl-5">
+            <div className="mx-auto max-w-xl text-[10px] text-amber-600 space-y-1">
               <p>
                 1. {t.apiKeyGuide1}{' '}
                 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a>

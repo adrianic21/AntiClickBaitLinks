@@ -124,6 +124,10 @@ export const UI_TRANSLATIONS = {
     authContinueGoogle: "Continue with Google",
     authLogout: "Log out",
     authSyncCaption: "We only use the minimum account data needed to keep your experience in sync.",
+    profileTitle: "Profile",
+    accountLabel: "Account",
+    sessionLabel: "Session",
+    profileHelper: "Manage your APIs, daily feed and activity from one place.",
     loadingMessages: ['Fetching the article...', 'Analysing the content...', 'Cutting through the clickbait...', 'Almost there...'],
   },
   Spanish: {
@@ -238,6 +242,10 @@ export const UI_TRANSLATIONS = {
     authContinueGoogle: "Continuar con Google",
     authLogout: "Cerrar sesion",
     authSyncCaption: "Solo usamos los datos minimos necesarios para mantener sincronizada tu experiencia.",
+    profileTitle: "Perfil",
+    accountLabel: "Cuenta",
+    sessionLabel: "Sesion",
+    profileHelper: "Gestiona tus APIs, tu feed diario y tu actividad desde un solo lugar.",
     loadingMessages: ['Obteniendo el artículo...', 'Analizando el contenido...', 'Cortando el clickbait...', 'Casi listo...'],
   },
   Portuguese: {

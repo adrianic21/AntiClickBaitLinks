@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Link as LinkIcon, Loader2, Download, Clipboard, X, FileText, Youtube } from 'lucide-react';
+import { ShieldCheck, Link as LinkIcon, Loader2, Clipboard, X, FileText, Youtube } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LANGUAGES } from './translations';
 import { useAppState, cn } from './hooks/useAppState';
@@ -7,9 +7,8 @@ import { TopBar } from './components/TopBar';
 import { InfoPanel } from './components/InfoPanel';
 import { LockModal } from './components/LockModal';
 import { ResultCard } from './components/ResultCard';
-import { InsightsPanel } from './components/InsightsPanel';
-import { FeedPanel } from './components/FeedPanel';
 import { AuthGate } from './components/AuthGate';
+import { ProfilePanel } from './components/ProfilePanel';
 
 export default function App() {
   const state = useAppState();
@@ -18,14 +17,14 @@ export default function App() {
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
-    showSettings, showInfo, showLangMenu, showStatusPopover,
+    showInfo, showLangMenu, showStatusPopover, showProfile,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
-    showInstallButton, resultsRef, t,
+    resultsRef, t,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     openPopup, togglePopup, openLockModal, closeInfo,
@@ -34,7 +33,7 @@ export default function App() {
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     preferredLength, setPreferredLength, setSummaryLanguage, setDeepResearchMode,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleInstall, handleShare,
+    handleSpeak, handleShare,
   } = state;
 
   const pdfInputRef = React.useRef<HTMLInputElement>(null);
@@ -97,28 +96,46 @@ export default function App() {
         t={t}
         isPremium={isPremium}
         remainingSearches={remainingSearches}
-        isKeySaved={isKeySaved}
-        showSettings={showSettings}
         showInfo={showInfo}
         showLangMenu={showLangMenu}
+        showProfile={showProfile}
         showStatusPopover={showStatusPopover}
         uiLanguage={uiLanguage}
         timeLeft={timeLeft}
         nextResetTime={nextResetTime}
+        togglePopup={togglePopup}
+        setShowStatusPopover={(v) => openPopup(v ? 'status' : '')}
+        setShowLangMenu={(v) => openPopup(v ? 'lang' : '')}
+        openLockModal={openLockModal}
+        changeUiLanguage={changeUiLanguage}
+        currentUser={currentUser}
+      />
+
+      <ProfilePanel
+        t={t}
+        show={showProfile}
+        onClose={() => openPopup('')}
+        currentUser={currentUser}
+        isPremium={isPremium}
         provider={provider}
         setProvider={setProvider}
         userApiKey={userApiKey}
         setUserApiKey={setUserApiKey}
         apiKeys={apiKeys}
-        togglePopup={togglePopup}
-        setShowStatusPopover={(v) => openPopup(v ? 'status' : '')}
-        setShowLangMenu={(v) => openPopup(v ? 'lang' : '')}
-        setShowSettings={(v) => openPopup(v ? 'settings' : '')}
-        openLockModal={openLockModal}
-        changeUiLanguage={changeUiLanguage}
-        saveApiKey={saveApiKey}
-        currentUser={currentUser}
-        logout={logout}
+        isKeySaved={isKeySaved}
+        onSaveApiKey={saveApiKey}
+        onLogout={logout}
+        feedSources={feedSources}
+        dailyFeedItems={dailyFeedItems}
+        isFeedLoading={isFeedLoading}
+        feedError={feedError}
+        onAddFeedSource={addFeedSource}
+        onToggleFeedSource={toggleFeedSource}
+        onRemoveFeedSource={removeFeedSource}
+        onRefreshFeed={refreshDailyFeed}
+        onUseFeedItem={useFeedItem}
+        onSummarizeFeedItem={summarizeFeedItem}
+        appInsights={appInsights}
       />
 
       {/* Onboarding language picker */}
@@ -378,41 +395,6 @@ export default function App() {
             </label>
           </div>
         )}
-
-        {/* Install App button */}
-        <AnimatePresence>
-          {showInstallButton && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-              className="w-full max-w-2xl"
-            >
-              <button onClick={handleInstall}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-2xl shadow-lg font-bold text-sm hover:bg-emerald-700 transition-all active:scale-[0.98]"
-              >
-                <Download size={18} />
-                {t.installApp}
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <FeedPanel
-          t={t}
-          sources={feedSources}
-          items={dailyFeedItems}
-          isLoading={isFeedLoading}
-          error={feedError}
-          onAddSource={addFeedSource}
-          onToggleSource={toggleFeedSource}
-          onRemoveSource={removeFeedSource}
-          onRefresh={refreshDailyFeed}
-          onUseLink={useFeedItem}
-          onSummarizeNow={summarizeFeedItem}
-        />
-
-        <InsightsPanel
-          t={t}
-          insights={appInsights}
-        />
       </motion.div>
 
       <AnimatePresence>

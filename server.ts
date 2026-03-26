@@ -210,19 +210,30 @@ function listLocalKvKeys(pattern: string): string[] {
 async function redisGet<T>(key: string): Promise<T | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
   if (!url || !token) {
     const fallback = getLocalKvEntry(key);
     return (fallback?.value as T) ?? null;
   }
 
   try {
-    const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(["GET", key]),
     });
-    const data = await res.json() as { result: string | null };
+
+    const data = await res.json();
+
     if (!data.result) return null;
-    return JSON.parse(data.result) as T;
-  } catch {
+
+    return JSON.parse(data.result);
+
+  } catch (err) {
+    console.error("Redis GET failed:", err);
     const fallback = getLocalKvEntry(key);
     return (fallback?.value as T) ?? null;
   }
@@ -231,28 +242,34 @@ async function redisGet<T>(key: string): Promise<T | null> {
 async function redisSet<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
   if (!url || !token) {
     setLocalKvEntry(key, value, ttlSeconds);
     return;
   }
 
   try {
-    await fetch(`${url}/set/${encodeURIComponent(key)}`, {
-      method: 'POST',
+    // SET con EX en una sola llamada
+    const command = ttlSeconds
+      ? ["SET", key, JSON.stringify(value), "EX", String(ttlSeconds)]
+      : ["SET", key, JSON.stringify(value)];
+
+    const res = await fetch(url, {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(JSON.stringify(value)),
+      body: JSON.stringify(command),
     });
 
-    if (ttlSeconds) {
-      await fetch(`${url}/expire/${encodeURIComponent(key)}/${ttlSeconds}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+    const data = await res.json();
+    if (data.error) {
+      console.error("Redis SET error:", data.error);
     }
-  } catch {
+
+  } catch (err) {
+    console.error("Redis SET failed:", err);
     setLocalKvEntry(key, value, ttlSeconds);
   }
 }

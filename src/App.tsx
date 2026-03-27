@@ -27,6 +27,7 @@ export default function App() {
     resultsRef, t,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
+    showAuthModal, setShowAuthModal,
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
@@ -34,6 +35,7 @@ export default function App() {
     preferredLength, setPreferredLength, setSummaryLanguage, setDeepResearchMode,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleShare,
+    updateDisplayName,
   } = state;
 
   const pdfInputRef = React.useRef<HTMLInputElement>(null);
@@ -59,26 +61,6 @@ export default function App() {
     );
   }
 
-  if (!currentUser) {
-    return (
-      <AuthGate
-        t={t}
-        mode={authMode}
-        loading={isAuthLoading}
-        error={authError}
-        name={authName}
-        email={authEmail}
-        password={authPassword}
-        onNameChange={setAuthName}
-        onEmailChange={setAuthEmail}
-        onPasswordChange={setAuthPassword}
-        onSubmit={submitAuth}
-        onModeChange={setAuthMode}
-        onOAuthStart={startOAuth}
-      />
-    );
-  }
-
   return (
     // FIX: Eliminado sm:p-6 duplicado (era sobreescrito inmediatamente por sm:p-12)
     <div className="min-h-screen flex flex-col items-center justify-start pt-32 sm:pt-36 p-6 sm:p-12">
@@ -90,6 +72,44 @@ export default function App() {
         <div className="absolute -bottom-[20%] -left-[10%] w-[50%] h-[50%] bg-emerald-300/25 rounded-full blur-3xl" />
         <div className="absolute -bottom-[10%] right-[5%] w-[35%] h-[35%] bg-teal-200/25 rounded-full blur-3xl" />
       </div>
+
+      {/* Auth modal */}
+      <AnimatePresence>
+        {showAuthModal && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70]"
+              onClick={() => setShowAuthModal(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="fixed top-1/2 left-1/2 z-[71] w-[90%] max-w-md -translate-x-1/2 -translate-y-1/2"
+            >
+              <AuthGate
+                t={t}
+                mode={authMode}
+                loading={isAuthLoading}
+                error={authError}
+                name={authName}
+                email={authEmail}
+                password={authPassword}
+                onNameChange={setAuthName}
+                onEmailChange={setAuthEmail}
+                onPasswordChange={setAuthPassword}
+                onSubmit={submitAuth}
+                onModeChange={setAuthMode}
+                onOAuthStart={startOAuth}
+                onClose={() => setShowAuthModal(false)}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Top bar + all its popups (status, lang, settings) */}
       <TopBar
@@ -136,6 +156,7 @@ export default function App() {
         onUseFeedItem={useFeedItem}
         onSummarizeFeedItem={summarizeFeedItem}
         appInsights={appInsights}
+        onUpdateName={updateDisplayName}
       />
 
       {/* Onboarding language picker */}

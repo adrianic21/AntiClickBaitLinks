@@ -119,6 +119,7 @@ export function useAppState() {
   const [isFeedLoading, setIsFeedLoading] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [authName, setAuthName] = useState('');
@@ -227,11 +228,20 @@ export function useAppState() {
     setShowLangMenu(popup === 'lang');
     setShowInfo(popup === 'info');
     setShowSettings(popup === 'settings');
+    if (popup === 'profile' && !currentUser) {
+      setShowProfile(false);
+      setShowAuthModal(true);
+      return;
+    }
     setShowProfile(popup === 'profile');
     if (popup !== 'info') setShowApiPrivacy(false);
-  }, []);
+  }, [currentUser]);
 
   const togglePopup = useCallback((popup: string) => {
+    if (popup === 'profile' && !currentUser) {
+      setShowAuthModal((prev) => !prev);
+      return;
+    }
     const isOpen =
       (popup === 'status' && showStatusPopover) ||
       (popup === 'lang' && showLangMenu) ||
@@ -239,7 +249,7 @@ export function useAppState() {
       (popup === 'settings' && showSettings) ||
       (popup === 'profile' && showProfile);
     openPopup(isOpen ? '' : popup);
-  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showProfile, openPopup]);
+  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showProfile, currentUser, openPopup]);
 
   const openLockModal = useCallback(() => {
     openPopup('');
@@ -568,6 +578,11 @@ export function useAppState() {
   }, []);
 
   const saveApiKey = useCallback(async () => {
+    if (!currentUser) {
+      setAuthError('Please sign in to manage your API keys.');
+      setShowAuthModal(true);
+      return;
+    }
     const trimmedKey = userApiKey.trim();
 
     if (trimmedKey) {
@@ -601,7 +616,7 @@ export function useAppState() {
     setError(null);
     setShowSettings(false);
     setShowProfile(false);
-  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount]);
+  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount, currentUser]);
 
   const changeUiLanguage = useCallback((lang: string) => {
     setUiLanguage(lang);
@@ -813,7 +828,8 @@ export function useAppState() {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
     if (!currentUser) {
-      setAuthError('Please sign in to use the app.');
+      setAuthError('Please sign in or create an account to generate summaries.');
+      setShowAuthModal(true);
       return;
     }
     if (!url && !pdfFile || isLoading) return;
@@ -1139,6 +1155,7 @@ export function useAppState() {
     showInstallButton, resultsRef, appInsights, providerMetrics,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
+    showAuthModal, setShowAuthModal,
     // derived
     t,
     // handlers
@@ -1148,5 +1165,13 @@ export function useAppState() {
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
+    updateDisplayName: (name: string) => {
+      setCurrentUser((prev) => (prev ? { ...prev, displayName: name } : prev));
+      fetch('/api/account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile: { displayName: name } }),
+      }).catch(() => undefined);
+    },
   };
 }

@@ -23,7 +23,7 @@ interface TopBarProps {
   currentUser: {
     email: string;
     displayName: string;
-  };
+  } | null;
 }
 
 const BACKDROP = "fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]";
@@ -124,8 +124,12 @@ export function TopBar({
               <div className="space-y-2">
                 <div className="bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Account</div>
-                  <div className="text-sm font-semibold text-zinc-900">{currentUser.displayName}</div>
-                  <div className="text-xs text-zinc-500 break-all">{currentUser.email}</div>
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {currentUser?.displayName || 'Invitado'}
+                  </div>
+                  {currentUser?.email && (
+                    <div className="text-xs text-zinc-500 break-all">{currentUser.email}</div>
+                  )}
                 </div>
                 <div className="flex justify-between items-center bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
                   <span className="text-xs text-zinc-500">{t.remainingSearches}</span>

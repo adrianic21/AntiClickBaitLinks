@@ -36,6 +36,7 @@ interface ProfilePanelProps {
   onUseFeedItem: (url: string) => void;
   onSummarizeFeedItem: (url: string) => void;
   appInsights: AppInsights;
+  onUpdateName: (name: string) => void;
 }
 
 const PROVIDERS: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
@@ -79,7 +80,22 @@ export function ProfilePanel({
   onUseFeedItem,
   onSummarizeFeedItem,
   appInsights,
+  onUpdateName,
 }: ProfilePanelProps) {
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(currentUser.displayName);
+
+  const handleSaveName = () => {
+    const trimmed = tempName.trim();
+    if (!trimmed || trimmed === currentUser.displayName) {
+      setIsEditingName(false);
+      setTempName(currentUser.displayName);
+      return;
+    }
+    onUpdateName(trimmed);
+    setIsEditingName(false);
+  };
+
   return (
     <AnimatePresence>
       {show && (
@@ -107,7 +123,48 @@ export function ProfilePanel({
                     <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                       {t.profileTitle || 'Profile'}
                     </p>
-                    <p className="text-lg font-bold text-zinc-900">{currentUser.displayName}</p>
+                  <div className="flex items-center gap-2">
+                    {isEditingName ? (
+                      <>
+                        <input
+                          type="text"
+                          value={tempName}
+                          onChange={(e) => setTempName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveName();
+                            if (e.key === 'Escape') {
+                              setIsEditingName(false);
+                              setTempName(currentUser.displayName);
+                            }
+                          }}
+                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-sm font-semibold text-zinc-900 outline-none focus:border-emerald-400"
+                          placeholder="Alias / Nombre"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveName}
+                          className="text-emerald-600 text-xs font-bold"
+                        >
+                          Guardar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-lg font-bold text-zinc-900">{currentUser.displayName}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingName(true);
+                            setTempName(currentUser.displayName);
+                          }}
+                          className="text-zinc-400 hover:text-emerald-600 text-xs"
+                          title="Editar alias / nombre"
+                        >
+                          ✏️
+                        </button>
+                      </>
+                    )}
+                  </div>
                     <p className="text-sm text-zinc-500 break-all">{currentUser.email}</p>
                   </div>
                 </div>

@@ -9,6 +9,7 @@ import { LockModal } from './components/LockModal';
 import { ResultCard } from './components/ResultCard';
 import { AuthGate } from './components/AuthGate';
 import { ProfilePanel } from './components/ProfilePanel';
+import { FeedModal } from './components/FeedModal';
 
 export default function App() {
   const state = useAppState();
@@ -17,7 +18,7 @@ export default function App() {
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
-    showInfo, showLangMenu, showStatusPopover, showProfile,
+    showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft,
@@ -32,6 +33,7 @@ export default function App() {
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
+    summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     preferredLength, setPreferredLength, setSummaryLanguage, setDeepResearchMode,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleShare,
@@ -119,6 +121,7 @@ export default function App() {
         showInfo={showInfo}
         showLangMenu={showLangMenu}
         showProfile={showProfile}
+        showFeed={showFeed}
         showStatusPopover={showStatusPopover}
         uiLanguage={uiLanguage}
         timeLeft={timeLeft}
@@ -129,6 +132,22 @@ export default function App() {
         openLockModal={openLockModal}
         changeUiLanguage={changeUiLanguage}
         currentUser={currentUser}
+      />
+
+      <FeedModal
+        t={t}
+        show={showFeed}
+        onClose={() => openPopup('')}
+        sources={feedSources}
+        items={dailyFeedItems}
+        isLoading={isFeedLoading}
+        error={feedError}
+        onAddSource={addFeedSource}
+        onToggleSource={toggleFeedSource}
+        onRemoveSource={removeFeedSource}
+        onRefresh={refreshDailyFeed}
+        onUpdateSourceItemsPerLoad={updateFeedSourceItemsPerLoad}
+        onSummarizeMany={summarizeManyFeedItems}
       />
 
       {currentUser && (
@@ -146,16 +165,6 @@ export default function App() {
           isKeySaved={isKeySaved}
           onSaveApiKey={saveApiKey}
           onLogout={logout}
-          feedSources={feedSources}
-          dailyFeedItems={dailyFeedItems}
-          isFeedLoading={isFeedLoading}
-          feedError={feedError}
-          onAddFeedSource={addFeedSource}
-          onToggleFeedSource={toggleFeedSource}
-          onRemoveFeedSource={removeFeedSource}
-          onRefreshFeed={refreshDailyFeed}
-          onUseFeedItem={useFeedItem}
-          onSummarizeFeedItem={summarizeFeedItem}
           appInsights={appInsights}
           onUpdateName={updateDisplayName}
           remainingSearches={remainingSearches}

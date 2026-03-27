@@ -131,33 +131,35 @@ export default function App() {
         currentUser={currentUser}
       />
 
-      <ProfilePanel
-        t={t}
-        show={showProfile}
-        onClose={() => openPopup('')}
-        currentUser={currentUser}
-        isPremium={isPremium}
-        provider={provider}
-        setProvider={setProvider}
-        userApiKey={userApiKey}
-        setUserApiKey={setUserApiKey}
-        apiKeys={apiKeys}
-        isKeySaved={isKeySaved}
-        onSaveApiKey={saveApiKey}
-        onLogout={logout}
-        feedSources={feedSources}
-        dailyFeedItems={dailyFeedItems}
-        isFeedLoading={isFeedLoading}
-        feedError={feedError}
-        onAddFeedSource={addFeedSource}
-        onToggleFeedSource={toggleFeedSource}
-        onRemoveFeedSource={removeFeedSource}
-        onRefreshFeed={refreshDailyFeed}
-        onUseFeedItem={useFeedItem}
-        onSummarizeFeedItem={summarizeFeedItem}
-        appInsights={appInsights}
-        onUpdateName={updateDisplayName}
-      />
+      {currentUser && (
+        <ProfilePanel
+          t={t}
+          show={showProfile}
+          onClose={() => openPopup('')}
+          currentUser={currentUser}
+          isPremium={isPremium}
+          provider={provider}
+          setProvider={setProvider}
+          userApiKey={userApiKey}
+          setUserApiKey={setUserApiKey}
+          apiKeys={apiKeys}
+          isKeySaved={isKeySaved}
+          onSaveApiKey={saveApiKey}
+          onLogout={logout}
+          feedSources={feedSources}
+          dailyFeedItems={dailyFeedItems}
+          isFeedLoading={isFeedLoading}
+          feedError={feedError}
+          onAddFeedSource={addFeedSource}
+          onToggleFeedSource={toggleFeedSource}
+          onRemoveFeedSource={removeFeedSource}
+          onRefreshFeed={refreshDailyFeed}
+          onUseFeedItem={useFeedItem}
+          onSummarizeFeedItem={summarizeFeedItem}
+          appInsights={appInsights}
+          onUpdateName={updateDisplayName}
+        />
+      )}
 
       {/* Onboarding language picker */}
       <AnimatePresence>

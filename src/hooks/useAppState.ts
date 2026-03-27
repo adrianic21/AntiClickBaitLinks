@@ -676,6 +676,11 @@ export function useAppState() {
   }, [unlockPass, openPopup, syncAccount]);
 
   const handlePaste = useCallback(async () => {
+    if (!currentUser) {
+      setAuthError('Crea una cuenta o inicia sesión para pegar un link.');
+      setShowAuthModal(true);
+      return;
+    }
     try {
       const text = await navigator.clipboard.readText();
       if (text) { setUrl(extractUrlFromText(text)); setError(null); }
@@ -683,7 +688,7 @@ export function useAppState() {
       setError(t.pasteError);
       setTimeout(() => setError(null), 5000);
     }
-  }, [t.pasteError]);
+  }, [t.pasteError, currentUser]);
 
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);

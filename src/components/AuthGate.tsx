@@ -106,11 +106,13 @@ export function AuthGate({
                   ? 'Restablecer contraseña'
                   : (t.authTitle || 'Sign in to AntiClickBaitLinks')}
               </h1>
-              <p className="text-sm text-zinc-500">
-                {resetMode
-                  ? 'Elige una nueva contraseña para tu cuenta.'
-                  : (t.authDescription || 'Keep your API keys, summaries, premium access and settings synced across all your devices.')}
-              </p>
+              {(resetMode || t.authDescription) && (
+                <p className="text-sm text-zinc-500">
+                  {resetMode
+                    ? 'Elige una nueva contraseña para tu cuenta.'
+                    : t.authDescription}
+                </p>
+              )}
             </div>
           </div>
           <button

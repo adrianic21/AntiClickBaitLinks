@@ -158,6 +158,13 @@ export default function App() {
           onSummarizeFeedItem={summarizeFeedItem}
           appInsights={appInsights}
           onUpdateName={updateDisplayName}
+          remainingSearches={remainingSearches}
+          unlockPass={unlockPass}
+          lockError={lockError}
+          deviceMismatchError={deviceMismatchError}
+          isLoading={isLoading}
+          onPassChange={setUnlockPass}
+          onUnlock={handleUnlock}
         />
       )}
 

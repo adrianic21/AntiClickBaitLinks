@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { Check, Key, LogOut, Rss, UserRound, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';

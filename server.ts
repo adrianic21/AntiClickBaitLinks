@@ -93,6 +93,7 @@ interface StoredUserAccount {
     url: string;
     type: string;
     enabled: boolean;
+    itemsPerLoad?: number;
     createdAt: number;
   }>;
   premium?: {

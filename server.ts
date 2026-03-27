@@ -132,6 +132,49 @@ const TRUSTED_NEWS_DOMAINS = [
   'washingtonpost.com',
 ];
 
+function decodeHtmlEntities(input: string): string {
+  if (!input) return '';
+  return input
+    .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_m, dec) => {
+      const code = Number(dec);
+      if (!Number.isFinite(code) || code <= 0) return '';
+      try { return String.fromCodePoint(code); } catch { return ''; }
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex) => {
+      const code = Number.parseInt(String(hex), 16);
+      if (!Number.isFinite(code) || code <= 0) return '';
+      try { return String.fromCodePoint(code); } catch { return ''; }
+    });
+}
+
+function decodeHtmlResponseBody(response: Response): Promise<string> {
+  return response.arrayBuffer().then((buf) => {
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const bytes = new Uint8Array(buf);
+    const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    const replacementCount = (utf8.match(/\uFFFD/g) || []).length;
+    const charset =
+      (contentType.match(/charset=([^\s;]+)/)?.[1] || '').trim();
+    const looksLatin1 =
+      charset.includes('iso-8859-1') || charset.includes('latin1');
+
+    // If server declared Latin1 OR UTF-8 decode produced many replacement chars,
+    // fall back to ISO-8859-1 which is common on some older sites.
+    if (looksLatin1 || replacementCount >= 6) {
+      return new TextDecoder('iso-8859-1', { fatal: false }).decode(bytes);
+    }
+    return utf8;
+  });
+}
+
 interface LocalKvEntry {
   value: unknown;
   expiresAt?: number;
@@ -1237,7 +1280,7 @@ async function startServer() {
 
     return {
       text,
-      title: (structured.title || metaTitle).trim(),
+      title: decodeHtmlEntities((structured.title || metaTitle).trim()),
     };
   }
 
@@ -1263,7 +1306,7 @@ async function startServer() {
       : '';
     const body = titleLine ? text.replace(titleLine, '').trim() : text;
 
-    return { text: body.substring(0, 20000), title };
+    return { text: body.substring(0, 20000), title: decodeHtmlEntities(title) };
   }
 
   function getCachedArticle(url: string): ArticleCacheEntry | null {
@@ -1344,7 +1387,7 @@ async function startServer() {
 
           if (!response.ok) continue;
 
-          const html = await response.text();
+          const html = await decodeHtmlResponseBody(response as any);
           const { text, title } = extractFromHtml(html);
 
           if (scoreReadableCandidate(text) > 180) {
@@ -1430,7 +1473,7 @@ async function startServer() {
 
         if (!response.ok) continue;
 
-        const html = await response.text();
+        const html = await decodeHtmlResponseBody(response as any);
         const { text, title } = extractFromHtml(html);
 
         if (scoreReadableCandidate(text) > 180) {

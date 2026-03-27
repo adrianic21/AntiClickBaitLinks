@@ -563,6 +563,8 @@ export function useAppState() {
       method: 'POST',
       credentials: 'include',
     }).catch(() => undefined);
+    openPopup('');
+    setShowAuthModal(false);
     setCurrentUser(null);
     setApiKeys({});
     setValidatedApiKeys({});
@@ -575,7 +577,7 @@ export function useAppState() {
     setIsPremium(false);
     setServerRemaining(null);
     setServerResetAt(null);
-  }, []);
+  }, [openPopup]);
 
   const saveApiKey = useCallback(async () => {
     if (!currentUser) {

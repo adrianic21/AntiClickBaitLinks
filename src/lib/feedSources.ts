@@ -13,6 +13,7 @@ export interface FeedSource {
   url: string;
   type: FeedSourceType;
   enabled: boolean;
+  itemsPerLoad?: number;
   createdAt: number;
 }
 

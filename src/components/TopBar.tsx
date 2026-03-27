@@ -1,4 +1,4 @@
-import { ShieldCheck, Languages, Info, UserRound, X } from 'lucide-react';
+import { ShieldCheck, Languages, Info, UserRound, X, Rss } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
@@ -11,6 +11,7 @@ interface TopBarProps {
   showInfo: boolean;
   showLangMenu: boolean;
   showProfile: boolean;
+  showFeed: boolean;
   showStatusPopover: boolean;
   uiLanguage: string;
   timeLeft: string;
@@ -31,7 +32,7 @@ const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
 
 export function TopBar({
   t, isPremium, remainingSearches,
-  showInfo, showLangMenu, showProfile, showStatusPopover,
+  showInfo, showLangMenu, showProfile, showFeed, showStatusPopover,
   uiLanguage, timeLeft, nextResetTime,
   togglePopup, setShowStatusPopover, setShowLangMenu,
   openLockModal, changeUiLanguage, currentUser,
@@ -89,6 +90,18 @@ export function TopBar({
           )}
         >
           <Info size={20} />
+        </button>
+
+        {/* Feed */}
+        <button
+          onClick={() => togglePopup('feed')}
+          className={cn(
+            "p-3 rounded-2xl transition-all shadow-lg",
+            showFeed ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+          )}
+          title={t.feedTitle}
+        >
+          <Rss size={20} />
         </button>
 
         {/* Profile */}

@@ -2,12 +2,10 @@ import React, { useState } from 'react';
 import { Check, Key, LogOut, Rss, UserRound, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
-import { FeedPanel } from './FeedPanel';
 import { InsightsPanel } from './InsightsPanel';
 import type { Translations } from '../translations';
 import type { ApiKeys, Provider } from '../services/geminiService';
 import type { AppInsights } from '../lib/appInsights';
-import type { DailyFeedItem, FeedSource, FeedSourceType } from '../lib/feedSources';
 
 interface ProfilePanelProps {
   t: Translations;
@@ -26,16 +24,6 @@ interface ProfilePanelProps {
   isKeySaved: boolean;
   onSaveApiKey: () => void;
   onLogout: () => void;
-  feedSources: FeedSource[];
-  dailyFeedItems: DailyFeedItem[];
-  isFeedLoading: boolean;
-  feedError: string | null;
-  onAddFeedSource: (name: string, url: string, type: FeedSourceType) => void;
-  onToggleFeedSource: (id: string) => void;
-  onRemoveFeedSource: (id: string) => void;
-  onRefreshFeed: () => void;
-  onUseFeedItem: (url: string) => void;
-  onSummarizeFeedItem: (url: string) => void;
   appInsights: AppInsights;
   onUpdateName: (name: string) => void;
   remainingSearches: number;
@@ -77,16 +65,6 @@ export function ProfilePanel({
   isKeySaved,
   onSaveApiKey,
   onLogout,
-  feedSources,
-  dailyFeedItems,
-  isFeedLoading,
-  feedError,
-  onAddFeedSource,
-  onToggleFeedSource,
-  onRemoveFeedSource,
-  onRefreshFeed,
-  onUseFeedItem,
-  onSummarizeFeedItem,
   appInsights,
   onUpdateName,
   remainingSearches,
@@ -319,26 +297,6 @@ export function ProfilePanel({
                   </div>
                 )}
               </section>
-
-              <FeedPanel
-                t={t}
-                sources={feedSources}
-                items={dailyFeedItems}
-                isLoading={isFeedLoading}
-                error={feedError}
-                onAddSource={onAddFeedSource}
-                onToggleSource={onToggleFeedSource}
-                onRemoveSource={onRemoveFeedSource}
-                onRefresh={onRefreshFeed}
-                onUseLink={(url) => {
-                  onUseFeedItem(url);
-                  onClose();
-                }}
-                onSummarizeNow={(url) => {
-                  onSummarizeFeedItem(url);
-                  onClose();
-                }}
-              />
 
               <InsightsPanel
                 t={t}

@@ -140,6 +140,7 @@ export function useAppState() {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showFeed, setShowFeed] = useState(false);
   const [showOnboardingLang, setShowOnboardingLang] = useState(false);
   const [showApiPrivacy, setShowApiPrivacy] = useState(false);
 
@@ -166,6 +167,7 @@ export function useAppState() {
   const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
   const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
+  const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
@@ -228,6 +230,7 @@ export function useAppState() {
     setShowLangMenu(popup === 'lang');
     setShowInfo(popup === 'info');
     setShowSettings(popup === 'settings');
+    setShowFeed(popup === 'feed');
     if (popup === 'profile' && !currentUser) {
       setShowProfile(false);
       setShowAuthModal(true);
@@ -247,9 +250,10 @@ export function useAppState() {
       (popup === 'lang' && showLangMenu) ||
       (popup === 'info' && showInfo) ||
       (popup === 'settings' && showSettings) ||
+      (popup === 'feed' && showFeed) ||
       (popup === 'profile' && showProfile);
     openPopup(isOpen ? '' : popup);
-  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showProfile, currentUser, openPopup]);
+  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showFeed, showProfile, currentUser, openPopup]);
 
   const openLockModal = useCallback(() => {
     openPopup('');
@@ -766,14 +770,17 @@ export function useAppState() {
           }
 
           const data = await response.json() as RssPreviewResponse;
-          return data.items.map<DailyFeedItem>((item, index) => ({
-            id: `${source.id}-${index}-${item.url}`,
-            title: item.title,
-            url: item.url,
-            sourceName: source.name || data.title || source.url,
-            sourceType: source.type,
-            publishedAt: item.publishedAt || null,
-          }));
+          const perSourceLimit = Math.max(1, Math.min(25, Number(source.itemsPerLoad || 6)));
+          return data.items
+            .slice(0, perSourceLimit)
+            .map<DailyFeedItem>((item, index) => ({
+              id: `${source.id}-${index}-${item.url}`,
+              title: item.title,
+              url: item.url,
+              sourceName: source.name || data.title || source.url,
+              sourceType: source.type,
+              publishedAt: item.publishedAt || null,
+            }));
         })
       );
 
@@ -790,7 +797,7 @@ export function useAppState() {
           const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
           return timeB - timeA;
         })
-        .slice(0, 12);
+        .slice(0, 60);
 
       setDailyFeedItems(nextItems);
     } catch (err: any) {
@@ -799,6 +806,17 @@ export function useAppState() {
       setIsFeedLoading(false);
     }
   }, [feedSources]);
+
+  const updateFeedSourceItemsPerLoad = useCallback((id: string, itemsPerLoad: number) => {
+    const safe = Math.max(1, Math.min(25, Math.round(itemsPerLoad)));
+    const nextSources = feedSources.map((source) =>
+      source.id === id ? { ...source, itemsPerLoad: safe } : source
+    );
+    setFeedSources(nextSources);
+    // also persist to local storage for immediate reloads
+    try { localStorage.setItem('custom_feed_sources_v1', JSON.stringify(nextSources)); } catch { /* ignore */ }
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [feedSources, syncAccount]);
 
   const useFeedItem = useCallback((feedUrl: string) => {
     setPdfFile(null);
@@ -814,6 +832,26 @@ export function useAppState() {
     setPendingSharedUrl(feedUrl);
     setShowSharedToast(true);
   }, []);
+
+  const summarizeManyFeedItems = useCallback((urls: string[]) => {
+    const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
+    if (unique.length === 0) return;
+    setFeedSummaryQueue(unique.slice(1));
+    summarizeFeedItem(unique[0]);
+  }, [summarizeFeedItem]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (isLoading) return;
+    if (feedSummaryQueue.length === 0) return;
+    const next = feedSummaryQueue[0];
+    const rest = feedSummaryQueue.slice(1);
+    const id = setTimeout(() => {
+      setFeedSummaryQueue(rest);
+      summarizeFeedItem(next);
+    }, 250);
+    return () => clearTimeout(id);
+  }, [feedSummaryQueue, isLoading, currentUser, summarizeFeedItem]);
 
   const handleClear = useCallback(() => {
     // FIX: Cancelar request en vuelo al limpiar
@@ -1152,7 +1190,7 @@ export function useAppState() {
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
-    showSettings, showInfo, showLangMenu, showStatusPopover, showProfile,
+    showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft, resetTimestamp,
@@ -1169,7 +1207,7 @@ export function useAppState() {
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
-    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
+    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem, summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
     updateDisplayName: (name: string) => {

@@ -38,6 +38,13 @@ interface ProfilePanelProps {
   onSummarizeFeedItem: (url: string) => void;
   appInsights: AppInsights;
   onUpdateName: (name: string) => void;
+  remainingSearches: number;
+  unlockPass: string;
+  lockError: boolean;
+  deviceMismatchError: boolean;
+  isLoading: boolean;
+  onPassChange: (v: string) => void;
+  onUnlock: () => void;
 }
 
 const PROVIDERS: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
@@ -82,6 +89,13 @@ export function ProfilePanel({
   onSummarizeFeedItem,
   appInsights,
   onUpdateName,
+  remainingSearches,
+  unlockPass,
+  lockError,
+  deviceMismatchError,
+  isLoading,
+  onPassChange,
+  onUnlock,
 }: ProfilePanelProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(currentUser.displayName);
@@ -124,7 +138,7 @@ export function ProfilePanel({
                     <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                       {t.profileTitle || 'Profile'}
                     </p>
-                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
                     {isEditingName ? (
                       <>
                         <input
@@ -165,8 +179,16 @@ export function ProfilePanel({
                         </button>
                       </>
                     )}
-                  </div>
+                    </div>
                     <p className="text-sm text-zinc-500 break-all">{currentUser.email}</p>
+                    <button
+                      type="button"
+                      onClick={onLogout}
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 transition-all hover:bg-zinc-50"
+                    >
+                      <LogOut size={14} />
+                      {t.authLogout || 'Cerrar sesión'}
+                    </button>
                   </div>
                 </div>
                 <button
@@ -186,25 +208,11 @@ export function ProfilePanel({
                   <p className="mt-2 text-sm font-semibold text-zinc-900">
                     {isPremium ? t.statusPremium : t.statusFree}
                   </p>
-                  <p className="mt-1 text-sm text-zinc-500">{t.authSyncCaption}</p>
-                </div>
-                <div className="rounded-3xl bg-white/85 p-4 shadow-sm border border-white/70 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
-                      {t.sessionLabel || 'Session'}
+                  {!isPremium && (
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10
                     </p>
-                    <p className="mt-2 text-sm text-zinc-500">
-                      {t.profileHelper || 'Manage your APIs, daily feed and activity from one place.'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onLogout}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-bold text-zinc-700 transition-all hover:bg-zinc-50"
-                  >
-                    <LogOut size={16} />
-                    {t.authLogout || 'Log out'}
-                  </button>
+                  )}
                 </div>
               </div>
 
@@ -277,6 +285,39 @@ export function ProfilePanel({
                     </a>
                   </div>
                 </div>
+
+                {!isPremium && (
+                  <div className="mt-4 pt-4 border-t border-zinc-100 space-y-3">
+                    <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                      {t.alreadyPremium}
+                    </h5>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        placeholder={t.unlockPlaceholder}
+                        value={unlockPass}
+                        onChange={(e) => { onPassChange(e.target.value); }}
+                        className={cn(
+                          "flex-1 px-3 py-2 bg-zinc-100 rounded-xl outline-none transition-all text-xs font-mono",
+                          lockError ? "ring-1 ring-red-500" : "focus:ring-1 focus:ring-emerald-500"
+                        )}
+                      />
+                      <button
+                        type="button"
+                        onClick={onUnlock}
+                        disabled={isLoading}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all active:scale-[0.95] disabled:opacity-60"
+                      >
+                        {t.unlockBtn}
+                      </button>
+                    </div>
+                    {lockError && (
+                      <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider">
+                        {deviceMismatchError ? t.deviceMismatchError : t.invalidPass}
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
 
               <FeedPanel

@@ -156,31 +156,6 @@ export function InfoPanel({
                 >
                   {t.buyBtn} <ArrowRight size={16} />
                 </a>
-
-                {!isPremium && (
-                  <div className="mt-4 pt-4 border-t border-zinc-100 space-y-3">
-                    <h5 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.alreadyPremium}</h5>
-                    <div className="flex gap-2">
-                      <input type="password" placeholder={t.unlockPlaceholder} value={unlockPass}
-                        onChange={e => { onPassChange(e.target.value); onErrorChange(false); }}
-                        className={cn(
-                          "flex-1 px-3 py-2 bg-zinc-100 rounded-xl outline-none transition-all text-xs font-mono",
-                          lockError ? "ring-1 ring-red-500" : "focus:ring-1 focus:ring-emerald-500"
-                        )}
-                      />
-                      <button onClick={onUnlock} disabled={isLoading}
-                        className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all active:scale-[0.95] disabled:opacity-60"
-                      >
-                        {t.unlockBtn}
-                      </button>
-                    </div>
-                    {lockError && (
-                      <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider">
-                        {deviceMismatchError ? t.deviceMismatchError : t.invalidPass}
-                      </p>
-                    )}
-                  </div>
-                )}
               </section>
 
               <div className="pt-4 border-t border-zinc-100">

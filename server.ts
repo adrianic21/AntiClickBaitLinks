@@ -877,6 +877,32 @@ async function startServer() {
     return res.json(buildAccountResponse(user));
   });
 
+  app.post('/api/auth/forgot-password', tokenLimiter, async (req, res) => {
+    const { email, newPassword } = req.body || {};
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const rawPassword = String(newPassword || '');
+
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      return res.status(400).json({ error: 'Valid email required' });
+    }
+    if (rawPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const user = await getUserByEmail(normalizedEmail);
+    if (!user) {
+      // Do not reveal whether the email exists
+      return res.status(200).json({ ok: true });
+    }
+
+    user.passwordHash = await hashPassword(rawPassword);
+    if (!user.providers.includes('password')) {
+      user.providers.push('password');
+    }
+    await saveUser(user);
+    return res.json({ ok: true });
+  });
+
   app.post('/api/auth/logout', async (req, res) => {
     const token = getCookieValue(req, SESSION_COOKIE_NAME);
     if (token) await deleteSession(token);
@@ -987,7 +1013,7 @@ async function startServer() {
     const user = await getAuthenticatedUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { apiKeys, preferences, appInsights, feedSources, premium } = req.body || {};
+    const { apiKeys, preferences, appInsights, feedSources, premium, profile } = req.body || {};
     if (apiKeys && typeof apiKeys === 'object') {
       user.encryptedApiKeys = encryptJson(apiKeys);
     }
@@ -1014,6 +1040,14 @@ async function startServer() {
         isPremium: Boolean(premium.isPremium),
         token: typeof premium.token === 'string' ? premium.token : user.premium?.token,
       };
+    }
+    if (profile && typeof profile === 'object') {
+      if (typeof profile.displayName === 'string') {
+        const trimmed = profile.displayName.trim();
+        if (trimmed) {
+          user.displayName = trimmed.slice(0, 60);
+        }
+      }
     }
     await saveUser(user);
     return res.json({ ok: true, user: toPublicUser(user) });

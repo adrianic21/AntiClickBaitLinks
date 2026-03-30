@@ -137,6 +137,9 @@ export default function App() {
           changeUiLanguage={changeUiLanguage}
           currentUser={currentUser}
         />
+        <div className="mx-auto mt-4 w-full max-w-5xl px-3">
+          <div className="h-[2px] w-full rounded-full bg-gradient-to-r from-transparent via-emerald-600 to-transparent shadow-[0_0_18px_rgba(5,150,105,0.2)]" />
+        </div>
       </div>
 
       <FeedModal

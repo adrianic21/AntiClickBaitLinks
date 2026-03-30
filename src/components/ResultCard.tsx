@@ -56,6 +56,7 @@ export function ResultCard({
 
   // No mostrar el link de fuente cuando es un PDF subido localmente.
   const isLocalPdf = url.startsWith('pdf:');
+  const isYouTube = /(?:youtube\.com\/(?:watch|shorts|embed)|youtu\.be\/)/.test(url);
   const displayUrl = isLocalPdf ? url.replace('pdf:', '') : url;
   const lieMeterColor = lieScore < 26
     ? 'from-emerald-500 to-lime-400'
@@ -114,10 +115,18 @@ export function ResultCard({
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-center gap-3"
+            className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3"
           >
-            <AlertCircle size={20} />
-            <p className="font-medium">{error}</p>
+            <AlertCircle size={20} className="shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-medium">{error}</p>
+              {/* Extra hint for YouTube errors */}
+              {isYouTube && (error.includes('subtitles') || error.includes('subtítulos') || error.includes('content') || error.includes('contenido')) && (
+                <p className="text-xs text-red-500">
+                  {t.youtubeNoSubtitles || 'This video may not have subtitles enabled. Subtitles are required to generate a summary.'}
+                </p>
+              )}
+            </div>
           </motion.div>
         )}
 
@@ -307,7 +316,7 @@ export function ResultCard({
           <div className="w-full flex items-center justify-center gap-2 text-center">
             <Check size={14} className="shrink-0" />
             <span>
-              {configuredProviders.join(' · ')} - {hasMultipleKeys ? (t.apiKeysActive || t.apiKeyActive) : t.apiKeyActive}
+              {configuredProviders.join(' · ')} — {hasMultipleKeys ? (t.apiKeysActive || t.apiKeyActive) : t.apiKeyActive}
             </span>
           </div>
         ) : (
@@ -332,6 +341,14 @@ export function ResultCard({
           </div>
         )}
       </div>
+
+      {/* YouTube subtitle reminder — shown whenever a YouTube URL is present */}
+      {isYouTube && (
+        <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-medium">
+          <AlertCircle size={13} className="shrink-0" />
+          <span>{t.youtubeNoSubtitles || 'YouTube videos require subtitles to be enabled for summarization.'}</span>
+        </div>
+      )}
     </div>
   );
 }

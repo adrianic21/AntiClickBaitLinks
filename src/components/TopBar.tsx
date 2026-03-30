@@ -37,6 +37,8 @@ export function TopBar({
   togglePopup, setShowStatusPopover, setShowLangMenu,
   openLockModal, changeUiLanguage, currentUser,
 }: TopBarProps) {
+  const isLimitReached = !isPremium && remainingSearches <= 0;
+
   return (
     <>
       {/* Button bar */}
@@ -48,13 +50,20 @@ export function TopBar({
             "px-4 py-3 rounded-2xl transition-all shadow-lg flex items-center gap-2 font-bold text-xs uppercase tracking-wider",
             isPremium
               ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
-              : "bg-white text-zinc-600 hover:bg-zinc-50 border border-zinc-100"
+              : isLimitReached
+                ? "bg-red-50 text-red-600 border border-red-200"
+                : "bg-white text-zinc-600 hover:bg-zinc-50 border border-zinc-100"
           )}
         >
           {isPremium ? (
             <>
               <ShieldCheck size={16} />
               <span className="hidden sm:inline">{t.statusPremium}</span>
+            </>
+          ) : isLimitReached ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
+              <span className="hidden sm:inline font-mono text-red-600">{timeLeft || '--:--:--'}</span>
             </>
           ) : (
             <>

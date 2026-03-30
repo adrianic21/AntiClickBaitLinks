@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Key, LogOut, Rss, UserRound, X } from 'lucide-react';
+import { Check, Key, LogOut, UserRound, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { InsightsPanel } from './InsightsPanel';
@@ -27,6 +27,8 @@ interface ProfilePanelProps {
   appInsights: AppInsights;
   onUpdateName: (name: string) => void;
   remainingSearches: number;
+  nextResetTime: number | null;
+  timeLeft: string;
   unlockPass: string;
   lockError: boolean;
   deviceMismatchError: boolean;
@@ -68,6 +70,8 @@ export function ProfilePanel({
   appInsights,
   onUpdateName,
   remainingSearches,
+  nextResetTime,
+  timeLeft,
   unlockPass,
   lockError,
   deviceMismatchError,
@@ -77,6 +81,8 @@ export function ProfilePanel({
 }: ProfilePanelProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(currentUser.displayName);
+
+  const isLimitReached = !isPremium && remainingSearches <= 0;
 
   const handleSaveName = () => {
     const trimmed = tempName.trim();
@@ -191,6 +197,13 @@ export function ProfilePanel({
                       {t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10
                     </p>
                   )}
+                  {/* Countdown when limit is reached */}
+                  {isLimitReached && nextResetTime && (
+                    <div className="mt-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 border border-red-100">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-red-400">{t.limitReset || 'Resetea en'}</span>
+                      <span className="font-mono text-sm font-bold text-red-600">{timeLeft || '--:--:--'}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -200,10 +213,16 @@ export function ProfilePanel({
                     <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                       {t.settingsTitle}
                     </p>
-                    <p className="text-sm text-zinc-500 mt-1">{t.settingsDesc}</p>
+                    <p className="text-sm text-zinc-500 mt-1">
+                      {t.settingsDesc}
+                    </p>
+                    {/* Corrected privacy note */}
+                    <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-2 border border-emerald-100">
+                      🔐 Tus API Keys se guardan en tu cuenta y se sincronizan entre dispositivos. Nunca se comparten con terceros.
+                    </p>
                   </div>
                   {isKeySaved && (
-                    <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 shrink-0">
                       <Check size={14} />
                       {t.apiKeysActive || t.apiKeyActive}
                     </div>

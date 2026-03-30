@@ -7,6 +7,7 @@ interface LockModalProps {
   t: Translations;
   show: boolean;
   timeLeft: string;
+  nextResetTime: number | null;
   unlockPass: string;
   lockError: boolean;
   deviceMismatchError: boolean;
@@ -18,7 +19,7 @@ interface LockModalProps {
 }
 
 export function LockModal({
-  t, show, timeLeft, unlockPass, lockError, isLoading,
+  t, show, timeLeft, nextResetTime, unlockPass, lockError, isLoading,
   onClose, onUnlock, onPassChange, onErrorChange, deviceMismatchError,
 }: LockModalProps) {
   return (
@@ -38,10 +39,11 @@ export function LockModal({
               </div>
               <h2 className="text-2xl font-bold text-zinc-900">{t.lockTitle}</h2>
               <p className="text-zinc-500 leading-relaxed">{t.lockDesc}</p>
-              {timeLeft && (
+              {/* Always show countdown when there's a reset time */}
+              {nextResetTime && (
                 <div className="px-4 py-2 bg-red-50 text-red-600 rounded-xl font-mono font-bold text-sm flex items-center gap-2">
                   <span className="text-[10px] uppercase tracking-wider opacity-70">{t.resetIn}</span>
-                  {timeLeft}
+                  {timeLeft || '--:--:--'}
                 </div>
               )}
             </div>
@@ -65,8 +67,6 @@ export function LockModal({
                     lockError ? "ring-2 ring-red-500/20" : "focus:ring-2 focus:ring-emerald-500/20"
                   )}
                 />
-                {/* FIX: Antes siempre mostraba t.invalidPass ignorando deviceMismatchError.
-                    Ahora distingue correctamente entre token inválido y dispositivo diferente. */}
                 {lockError && (
                   <p className="text-[10px] text-red-500 font-bold text-center uppercase tracking-wider">
                     {deviceMismatchError ? t.deviceMismatchError : t.invalidPass}

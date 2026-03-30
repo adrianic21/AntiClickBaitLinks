@@ -50,7 +50,7 @@ export function FeedModal({
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
-            className="fixed inset-x-4 top-20 bottom-6 z-[61] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto"
+            className="fixed inset-x-4 top-20 bottom-6 z-[61] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto text-zinc-900 dark:text-zinc-100"
           >
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
@@ -89,4 +89,3 @@ export function FeedModal({
     </AnimatePresence>
   );
 }
-

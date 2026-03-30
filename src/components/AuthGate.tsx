@@ -78,7 +78,7 @@ export function AuthGate({
       if (!response.ok) {
         throw new Error(data.error || 'No se pudo restablecer la contraseña.');
       }
-      setResetMessage('Contraseña actualizada. Ahora puedes iniciar sesión.');
+      setResetMessage('Password updated. You can sign in now.');
       onModeChange('login');
       onPasswordChange('');
     } catch (err: any) {
@@ -93,7 +93,7 @@ export function AuthGate({
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 16 }}
-      className="w-full glass rounded-[2rem] p-6 sm:p-8 shadow-2xl space-y-5 bg-white/90"
+      className="w-full glass rounded-[2rem] p-6 sm:p-8 shadow-2xl space-y-5 bg-white/90 text-zinc-900 dark:bg-zinc-900/90 dark:text-zinc-100"
     >
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-3 text-left flex-1">
@@ -103,7 +103,7 @@ export function AuthGate({
             <div className="space-y-1">
               <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
                 {resetMode
-                  ? 'Restablecer contraseña'
+                  ? 'Reset password'
                   : (t.authTitle || 'Sign in to AntiClickBaitLinks')}
               </h1>
               {(resetMode || t.authDescription) && (
@@ -149,7 +149,7 @@ export function AuthGate({
               type="text"
               value={name}
               onChange={(event) => onNameChange(event.target.value)}
-              placeholder={t.authNamePlaceholder || 'Alias / Nombre'}
+              placeholder={t.authNamePlaceholder || 'Your name or alias'}
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-400"
             />
           )}
@@ -203,7 +203,7 @@ export function AuthGate({
               className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700 disabled:opacity-60"
             >
               {resetLoading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-              Restablecer contraseña
+              Reset password
             </button>
           )}
         </div>
@@ -226,13 +226,13 @@ export function AuthGate({
             onClick={handleForgotPassword}
             className="text-emerald-600 font-semibold hover:text-emerald-700"
           >
-            ¿Olvidaste tu contraseña?
+            Forgot your password?
           </button>
           {!resetMode && (
             <span>
               {mode === 'login'
-                ? '¿No tienes cuenta? Cambia a "Crear cuenta".'
-                : '¿Ya tienes cuenta? Cambia a "Iniciar sesión".'}
+                ? 'No account yet? Switch to "Create account".'
+                : 'Already have an account? Switch to "Sign in".'}
             </span>
           )}
         </div>

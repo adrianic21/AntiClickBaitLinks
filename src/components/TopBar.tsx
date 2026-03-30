@@ -1,4 +1,4 @@
-import { ShieldCheck, Languages, Info, UserRound, X, Rss } from 'lucide-react';
+import { ShieldCheck, Languages, Info, UserRound, X, Rss, Moon, Sun } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
@@ -14,11 +14,13 @@ interface TopBarProps {
   showFeed: boolean;
   showStatusPopover: boolean;
   uiLanguage: string;
+  isDarkMode: boolean;
   timeLeft: string;
   nextResetTime: number | null;
   togglePopup: (p: string) => void;
   setShowStatusPopover: (v: boolean) => void;
   setShowLangMenu: (v: boolean) => void;
+  setDarkMode: (value: boolean) => void;
   openLockModal: () => void;
   changeUiLanguage: (lang: string) => void;
   currentUser: {
@@ -33,9 +35,9 @@ const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
 export function TopBar({
   t, isPremium, remainingSearches,
   showInfo, showLangMenu, showProfile, showFeed, showStatusPopover,
-  uiLanguage, timeLeft, nextResetTime,
+  uiLanguage, isDarkMode, timeLeft, nextResetTime,
   togglePopup, setShowStatusPopover, setShowLangMenu,
-  openLockModal, changeUiLanguage, currentUser,
+  setDarkMode, openLockModal, changeUiLanguage, currentUser,
 }: TopBarProps) {
   const isLimitReached = !isPremium && remainingSearches <= 0;
 
@@ -81,7 +83,7 @@ export function TopBar({
           onClick={() => togglePopup('lang')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
-            showLangMenu ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            showLangMenu ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           )}
         >
           <Languages size={20} />
@@ -95,10 +97,21 @@ export function TopBar({
           onClick={() => togglePopup('info')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg",
-            showInfo ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            showInfo ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           )}
         >
           <Info size={20} />
+        </button>
+
+        <button
+          onClick={() => setDarkMode(!isDarkMode)}
+          className={cn(
+            "p-3 rounded-2xl transition-all shadow-lg",
+            isDarkMode ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          )}
+          title={isDarkMode ? ((t as any).darkModeOff || 'Light mode') : ((t as any).darkModeOn || 'Dark mode')}
+        >
+          {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
         {/* Feed */}
@@ -106,7 +119,7 @@ export function TopBar({
           onClick={() => togglePopup('feed')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg",
-            showFeed ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            showFeed ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           )}
           title={t.feedTitle}
         >
@@ -118,7 +131,7 @@ export function TopBar({
           onClick={() => togglePopup('profile')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
-            showProfile ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            showProfile ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           )}
         >
           <UserRound size={20} />
@@ -147,7 +160,7 @@ export function TopBar({
                 <div className="bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Account</div>
                   <div className="text-sm font-semibold text-zinc-900">
-                    {currentUser?.displayName || 'Invitado'}
+                    {currentUser?.displayName || 'Guest'}
                   </div>
                   {currentUser?.email && (
                     <div className="text-xs text-zinc-500 break-all">{currentUser.email}</div>

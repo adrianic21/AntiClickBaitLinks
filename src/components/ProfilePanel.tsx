@@ -50,7 +50,7 @@ const PROVIDER_PLACEHOLDERS: Record<Provider, string> = {
   deepseek: 'sk-...',
 };
 
-// ─── Collapsible "Hazte Premium" section ─────────────────────────────────────
+// ─── Collapsible premium section ─────────────────────────────────────────────
 function PremiumSection({
   t,
   unlockPass,
@@ -82,8 +82,8 @@ function PremiumSection({
             <Sparkles size={18} />
           </div>
           <div>
-            <p className="text-sm font-extrabold text-emerald-800">¡Hazte Premium!</p>
-            <p className="text-xs text-emerald-600">Búsquedas ilimitadas · Pago único</p>
+            <p className="text-sm font-extrabold text-emerald-800">Go Premium</p>
+            <p className="text-xs text-emerald-600">Unlimited summaries · One-time payment</p>
           </div>
         </div>
         {open
@@ -104,9 +104,9 @@ function PremiumSection({
               {/* Benefits */}
               <ul className="space-y-1.5">
                 {[
-                  'Búsquedas ilimitadas sin esperar',
-                  'Acceso en todos tus dispositivos',
-                  'Pago único — sin suscripciones',
+                  'Unlimited summaries without waiting',
+                  'Access on all your devices',
+                  'One-time payment with no subscription',
                 ].map((b) => (
                   <li key={b} className="flex items-center gap-2 text-xs text-emerald-800">
                     <Check size={13} className="text-emerald-500 shrink-0" />
@@ -209,7 +209,7 @@ export function ProfilePanel({
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
-            className="fixed inset-x-4 top-24 bottom-6 z-[46] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto"
+            className="fixed inset-x-4 top-24 bottom-6 z-[46] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto text-zinc-900 dark:text-zinc-100"
           >
             <div className="space-y-6">
 
@@ -235,10 +235,10 @@ export function ProfilePanel({
                               if (e.key === 'Escape') { setIsEditingName(false); setTempName(currentUser.displayName); }
                             }}
                             className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-sm font-semibold text-zinc-900 outline-none focus:border-emerald-400"
-                            placeholder="Alias / Nombre"
+                            placeholder={t.authNamePlaceholder || 'Your name or alias'}
                           />
                           <button type="button" onClick={handleSaveName} className="text-emerald-600 text-xs font-bold">
-                            Guardar
+                            Save
                           </button>
                         </>
                       ) : (
@@ -248,7 +248,7 @@ export function ProfilePanel({
                             type="button"
                             onClick={() => { setIsEditingName(true); setTempName(currentUser.displayName); }}
                             className="text-zinc-400 hover:text-emerald-600 text-xs"
-                            title="Editar alias / nombre"
+                            title="Edit display name"
                           >
                             ✏️
                           </button>
@@ -262,7 +262,7 @@ export function ProfilePanel({
                       className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 transition-all hover:bg-zinc-50"
                     >
                       <LogOut size={14} />
-                      {t.authLogout || 'Cerrar sesión'}
+                      {t.authLogout || 'Log out'}
                     </button>
                   </div>
                 </div>
@@ -291,7 +291,7 @@ export function ProfilePanel({
                   )}
                   {isLimitReached && nextResetTime && (
                     <div className="mt-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 border border-red-100">
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-red-400">{t.limitReset || 'Resetea en'}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-red-400">{t.limitReset || 'Resets in'}</span>
                       <span className="font-mono text-sm font-bold text-red-600">{timeLeft || '--:--:--'}</span>
                     </div>
                   )}
@@ -307,7 +307,7 @@ export function ProfilePanel({
                     </p>
                     <p className="text-sm text-zinc-500 mt-1">{t.settingsDesc}</p>
                     <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-2 border border-emerald-100">
-                      🔐 Tus API Keys se guardan en tu cuenta y se sincronizan entre dispositivos. Nunca se comparten con terceros.
+                      Your API keys are encrypted in your account, synced across devices, and never shared with third parties.
                     </p>
                   </div>
                   {isKeySaved && (
@@ -373,7 +373,7 @@ export function ProfilePanel({
               {/* Activity insights */}
               <InsightsPanel t={t} insights={appInsights} />
 
-              {/* ¡Hazte Premium! — solo usuarios gratuitos */}
+              {/* Premium section for free users */}
               {!isPremium && (
                 <PremiumSection
                   t={t}

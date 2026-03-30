@@ -56,7 +56,7 @@ export function InfoPanel({
             initial={dontShowAgain ? { opacity: 0, y: -20, scale: 0.95 } : { opacity: 0, scale: 0.9, y: 20 }}
             animate={dontShowAgain ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, scale: 1, y: 0 }}
             exit={dontShowAgain ? { opacity: 0, y: -20, scale: 0.95 } : { opacity: 0, scale: 0.9, y: 20 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46] w-[90%] max-w-md glass rounded-3xl p-6 shadow-2xl space-y-5 max-h-[85vh] overflow-y-auto"
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46] w-[90%] max-w-md glass rounded-3xl p-6 shadow-2xl space-y-5 max-h-[85vh] overflow-y-auto text-zinc-900 dark:text-zinc-100"
           >
             {/* Header */}
             <div className="flex items-center justify-between pb-2">
@@ -92,8 +92,16 @@ export function InfoPanel({
 
             {/* Info tab */}
             {activeTab === 'info' && <div className="space-y-5">
-              <section>
-                <p className="text-base text-zinc-600 leading-relaxed">{t.infoDesc}</p>
+              <section className="space-y-3">
+                <p className="text-base text-zinc-600 dark:text-zinc-300 leading-relaxed">{t.infoDesc}</p>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/60 dark:bg-emerald-950/40">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">
+                    {(t as any).platformsTitle || 'Available everywhere'}
+                  </p>
+                  <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-200">
+                    {(t as any).platformsDesc || 'Use AntiClickBaitLinks on the web, with the browser extension, and with native apps for Android, iPhone/iPad and Windows.'}
+                  </p>
+                </div>
               </section>
 
               <section className="space-y-3">

@@ -136,7 +136,7 @@ export function ResultCard({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="glass rounded-3xl p-8 space-y-4"
+            className="glass rounded-3xl p-8 space-y-4 text-zinc-900 dark:text-zinc-100"
           >
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">
@@ -182,7 +182,7 @@ export function ResultCard({
                 <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                   {t.originalTitle}
                 </p>
-                <p className="text-base font-semibold text-zinc-700 leading-snug break-words">{articleTitle}</p>
+                <p className="text-base font-semibold text-zinc-700 dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 
@@ -208,7 +208,7 @@ export function ResultCard({
                   <Loader2 className="animate-spin text-emerald-600" size={32} />
                 </div>
               )}
-              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 space-y-3">
+              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 dark:text-zinc-200 space-y-3">
                 {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
                   <p key={i}><FormattedText text={paragraph} /></p>
                 ))}

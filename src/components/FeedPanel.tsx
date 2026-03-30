@@ -70,7 +70,7 @@ export function FeedPanel({
   );
 
   return (
-    <section className="glass rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
+    <section className="glass rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl text-zinc-900 dark:text-zinc-100">
       <button
         type="button"
         onClick={() => !forceOpen && setIsOpen((current) => !current)}
@@ -91,11 +91,11 @@ export function FeedPanel({
         <div className="space-y-5 pt-1">
           <div className="rounded-2xl bg-white/80 p-4 shadow-sm space-y-3">
             <div className="space-y-1">
-              <p className="text-xs font-semibold text-zinc-700">Cómo añadir tus webs favoritas</p>
+              <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">How to add your favorite sources</p>
               <ul className="text-xs text-zinc-500 list-disc pl-4 space-y-1">
-                <li>Copia el enlace RSS de la web (normalmente termina en <span className="font-mono">/rss</span> o <span className="font-mono">/feed</span>).</li>
-                <li>Pégalo aquí, ponle un nombre y pulsa “Añadir fuente”.</li>
-                <li>Activa la fuente y pulsa “Actualizar feed”.</li>
+                <li>Copy the website RSS link, which often ends in <span className="font-mono">/rss</span> or <span className="font-mono">/feed</span>.</li>
+                <li>Paste it here, give it a name, and press “Add source”.</li>
+                <li>Enable the source and press “Refresh feed”.</li>
               </ul>
               <p className="text-xs text-zinc-500">{t.feedConnectorHint}</p>
             </div>
@@ -179,7 +179,7 @@ export function FeedPanel({
                       value={String(source.itemsPerLoad || 6)}
                       onChange={(e) => onUpdateSourceItemsPerLoad(source.id, Number(e.target.value))}
                       className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-bold text-zinc-700 outline-none"
-                      title="Noticias a cargar"
+                      title="Items to load"
                     >
                       {[3, 6, 10, 15, 20, 25].map((count) => (
                         <option key={count} value={count}>{count}</option>
@@ -231,8 +231,8 @@ export function FeedPanel({
                         type="button"
                         onClick={() => setSelected((prev) => ({ ...prev, [item.url]: !prev[item.url] }))}
                         className="mt-0.5 rounded-2xl bg-zinc-50 p-2 text-zinc-700 hover:bg-zinc-100"
-                        aria-label="Seleccionar"
-                        title="Seleccionar"
+                        aria-label="Select"
+                        title="Select"
                       >
                         {selected[item.url] ? <CheckSquare size={16} /> : <Square size={16} />}
                       </button>

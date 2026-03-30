@@ -80,6 +80,7 @@ interface StoredUserAccount {
   preferredLength?: 'short' | 'medium' | 'long';
   speechRate?: number;
   provider?: string;
+  darkMode?: boolean;
   deepResearchEnabled?: boolean;
   dontShowAgain?: boolean;
   appInsights?: {
@@ -548,6 +549,7 @@ function buildAccountResponse(user: StoredUserAccount) {
         preferredLength: user.preferredLength,
         speechRate: user.speechRate,
         provider: user.provider,
+        darkMode: user.darkMode,
         deepResearchEnabled: user.deepResearchEnabled,
         dontShowAgain: user.dontShowAgain,
       },
@@ -1060,6 +1062,7 @@ async function startServer() {
       if (preferences.preferredLength === 'short' || preferences.preferredLength === 'medium' || preferences.preferredLength === 'long') user.preferredLength = preferences.preferredLength;
       if (typeof preferences.speechRate === 'number') user.speechRate = preferences.speechRate;
       if (typeof preferences.provider === 'string') user.provider = preferences.provider;
+      if (typeof preferences.darkMode === 'boolean') user.darkMode = preferences.darkMode;
       if (typeof preferences.deepResearchEnabled === 'boolean') user.deepResearchEnabled = preferences.deepResearchEnabled;
       if (typeof preferences.dontShowAgain === 'boolean') user.dontShowAgain = preferences.dontShowAgain;
     }
@@ -1117,6 +1120,53 @@ async function startServer() {
     ), 0);
 
     return cleaned.length + (paragraphishBreaks * 80) + (sentenceCount * 25) - penalties;
+  }
+
+  function normalizeWhitespace(value: string): string {
+    return String(value || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isPlausibleOriginalTitle(title: string): boolean {
+    const normalized = normalizeWhitespace(decodeHtmlEntities(title));
+    if (!normalized || normalized.length < 8) return false;
+    if (/^[\d\s\-–—|:/.,]+$/.test(normalized)) return false;
+
+    const words = normalized.split(/\s+/).filter(Boolean);
+    if (words.length < 2) return false;
+
+    const letters = (normalized.match(/\p{L}/gu) || []).length;
+    const digits = (normalized.match(/\d/g) || []).length;
+    if (letters === 0) return false;
+    if (digits > letters * 1.4) return false;
+
+    const lowered = normalized.toLowerCase();
+    const banned = ['home', 'homepage', 'front page', 'untitled', 'loading', 'access denied', '404', '403', '500'];
+    return !banned.includes(lowered);
+  }
+
+  function pickBestOriginalTitle(...candidates: Array<string | null | undefined>): string {
+    let best = '';
+    let bestScore = -1;
+
+    for (const candidate of candidates) {
+      const normalized = normalizeWhitespace(decodeHtmlEntities(String(candidate || '')));
+      if (!isPlausibleOriginalTitle(normalized)) continue;
+
+      const words = normalized.split(/\s+/).length;
+      const letters = (normalized.match(/\p{L}/gu) || []).length;
+      const separators = (normalized.match(/[:\-–—|]/g) || []).length;
+      const score = (words * 30) + letters - (separators * 3);
+
+      if (score > bestScore) {
+        best = normalized;
+        bestScore = score;
+      }
+    }
+
+    return best;
   }
 
   function extractStructuredArticleData($: cheerio.CheerioAPI): { text: string; title: string } {
@@ -1213,6 +1263,7 @@ async function startServer() {
 
   function extractFromHtml(html: string): { text: string; title: string } {
     const $ = cheerio.load(html);
+    const h1Title = $('h1').first().text() || '';
 
     const metaTitle =
       $('meta[property="og:title"]').attr('content') ||
@@ -1324,7 +1375,7 @@ async function startServer() {
 
     return {
       text,
-      title: decodeHtmlEntities((structured.title || metaTitle).trim()),
+      title: pickBestOriginalTitle(structured.title, metaTitle, h1Title),
     };
   }
 
@@ -1455,7 +1506,7 @@ async function startServer() {
       : '';
     const body = titleLine ? text.replace(titleLine, '').trim() : text;
 
-    return { text: body.substring(0, 22000), title: decodeHtmlEntities(title) };
+    return { text: body.substring(0, 22000), title: pickBestOriginalTitle(title) };
   }
 
   /** Strategy 6: Jina Reader with markdown format */
@@ -1487,7 +1538,7 @@ async function startServer() {
         .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
         .trim();
 
-      if (cleaned.length > 200) return { text: cleaned.substring(0, 22000), title };
+      if (cleaned.length > 200) return { text: cleaned.substring(0, 22000), title: pickBestOriginalTitle(title) };
       return null;
     } catch {
       return null;
@@ -1546,7 +1597,9 @@ async function startServer() {
       const title =
         $('meta[property="og:title"]').attr('content') ||
         $('meta[name="twitter:title"]').attr('content') ||
-        $('title').text().trim() || '';
+        $('title').text().trim() ||
+        $('h1').first().text().trim() ||
+        '';
 
       const parts: string[] = [
         $('meta[property="og:description"]').attr('content') || '',
@@ -1562,7 +1615,7 @@ async function startServer() {
 
       const text = cleanReadableText(parts.join('\n\n'));
       if (text.length > 100) {
-        return { text: text.substring(0, 10000), title: decodeHtmlEntities(title.trim()) };
+        return { text: text.substring(0, 10000), title: pickBestOriginalTitle(title) };
       }
       return null;
     } catch {
@@ -2134,7 +2187,7 @@ async function startServer() {
       const title = titleLine ? titleLine.replace(/^Title:|^# /, '').trim() : '';
       const body = titleLine ? text.replace(titleLine, '').trim() : text;
 
-      return res.json({ text: body.substring(0, 25000), title, type: 'youtube' });
+      return res.json({ text: body.substring(0, 25000), title: pickBestOriginalTitle(title), type: 'youtube' });
     } catch (err: any) {
       console.warn('YouTube Jina strategy failed, trying direct fetch:', err.message);
     }
@@ -2160,7 +2213,7 @@ async function startServer() {
         const combined = [longDesc || desc].filter(Boolean).join('\n');
         if (combined.length > 100) {
           const note = 'Note: This is the video description as the transcript could not be extracted automatically.\n\n';
-          return res.json({ text: (note + combined).substring(0, 20000), title, type: 'youtube' });
+          return res.json({ text: (note + combined).substring(0, 20000), title: pickBestOriginalTitle(title), type: 'youtube' });
         }
       }
     } catch (err2: any) {

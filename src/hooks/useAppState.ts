@@ -1071,11 +1071,8 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
-        const investigation = await investigateClaim(finalUrl, resolvedTitle || finalUrl, summaryResult.summary, apiKeys, providerPriority);
-        setInvestigationResult(investigation);
-      }
-
+      // FIX: Record usage BEFORE investigation so it's always counted on success,
+      // even if investigateClaim throws afterwards.
       if (!isPremium) {
         fetch('/api/check-limit', {
           method: 'POST',
@@ -1089,6 +1086,17 @@ export function useAppState() {
             if (!data.allowed) openLockModal();
           })
           .catch(() => undefined);
+      }
+
+      // FIX: Wrap investigateClaim in its own try/catch so a failure here never
+      // overwrites a successful summary with genericError.
+      if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
+        try {
+          const investigation = await investigateClaim(finalUrl, resolvedTitle || finalUrl, summaryResult.summary, apiKeys, providerPriority);
+          setInvestigationResult(investigation);
+        } catch {
+          setInvestigationResult(null);
+        }
       }
     } catch (err: any) {
       if (msgInterval) clearInterval(msgInterval);

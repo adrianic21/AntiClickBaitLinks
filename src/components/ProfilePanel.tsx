@@ -322,11 +322,13 @@ export function ProfilePanel({
                     </p>
                     <p className="text-sm text-zinc-500 mt-1">Manage your API providers and keys only when you need to.</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
                     {isKeySaved && (
-                    <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 shrink-0">
+                    <div className="inline-flex max-w-full items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
                       <Check size={14} />
-                      {t.apiKeysActive || t.apiKeyActive}
+                      <span className="min-w-0 break-words text-left leading-tight">
+                        {t.apiKeysActive || t.apiKeyActive}
+                      </span>
                     </div>
                     )}
                     {showApiSettings ? <ChevronUp size={18} className="text-zinc-500" /> : <ChevronDown size={18} className="text-zinc-500" />}

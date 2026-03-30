@@ -43,7 +43,7 @@ export function TopBar({
   return (
     <>
       {/* Button bar */}
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-center gap-2 rounded-3xl bg-white/85 px-3 py-3 shadow-lg backdrop-blur-md">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-center gap-2 px-3 py-3">
         {/* Account status */}
         <button
           onClick={() => togglePopup('status')}

@@ -81,7 +81,6 @@ interface StoredUserAccount {
   preferredLength?: 'short' | 'medium' | 'long';
   speechRate?: number;
   provider?: string;
-  darkMode?: boolean;
   deepResearchEnabled?: boolean;
   dontShowAgain?: boolean;
   appInsights?: {
@@ -550,7 +549,6 @@ function buildAccountResponse(user: StoredUserAccount) {
         preferredLength: user.preferredLength,
         speechRate: user.speechRate,
         provider: user.provider,
-        darkMode: user.darkMode,
         deepResearchEnabled: user.deepResearchEnabled,
         dontShowAgain: user.dontShowAgain,
       },
@@ -1084,7 +1082,6 @@ async function startServer() {
       if (preferences.preferredLength === 'short' || preferences.preferredLength === 'medium' || preferences.preferredLength === 'long') user.preferredLength = preferences.preferredLength;
       if (typeof preferences.speechRate === 'number') user.speechRate = preferences.speechRate;
       if (typeof preferences.provider === 'string') user.provider = preferences.provider;
-      if (typeof preferences.darkMode === 'boolean') user.darkMode = preferences.darkMode;
       if (typeof preferences.deepResearchEnabled === 'boolean') user.deepResearchEnabled = preferences.deepResearchEnabled;
       if (typeof preferences.dontShowAgain === 'boolean') user.dontShowAgain = preferences.dontShowAgain;
     }

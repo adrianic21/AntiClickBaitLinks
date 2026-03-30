@@ -602,16 +602,22 @@ async function getUsageIdForRequest(req: express.Request): Promise<string> {
 }
 
 function getServerDayKey(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
 function getNextServerResetAt(now = new Date()): number {
-  const reset = new Date(now);
-  reset.setHours(24, 0, 0, 0);
-  return reset.getTime();
+  return Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+    0,
+    0,
+    0,
+    0
+  );
 }
 
 function getSecondsUntilServerReset(now = new Date()): number {

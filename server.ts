@@ -47,7 +47,8 @@ interface TokenData {
 
 interface UsageData {
   count: number;
-  windowStart: number;
+  dayKey: string;
+  resetAt: number;
 }
 
 interface DeviceData {
@@ -579,7 +580,6 @@ async function revokeTokensByEmail(email: string): Promise<void> {
 // ─── IP-based usage tracking (free tier limit) ───────────────────────────────
 
 const FREE_LIMIT = 10;
-const USAGE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function getClientIp(req: express.Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -603,48 +603,70 @@ async function getUsageIdForRequest(req: express.Request): Promise<string> {
   return getUsageId(req);
 }
 
-async function getUsageCount(ip: string): Promise<number> {
-  const count = await redisGet<number>(`usage_count:${ip}`);
-  return typeof count === 'number' && Number.isFinite(count) ? count : 0;
+function getServerDayKey(now = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-async function incrementUsage(ip: string): Promise<number> {
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!redisUrl || !redisToken) return 1;
+function getNextServerResetAt(now = new Date()): number {
+  const reset = new Date(now);
+  reset.setHours(24, 0, 0, 0);
+  return reset.getTime();
+}
 
-  const key = `usage_count:${ip}`;
-  const windowKey = `usage_window:${ip}`;
+function getSecondsUntilServerReset(now = new Date()): number {
+  return Math.max(1, Math.ceil((getNextServerResetAt(now) - now.getTime()) / 1000));
+}
 
-  const incrRes = await fetch(`${redisUrl}/incr/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${redisToken}` },
-  });
-  const incrData = await incrRes.json() as { result: number };
-  const newCount = incrData.result;
+function buildFreshUsageState(now = new Date()): UsageData {
+  return {
+    count: 0,
+    dayKey: getServerDayKey(now),
+    resetAt: getNextServerResetAt(now),
+  };
+}
 
-  if (newCount === 1) {
-    const ttl = Math.floor(USAGE_WINDOW_MS / 1000);
-    await fetch(`${redisUrl}/expire/${encodeURIComponent(key)}/${ttl}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${redisToken}` },
-    });
-    await redisSet<UsageData>(windowKey, { count: newCount, windowStart: Date.now() });
-    await fetch(`${redisUrl}/expire/${encodeURIComponent(windowKey)}/${ttl}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${redisToken}` },
-    });
+async function getUsageState(usageId: string): Promise<UsageData> {
+  const now = new Date();
+  const currentDayKey = getServerDayKey(now);
+  const currentResetAt = getNextServerResetAt(now);
+  const stored = await redisGet<UsageData>(`usage_state:${usageId}`);
+
+  if (!stored || stored.dayKey !== currentDayKey || !stored.resetAt || Date.now() >= stored.resetAt) {
+    return buildFreshUsageState(now);
   }
 
-  return newCount;
+  return {
+    count: Math.max(0, Number(stored.count) || 0),
+    dayKey: stored.dayKey,
+    resetAt: stored.resetAt || currentResetAt,
+  };
 }
 
-async function getUsageResetTime(ip: string): Promise<number | null> {
-  const data = await redisGet<UsageData>(`usage_window:${ip}`);
-  if (!data?.windowStart) return null;
-  const resetAt = data.windowStart + USAGE_WINDOW_MS;
-  if (Date.now() > resetAt) return null;
-  return resetAt;
+async function saveUsageState(usageId: string, state: UsageData): Promise<void> {
+  await redisSet<UsageData>(`usage_state:${usageId}`, state, getSecondsUntilServerReset());
+}
+
+async function getUsageCount(usageId: string): Promise<number> {
+  const state = await getUsageState(usageId);
+  return state.count;
+}
+
+async function incrementUsage(usageId: string): Promise<UsageData> {
+  const state = await getUsageState(usageId);
+  const nextState: UsageData = {
+    ...state,
+    count: state.count + 1,
+  };
+  await saveUsageState(usageId, nextState);
+  return nextState;
+}
+
+async function getUsageResetTime(usageId: string): Promise<number> {
+  const state = await getUsageState(usageId);
+  return state.resetAt;
 }
 
 // ─── Token device binding ─────────────────────────────────────────────────────
@@ -2109,17 +2131,20 @@ async function startServer() {
 
     const usageId = await getUsageIdForRequest(req);
     const count = await getUsageCount(usageId);
+    const resetAt = await getUsageResetTime(usageId);
 
     if (record) {
       if (count >= FREE_LIMIT) {
-        const resetAt = await getUsageResetTime(usageId);
         return res.json({ allowed: false, remaining: 0, resetAt });
       }
-      const newCount = await incrementUsage(usageId);
-      return res.json({ allowed: true, remaining: FREE_LIMIT - newCount, resetAt: null });
+      const state = await incrementUsage(usageId);
+      return res.json({
+        allowed: true,
+        remaining: Math.max(0, FREE_LIMIT - state.count),
+        resetAt: state.resetAt,
+      });
     } else {
       const remaining = Math.max(0, FREE_LIMIT - count);
-      const resetAt = count >= FREE_LIMIT ? await getUsageResetTime(usageId) : null;
       return res.json({ allowed: count < FREE_LIMIT, remaining, resetAt });
     }
   });

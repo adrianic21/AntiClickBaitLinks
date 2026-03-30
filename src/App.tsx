@@ -269,9 +269,6 @@ export default function App() {
             <ShieldCheck size={32} />
           </button>
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-zinc-900">{t.title}</h1>
-          <p className="mx-auto max-w-xl text-sm text-zinc-500">
-            {(t as any).platformsDesc || 'Use AntiClickBaitLinks on the web, with the browser extension, and with native apps for Android, iPhone/iPad and Windows.'}
-          </p>
         </div>
 
         {/* Input form */}

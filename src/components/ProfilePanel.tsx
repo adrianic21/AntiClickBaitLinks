@@ -285,14 +285,23 @@ export function ProfilePanel({
                     {isPremium ? t.statusPremium : t.statusFree}
                   </p>
                   {!isPremium && (
-                    <p className="mt-1 text-sm text-zinc-500">
-                      {t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10
-                    </p>
-                  )}
-                  {isLimitReached && nextResetTime && (
-                    <div className="mt-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 border border-red-100">
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-red-400">{t.limitReset || 'Resets in'}</span>
-                      <span className="font-mono text-sm font-bold text-red-600">{timeLeft || '--:--:--'}</span>
+                    <div className="mt-1 space-y-2">
+                      <p className="text-sm text-zinc-500">
+                        {t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10
+                      </p>
+                      {nextResetTime && (
+                        <div className={cn(
+                          "flex items-center justify-between gap-2 rounded-xl px-3 py-2 border",
+                          isLimitReached ? "bg-red-50 border-red-100" : "bg-amber-50/70 border-amber-100"
+                        )}>
+                          <span className={cn("text-[10px] font-bold uppercase tracking-wide", isLimitReached ? "text-red-400" : "text-amber-700")}>
+                            {t.limitReset || 'Resets in'}
+                          </span>
+                          <span className={cn("font-mono text-sm font-bold", isLimitReached ? "text-red-600" : "text-amber-700")}>
+                            {timeLeft || '--:--:--'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

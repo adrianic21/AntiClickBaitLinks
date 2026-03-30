@@ -1,4 +1,4 @@
-import { ShieldCheck, Languages, Info, UserRound, X, Rss, Moon, Sun } from 'lucide-react';
+import { ShieldCheck, Languages, Info, UserRound, X, Rss } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
@@ -14,13 +14,11 @@ interface TopBarProps {
   showFeed: boolean;
   showStatusPopover: boolean;
   uiLanguage: string;
-  isDarkMode: boolean;
   timeLeft: string;
   nextResetTime: number | null;
   togglePopup: (p: string) => void;
   setShowStatusPopover: (v: boolean) => void;
   setShowLangMenu: (v: boolean) => void;
-  setDarkMode: (value: boolean) => void;
   openLockModal: () => void;
   changeUiLanguage: (lang: string) => void;
   currentUser: {
@@ -35,16 +33,17 @@ const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
 export function TopBar({
   t, isPremium, remainingSearches,
   showInfo, showLangMenu, showProfile, showFeed, showStatusPopover,
-  uiLanguage, isDarkMode, timeLeft, nextResetTime,
+  uiLanguage, timeLeft, nextResetTime,
   togglePopup, setShowStatusPopover, setShowLangMenu,
-  setDarkMode, openLockModal, changeUiLanguage, currentUser,
+  openLockModal, changeUiLanguage, currentUser,
 }: TopBarProps) {
   const isLimitReached = !isPremium && remainingSearches <= 0;
+  const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
 
   return (
     <>
       {/* Button bar */}
-      <div className="fixed top-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-center gap-2 rounded-3xl bg-white/85 px-3 py-3 shadow-lg backdrop-blur-md">
         {/* Account status */}
         <button
           onClick={() => togglePopup('status')}
@@ -62,14 +61,9 @@ export function TopBar({
               <ShieldCheck size={16} />
               <span className="hidden sm:inline">{t.statusPremium}</span>
             </>
-          ) : isLimitReached ? (
-            <>
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
-              <span className="hidden sm:inline font-mono text-red-600">{timeLeft || '--:--:--'}</span>
-            </>
           ) : (
             <>
-              <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <div className={cn("w-2 h-2 rounded-full animate-pulse", isLimitReached ? "bg-red-500" : "bg-amber-400")} />
               <span className="hidden sm:inline">{t.statusFree}</span>
               <span className="bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded-md text-[10px]">
                 {remainingSearches}/10
@@ -78,12 +72,23 @@ export function TopBar({
           )}
         </button>
 
+        {isLimitReached && shouldShowCountdown && (
+          <button
+            type="button"
+            onClick={openLockModal}
+            className="px-3 py-3 rounded-2xl border border-red-200 bg-red-50 text-red-600 shadow-lg font-mono text-xs font-bold"
+            title={t.limitReset}
+          >
+            {timeLeft || '--:--:--'}
+          </button>
+        )}
+
         {/* Language */}
         <button
           onClick={() => togglePopup('lang')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
-            showLangMenu ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            showLangMenu ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
           )}
         >
           <Languages size={20} />
@@ -97,21 +102,10 @@ export function TopBar({
           onClick={() => togglePopup('info')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg",
-            showInfo ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            showInfo ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
           )}
         >
           <Info size={20} />
-        </button>
-
-        <button
-          onClick={() => setDarkMode(!isDarkMode)}
-          className={cn(
-            "p-3 rounded-2xl transition-all shadow-lg",
-            isDarkMode ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          )}
-          title={isDarkMode ? ((t as any).darkModeOff || 'Light mode') : ((t as any).darkModeOn || 'Dark mode')}
-        >
-          {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
         {/* Feed */}
@@ -119,7 +113,7 @@ export function TopBar({
           onClick={() => togglePopup('feed')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg",
-            showFeed ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            showFeed ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
           )}
           title={t.feedTitle}
         >
@@ -131,7 +125,7 @@ export function TopBar({
           onClick={() => togglePopup('profile')}
           className={cn(
             "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
-            showProfile ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            showProfile ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
           )}
         >
           <UserRound size={20} />
@@ -173,9 +167,12 @@ export function TopBar({
                   </span>
                 </div>
                 {!isPremium && nextResetTime && (
-                  <div className="flex justify-between items-center bg-red-50/50 p-2 rounded-xl border border-red-100">
-                    <span className="text-xs text-red-500">{t.limitReset}</span>
-                    <span className="text-sm font-bold text-red-600 font-mono">{timeLeft || '--:--:--'}</span>
+                  <div className={cn(
+                    "flex justify-between items-center p-2 rounded-xl border",
+                    isLimitReached ? "bg-red-50/50 border-red-100" : "bg-amber-50/60 border-amber-100"
+                  )}>
+                    <span className={cn("text-xs", isLimitReached ? "text-red-500" : "text-amber-700")}>{t.limitReset}</span>
+                    <span className={cn("text-sm font-bold font-mono", isLimitReached ? "text-red-600" : "text-amber-700")}>{timeLeft || '--:--:--'}</span>
                   </div>
                 )}
               </div>

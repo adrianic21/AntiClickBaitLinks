@@ -8,6 +8,7 @@ import type { ApiKeys, Provider } from '../services/geminiService';
 import type { AppInsights } from '../lib/appInsights';
 
 interface ProfilePanelProps {
+  uiLanguage: string;
   t: Translations;
   show: boolean;
   onClose: () => void;
@@ -52,6 +53,7 @@ const PROVIDER_PLACEHOLDERS: Record<Provider, string> = {
 
 // ─── Collapsible premium section ─────────────────────────────────────────────
 function PremiumSection({
+  uiLanguage,
   t,
   unlockPass,
   lockError,
@@ -60,6 +62,7 @@ function PremiumSection({
   onPassChange,
   onUnlock,
 }: {
+  uiLanguage: string;
   t: Translations;
   unlockPass: string;
   lockError: boolean;
@@ -69,6 +72,25 @@ function PremiumSection({
   onUnlock: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const copy = uiLanguage === 'Spanish'
+    ? {
+        title: 'Hazte Premium',
+        subtitle: 'Resúmenes ilimitados · Pago único',
+        benefits: [
+          'Resúmenes ilimitados sin esperas',
+          'Acceso en todos tus dispositivos',
+          'Pago único sin suscripción',
+        ],
+      }
+    : {
+        title: 'Go Premium',
+        subtitle: 'Unlimited summaries · One-time payment',
+        benefits: [
+          'Unlimited summaries without waiting',
+          'Access on all your devices',
+          'One-time payment with no subscription',
+        ],
+      };
 
   return (
     <section className="rounded-3xl overflow-hidden border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 shadow-sm">
@@ -82,8 +104,8 @@ function PremiumSection({
             <Sparkles size={18} />
           </div>
           <div>
-            <p className="text-sm font-extrabold text-emerald-800">Go Premium</p>
-            <p className="text-xs text-emerald-600">Unlimited summaries · One-time payment</p>
+            <p className="text-sm font-extrabold text-emerald-800">{copy.title}</p>
+            <p className="text-xs text-emerald-600">{copy.subtitle}</p>
           </div>
         </div>
         {open
@@ -103,11 +125,7 @@ function PremiumSection({
             <div className="px-5 pb-5 space-y-4">
               {/* Benefits */}
               <ul className="space-y-1.5">
-                {[
-                  'Unlimited summaries without waiting',
-                  'Access on all your devices',
-                  'One-time payment with no subscription',
-                ].map((b) => (
+                {copy.benefits.map((b) => (
                   <li key={b} className="flex items-center gap-2 text-xs text-emerald-800">
                     <Check size={13} className="text-emerald-500 shrink-0" />
                     {b}
@@ -174,6 +192,7 @@ function PremiumSection({
 
 // ─── Main ProfilePanel ────────────────────────────────────────────────────────
 export function ProfilePanel({
+  uiLanguage,
   t, show, onClose, currentUser, isPremium,
   provider, setProvider, userApiKey, setUserApiKey, apiKeys, isKeySaved, onSaveApiKey,
   onLogout, appInsights, onUpdateName,
@@ -239,7 +258,7 @@ export function ProfilePanel({
                             placeholder={t.authNamePlaceholder || 'Your name or alias'}
                           />
                           <button type="button" onClick={handleSaveName} className="text-emerald-600 text-xs font-bold">
-                            Save
+                            {uiLanguage === 'Spanish' ? 'Guardar' : 'Save'}
                           </button>
                         </>
                       ) : (
@@ -249,7 +268,7 @@ export function ProfilePanel({
                             type="button"
                             onClick={() => { setIsEditingName(true); setTempName(currentUser.displayName); }}
                             className="text-zinc-400 hover:text-emerald-600 text-xs"
-                            title="Edit display name"
+                            title={uiLanguage === 'Spanish' ? 'Editar nombre visible' : 'Edit display name'}
                           >
                             ✏️
                           </button>
@@ -320,7 +339,7 @@ export function ProfilePanel({
                       <Wrench size={14} />
                       {t.settingsTitle}
                     </p>
-                    <p className="text-sm text-zinc-500 mt-1">Manage your API providers and keys only when you need to.</p>
+                    <p className="text-sm text-zinc-500 mt-1">{uiLanguage === 'Spanish' ? 'Gestiona tus proveedores y claves API solo cuando lo necesites.' : 'Manage your API providers and keys only when you need to.'}</p>
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
                     {isKeySaved && (
@@ -338,7 +357,9 @@ export function ProfilePanel({
                 {showApiSettings && (
                   <>
                     <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 border border-emerald-100">
-                      Your API keys are encrypted in your account, synced across devices, and never shared with third parties.
+                      {uiLanguage === 'Spanish'
+                        ? 'Tus API Keys se guardan cifradas en tu cuenta, se sincronizan entre dispositivos y nunca se comparten con terceros.'
+                        : 'Your API keys are encrypted in your account, synced across devices, and never shared with third parties.'}
                     </p>
 
                     <div>
@@ -401,6 +422,7 @@ export function ProfilePanel({
               {/* Premium section for free users */}
               {!isPremium && (
                 <PremiumSection
+                  uiLanguage={uiLanguage}
                   t={t}
                   unlockPass={unlockPass}
                   lockError={lockError}

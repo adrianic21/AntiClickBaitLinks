@@ -1,4 +1,4 @@
-import { Info, ShieldCheck, ArrowRight, X, HelpCircle, Lightbulb } from 'lucide-react';
+﻿import { Info, ShieldCheck, ArrowRight, X, HelpCircle, Lightbulb } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
@@ -37,9 +37,22 @@ export function InfoPanel({
   uiLanguage,
 }: InfoPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'faq' | 'usecases'>('info');
+  const copy = uiLanguage === 'Spanish'
+    ? {
+        faq: 'Preguntas',
+        tips: 'Ideas',
+        platformsTitle: 'Disponible en todas partes',
+        platformsDesc: 'Usa AntiClickBaitLinks en la web, con la extensiÃ³n del navegador y con las apps nativas para Android, iPhone/iPad y Windows.',
+      }
+    : {
+        faq: 'FAQ',
+        tips: 'Tips',
+        platformsTitle: 'Available everywhere',
+        platformsDesc: 'Use AntiClickBaitLinks on the web, with the browser extension, and with native apps for Android, iPhone/iPad and Windows.',
+      };
 
   // FIX: Resetear al tab Info cada vez que el panel se abre.
-  // Antes, si cerrabas estando en FAQ y lo reabrías, volvías a FAQ en lugar de Info.
+  // Antes, si cerrabas estando en FAQ y lo reabrÃ­as, volvÃ­as a FAQ en lugar de Info.
   useEffect(() => {
     if (show) setActiveTab('info');
   }, [show]);
@@ -80,13 +93,13 @@ export function InfoPanel({
                 className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all",
                   activeTab === 'faq' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
                 )}>
-                <HelpCircle size={12} /> FAQ
+                <HelpCircle size={12} /> {copy.faq}
               </button>
               <button onClick={() => setActiveTab('usecases')}
                 className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all",
                   activeTab === 'usecases' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
                 )}>
-                <Lightbulb size={12} /> Tips
+                <Lightbulb size={12} /> {copy.tips}
               </button>
             </div>
 
@@ -96,10 +109,10 @@ export function InfoPanel({
                 <p className="text-base text-zinc-600 dark:text-zinc-300 leading-relaxed">{t.infoDesc}</p>
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/60 dark:bg-emerald-950/40">
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">
-                    {(t as any).platformsTitle || 'Available everywhere'}
+                    {(t as any).platformsTitle || copy.platformsTitle}
                   </p>
                   <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-200">
-                    {(t as any).platformsDesc || 'Use AntiClickBaitLinks on the web, with the browser extension, and with native apps for Android, iPhone/iPad and Windows.'}
+                    {(t as any).platformsDesc || copy.platformsDesc}
                   </p>
                 </div>
               </section>
@@ -216,3 +229,4 @@ export function InfoPanel({
     </AnimatePresence>
   );
 }
+

@@ -39,6 +39,7 @@ export function TopBar({
 }: TopBarProps) {
   const isLimitReached = !isPremium && remainingSearches <= 0;
   const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
+  const guestLabel = uiLanguage === 'Spanish' ? 'Invitado' : 'Guest';
 
   return (
     <>
@@ -152,9 +153,9 @@ export function TopBar({
               </div>
               <div className="space-y-2">
                 <div className="bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Account</div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.accountLabel}</div>
                   <div className="text-sm font-semibold text-zinc-900">
-                    {currentUser?.displayName || 'Guest'}
+                    {currentUser?.displayName || guestLabel}
                   </div>
                   {currentUser?.email && (
                     <div className="text-xs text-zinc-500 break-all">{currentUser.email}</div>

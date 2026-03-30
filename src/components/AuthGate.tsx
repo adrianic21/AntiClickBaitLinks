@@ -3,6 +3,7 @@ import { Loader2, LogIn, Mail, ShieldCheck, X } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface AuthGateProps {
+  uiLanguage: string;
   t: {
     authTitle?: string;
     authDescription?: string;
@@ -32,6 +33,7 @@ interface AuthGateProps {
 }
 
 export function AuthGate({
+  uiLanguage,
   t,
   mode,
   loading,
@@ -51,6 +53,46 @@ export function AuthGate({
   const [resetMode, setResetMode] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const copy = {
+    English: {
+      resetTitle: 'Reset password',
+      resetDescription: 'Choose a new password for your account.',
+      resetEmail: 'Enter your email to reset the password.',
+      resetPasswordShort: 'Your new password must be at least 8 characters long.',
+      resetFailed: 'We could not reset your password.',
+      resetSuccess: 'Password updated. You can sign in now.',
+      resetButton: 'Reset password',
+      forgot: 'Forgot your password?',
+      noAccount: 'No account yet? Switch to "Create account".',
+      hasAccount: 'Already have an account? Switch to "Sign in".',
+      newPassword: 'New password',
+    },
+    Spanish: {
+      resetTitle: 'Restablecer contraseña',
+      resetDescription: 'Elige una nueva contraseña para tu cuenta.',
+      resetEmail: 'Introduce tu correo para restablecer la contraseña.',
+      resetPasswordShort: 'La nueva contraseña debe tener al menos 8 caracteres.',
+      resetFailed: 'No se pudo restablecer la contraseña.',
+      resetSuccess: 'Contraseña actualizada. Ya puedes iniciar sesión.',
+      resetButton: 'Restablecer contraseña',
+      forgot: '¿Olvidaste tu contraseña?',
+      noAccount: '¿Aún no tienes cuenta? Cambia a "Crear cuenta".',
+      hasAccount: '¿Ya tienes cuenta? Cambia a "Iniciar sesión".',
+      newPassword: 'Nueva contraseña',
+    },
+  }[uiLanguage] || {
+    resetTitle: 'Reset password',
+    resetDescription: 'Choose a new password for your account.',
+    resetEmail: 'Enter your email to reset the password.',
+    resetPasswordShort: 'Your new password must be at least 8 characters long.',
+    resetFailed: 'We could not reset your password.',
+    resetSuccess: 'Password updated. You can sign in now.',
+    resetButton: 'Reset password',
+    forgot: 'Forgot your password?',
+    noAccount: 'No account yet? Switch to "Create account".',
+    hasAccount: 'Already have an account? Switch to "Sign in".',
+    newPassword: 'New password',
+  };
 
   const handleForgotPassword = async () => {
     if (!resetMode) {
@@ -59,11 +101,11 @@ export function AuthGate({
       return;
     }
     if (!email) {
-      setResetMessage('Enter your email to reset the password.');
+      setResetMessage(copy.resetEmail);
       return;
     }
     if (!password || password.length < 8) {
-      setResetMessage('Your new password must be at least 8 characters long.');
+      setResetMessage(copy.resetPasswordShort);
       return;
     }
     try {
@@ -76,13 +118,13 @@ export function AuthGate({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.error || 'We could not reset your password.');
+        throw new Error(data.error || copy.resetFailed);
       }
-      setResetMessage('Password updated. You can sign in now.');
+      setResetMessage(copy.resetSuccess);
       onModeChange('login');
       onPasswordChange('');
     } catch (err: any) {
-      setResetMessage(err?.message || 'We could not reset your password.');
+      setResetMessage(err?.message || copy.resetFailed);
     } finally {
       setResetLoading(false);
     }
@@ -103,13 +145,13 @@ export function AuthGate({
             <div className="space-y-1">
               <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
                 {resetMode
-                  ? 'Reset password'
+                  ? copy.resetTitle
                   : (t.authTitle || 'Sign in to AntiClickBaitLinks')}
               </h1>
               {(resetMode || t.authDescription) && (
                 <p className="text-sm text-zinc-500">
                   {resetMode
-                    ? 'Choose a new password for your account.'
+                    ? copy.resetDescription
                     : t.authDescription}
                 </p>
               )}
@@ -169,7 +211,7 @@ export function AuthGate({
             onChange={(event) => onPasswordChange(event.target.value)}
             placeholder={
               resetMode
-                ? 'New password'
+                ? copy.newPassword
                 : (t.authPasswordPlaceholder || 'Password')
             }
             className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-400"
@@ -203,7 +245,7 @@ export function AuthGate({
               className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700 disabled:opacity-60"
             >
               {resetLoading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-              Reset password
+              {copy.resetButton}
             </button>
           )}
         </div>
@@ -226,13 +268,13 @@ export function AuthGate({
             onClick={handleForgotPassword}
             className="text-emerald-600 font-semibold hover:text-emerald-700"
           >
-            Forgot your password?
+            {copy.forgot}
           </button>
           {!resetMode && (
             <span>
               {mode === 'login'
-                ? 'No account yet? Switch to "Create account".'
-                : 'Already have an account? Switch to "Sign in".'}
+                ? copy.noAccount
+                : copy.hasAccount}
             </span>
           )}
         </div>

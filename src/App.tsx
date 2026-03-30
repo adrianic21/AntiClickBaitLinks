@@ -96,6 +96,7 @@ export default function App() {
               className="fixed top-1/2 left-1/2 z-[71] w-[90%] max-w-md -translate-x-1/2 -translate-y-1/2"
             >
               <AuthGate
+                uiLanguage={uiLanguage}
                 t={t}
                 mode={authMode}
                 loading={isAuthLoading}
@@ -156,6 +157,7 @@ export default function App() {
 
       {currentUser && (
         <ProfilePanel
+          uiLanguage={uiLanguage}
           t={t}
           show={showProfile}
           onClose={() => openPopup('')}
@@ -197,8 +199,8 @@ export default function App() {
             >
               <div className="text-center space-y-1">
                 <div className="text-3xl mb-2">🌍</div>
-                <h3 className="font-bold text-zinc-900 text-lg">Choose your language</h3>
-                <p className="text-xs text-zinc-500">Selecciona tu idioma / Choose your language</p>
+                <h3 className="font-bold text-zinc-900 text-lg">{uiLanguage === 'Spanish' ? 'Elige tu idioma' : 'Choose your language'}</h3>
+                <p className="text-xs text-zinc-500">{uiLanguage === 'Spanish' ? 'Selecciona el idioma de la app' : 'Select the app language'}</p>
               </div>
               <div className="space-y-1">
                 {LANGUAGES.map(lang => (

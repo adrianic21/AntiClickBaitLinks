@@ -34,7 +34,7 @@ export default function App() {
     saveApiKey, changeUiLanguage,
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
-    preferredLength, setPreferredLength, setSummaryLanguage, setDeepResearchMode,
+    preferredLength, setPreferredLength, setSummaryLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleShare,
     updateDisplayName,
@@ -51,9 +51,13 @@ export default function App() {
     e.target.value = '';
   };
 
-  // FIX: Construir la URL que se pasa a ResultCard correctamente cuando hay un PDF.
-  // Sin esto, ResultCard recibe url="" y no puede mostrar ni el nombre del archivo.
   const resultCardUrl = pdfFile ? `pdf:${pdfFile.name}` : url;
+
+  // FIX: Navigate to home when logo is clicked
+  const handleLogoClick = () => {
+    handleClear();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   if (isAuthLoading && !currentUser) {
     return (
@@ -64,7 +68,6 @@ export default function App() {
   }
 
   return (
-    // FIX: Eliminado sm:p-6 duplicado (era sobreescrito inmediatamente por sm:p-12)
     <div className="min-h-screen flex flex-col items-center justify-start pt-32 sm:pt-36 p-6 sm:p-12">
 
       {/* Background */}
@@ -113,11 +116,11 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Top bar + all its popups (status, lang, settings) */}
+      {/* Top bar */}
       <TopBar
         t={t}
         isPremium={isPremium}
-        remainingSearches={remainingSearches}
+        remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
         showInfo={showInfo}
         showLangMenu={showLangMenu}
         showProfile={showProfile}
@@ -167,7 +170,9 @@ export default function App() {
           onLogout={logout}
           appInsights={appInsights}
           onUpdateName={updateDisplayName}
-          remainingSearches={remainingSearches}
+          remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+          nextResetTime={nextResetTime}
+          timeLeft={timeLeft}
           unlockPass={unlockPass}
           lockError={lockError}
           deviceMismatchError={deviceMismatchError}
@@ -209,7 +214,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Info / onboarding panel */}
+      {/* Info panel */}
       <InfoPanel
         t={t}
         uiLanguage={uiLanguage}
@@ -233,6 +238,7 @@ export default function App() {
         t={t}
         show={showLockModal}
         timeLeft={timeLeft}
+        nextResetTime={nextResetTime}
         unlockPass={unlockPass}
         lockError={lockError}
         deviceMismatchError={deviceMismatchError}
@@ -248,14 +254,19 @@ export default function App() {
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-2xl space-y-6 sm:space-y-8"
       >
-        {/* Logo + title */}
+        {/* FIX: Logo + title — clicking logo goes to home */}
         <div className="text-center space-y-2 sm:space-y-4">
-          <div className={cn(
-            "inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-200 transition-all duration-500",
-            isLoading && "animate-pulse scale-110 shadow-emerald-400"
-          )}>
+          <button
+            type="button"
+            onClick={handleLogoClick}
+            className={cn(
+              "inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-200 transition-all duration-500 cursor-pointer hover:bg-emerald-700 hover:scale-105",
+              isLoading && "animate-pulse scale-110 shadow-emerald-400"
+            )}
+            title="Ir a inicio"
+          >
             <ShieldCheck size={32} />
-          </div>
+          </button>
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-zinc-900">{t.title}</h1>
         </div>
 
@@ -305,7 +316,7 @@ export default function App() {
             </div>
           </form>
 
-          {/* PDF upload button + Summarize when PDF ready */}
+          {/* PDF upload button + Summarize */}
           {!isLoading && (
             <div className="flex items-center gap-2 px-2 pb-1 pt-0.5 border-t border-zinc-100/60 mt-1">
               <input
@@ -378,22 +389,9 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center justify-center">
-          <button
-            type="button"
-            onClick={() => setDeepResearchMode(!deepResearchEnabled)}
-            className={cn(
-              "px-4 py-2 rounded-2xl text-sm font-bold transition-all border",
-              deepResearchEnabled
-                ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
-                : "bg-white/80 text-zinc-600 border-zinc-200 hover:bg-zinc-50"
-            )}
-          >
-            {deepResearchEnabled ? (t.deepResearchOn || 'Investigacion profunda activada') : (t.deepResearchOff || 'Activar investigacion profunda')}
-          </button>
-        </div>
+        {/* FIX: Deep research button REMOVED */}
 
-        {/* Results + API key status */}
+        {/* Results */}
         <ResultCard
           t={t}
           summary={summary}

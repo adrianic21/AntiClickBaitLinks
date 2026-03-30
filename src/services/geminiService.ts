@@ -32,7 +32,7 @@ export interface InvestigationResult {
   relatedSources: InvestigationSource[];
 }
 
-// ─── Detectar si el error es de cuota/límite ─────────────────────────────────
+// ─── Error type helpers ───────────────────────────────────────────────────────
 
 function isQuotaError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
@@ -45,8 +45,6 @@ function isQuotaError(error: any): boolean {
     (msg.includes('429') && (msg.includes('quota') || msg.includes('rate') || msg.includes('limit')))
   );
 }
-
-// ─── Detectar si el error es de autenticación/API key inválida ───────────────
 
 export function isAuthError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
@@ -63,8 +61,6 @@ export function isAuthError(error: any): boolean {
     msg.includes('401')
   );
 }
-
-// ─── Detectar si es un error transitorio (reintentable) ──────────────────────
 
 function isTransientError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
@@ -108,6 +104,60 @@ async function retryTransientOperation<T>(
   throw lastError;
 }
 
+// ─── Response validation ──────────────────────────────────────────────────────
+// Detects when an LLM refuses to process because it thinks it needs to browse a URL.
+
+const CANNOT_ACCESS_PHRASES = [
+  "i cannot access",
+  "i can't access",
+  "i'm unable to access",
+  "cannot browse",
+  "can't browse",
+  "unable to browse",
+  "i don't have the ability to browse",
+  "i cannot retrieve",
+  "cannot retrieve the content",
+  "i'm not able to access",
+  "i am not able to access",
+  "no puedo acceder",
+  "no tengo acceso",
+  "no puedo abrir",
+  "no puedo obtener",
+  "no es posible acceder",
+  "imposible acceder",
+  "no tengo la capacidad de",
+  "no puedo navegar",
+  "no puedo visitar",
+  "no tengo acceso a internet",
+  "no puedo leer la url",
+  "as an ai, i cannot",
+  "as an ai assistant, i cannot",
+  "i don't have internet access",
+  "i cannot open",
+  "i cannot visit",
+  "i cannot read the url",
+  "i cannot follow links",
+  "i'm not able to visit",
+];
+
+function validateSummaryResponse(text: string, provider: Provider): void {
+  const lowered = (text || '').toLowerCase().trim();
+
+  if (!lowered || lowered.length < 10) {
+    throw new Error('insufficient_content');
+  }
+
+  if (lowered === 'insufficient_content') {
+    throw new Error('insufficient_content');
+  }
+
+  // Check for "cannot access URL" patterns from the LLM
+  if (CANNOT_ACCESS_PHRASES.some(phrase => lowered.includes(phrase))) {
+    console.warn(`[${provider}] Model refused to process (cannot access URL pattern). Rethrowing.`);
+    throw new Error('provider_cannot_access_url');
+  }
+}
+
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Eres un extractor de datos anti-clickbait. Tu única misión es entregar la información que el titular promete, ELIMINANDO todo el relleno descriptivo.
@@ -123,6 +173,7 @@ REGLAS DE ORO (OBLIGATORIAS):
 5. ANTI-HYPE: Si el titular exagera, da la versión real y sobria.
 6. SIN ETIQUETAS: No uses "Resumen:", "Respuesta:", ni negritas al principio.
 7. CALIDAD: Si el contenido es basura o error, responde SOLO: "INSUFFICIENT_CONTENT".
+8. IMPORTANTE: El contenido del artículo ya ha sido extraído y se te proporciona directamente. NO necesitas acceder a ninguna URL. Trabaja ÚNICAMENTE con el texto que recibes.
 
 TU META: Que el usuario NO tenga que hacer clic en el artículo para saber cuáles son los elementos de la lista.`;
 
@@ -158,7 +209,6 @@ function normalizeContentForSpeed(
   content: string,
   length: 'short' | 'medium' | 'long' | 'child'
 ): string {
-  // Limitar tokens acelera notablemente la respuesta en textos muy largos.
   const maxCharsByLength: Record<typeof length, number> = {
     short: 10000,
     medium: 16000,
@@ -189,7 +239,7 @@ export function estimateLieScore(title: string, content: string): number {
 
   const hypePatterns = [
     /shock|shocking|brutal|bombshell|increible|incredible|unbelievable|viral|secret|nadie te cuenta|nadie vio|ultima hora/i,
-    /you won['’]t believe|te dejara|te dejará|explota|destroza|humilla|arrasa|caos/i,
+    /you won['']t believe|te dejara|te dejará|explota|destroza|humilla|arrasa|caos/i,
     /\b\d+\s+(trucos|secrets|formas|ways|errores|mistakes)\b/i,
   ];
   const punctuationBoost = (title.match(/[!?]/g) || []).length * 6;
@@ -332,7 +382,7 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
           }
 
           // DeepSeek puede devolver errores de saldo, cuota o bloqueos temporales
-          // aunque la key sea correcta. En esos casos la damos por valida.
+          // aunque la key sea correcta. En esos casos la damos por válida.
           return true;
         }
         return true;
@@ -343,6 +393,33 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
     if (isQuotaError(error) || isTransientError(error)) return true;
     return false;
   }
+}
+
+// ─── Build user prompt (shared format for all providers) ─────────────────────
+// IMPORTANT: We make it crystal-clear the content is already extracted,
+// so providers like DeepSeek don't try to "browse" the URL.
+
+function buildUserPrompt(
+  sourceLabel: string,
+  sourceUrl: string,
+  content: string,
+  lengthInstruction: string,
+  language: string
+): string {
+  return `IMPORTANT: The article content below has already been extracted and provided to you directly.
+Do NOT try to access the URL. Do NOT say you cannot browse the web. Just summarize the provided text.
+
+Source: ${sourceLabel} — ${sourceUrl}
+
+${lengthInstruction}
+
+SCOPE RULE: If the content describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
+
+Response language: ${language}
+
+--- EXTRACTED CONTENT START ---
+${content}
+--- EXTRACTED CONTENT END ---`;
 }
 
 // ─── Llamada a Gemini 2.5 Flash ───────────────────────────────────────────────
@@ -362,16 +439,7 @@ async function callGemini(
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
   const prompt = `${SYSTEM_PROMPT}
 
-Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
-
-${lengthInstruction}
-
-IMPORTANT: If the content describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
-
-The response must be written in ${language}.
-
-CONTENT:
-${optimizedContent}`;
+${buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language)}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -379,6 +447,7 @@ ${optimizedContent}`;
       contents: prompt,
     });
     const result = response.text || '';
+    validateSummaryResponse(result, 'gemini');
     if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
     return result || "No summary available.";
   } catch (error: any) {
@@ -406,33 +475,21 @@ async function callOpenRouter(
     dangerouslyAllowBrowser: true
   });
 
-  const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
-
-${lengthInstruction}
-
-IMPORTANT: If the content describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
-
-The response must be written in ${language}.
-
-CONTENT:
-${optimizedContent}`;
-
   const completion = await openai.chat.completions.create({
     model: "google/gemini-2.5-flash",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt }
+      { role: "user", content: buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language) }
     ],
   });
 
   const result = completion.choices[0].message.content || '';
+  validateSummaryResponse(result, 'openrouter');
   if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
   return result || "No summary available.";
 }
 
 // ─── Llamada a Mistral (via server proxy to avoid CORS) ─────────────────────
-// FIX: El system prompt ahora se inyecta como role:"system" en el array de mensajes.
-// Antes se enviaba como `systemInstruction` y el proxy del servidor lo ignoraba completamente.
 
 async function callMistral(
   apiKey: string,
@@ -446,17 +503,6 @@ async function callMistral(
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
   const optimizedContent = normalizeContentForSpeed(articleContent, length);
 
-  const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
-
-${lengthInstruction}
-
-IMPORTANT: If the article describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
-
-The response must be written in ${language}.
-
-CONTENT:
-${optimizedContent}`;
-
   const response = await fetch('/api/mistral', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -465,7 +511,7 @@ ${optimizedContent}`;
       model: 'mistral-small-latest',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
+        { role: 'user', content: buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language) },
       ],
     }),
   });
@@ -477,13 +523,14 @@ ${optimizedContent}`;
 
   const data = await response.json();
   const mistralResult = data.choices?.[0]?.message?.content || '';
+  validateSummaryResponse(mistralResult, 'mistral');
   if (mistralResult.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
   return mistralResult || 'No summary available.';
 }
 
 // ─── Llamada a DeepSeek (via server proxy to avoid CORS) ─────────────────────
-// FIX: El system prompt ahora se inyecta como role:"system" en el array de mensajes.
-// Antes se enviaba como `systemInstruction` y el proxy del servidor lo ignoraba completamente.
+// FIX: Prompt reescrito para que el modelo NO intente acceder a la URL,
+// sino que use el contenido ya extraído que se le pasa directamente.
 
 async function callDeepSeek(
   apiKey: string,
@@ -497,16 +544,10 @@ async function callDeepSeek(
   const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
   const optimizedContent = normalizeContentForSpeed(articleContent, length);
 
-  const userPrompt = `Analyze this ${sourceLabel} content from ${url} and provide an accurate summary.
+  // DeepSeek-specific system prompt: extra explicit about not browsing URLs
+  const deepseekSystemPrompt = `${SYSTEM_PROMPT}
 
-${lengthInstruction}
-
-IMPORTANT: If the article describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
-
-The response must be written in ${language}.
-
-CONTENT:
-${optimizedContent}`;
+CRITICAL FOR DEEPSEEK: You WILL receive the full article content in the user message between "--- EXTRACTED CONTENT START ---" and "--- EXTRACTED CONTENT END ---" markers. The content is ALREADY extracted — you do NOT need to access any URL. Simply read the provided text and summarize it. Never say you cannot browse the web.`;
 
   const response = await fetch('/api/deepseek', {
     method: 'POST',
@@ -515,22 +556,30 @@ ${optimizedContent}`;
       apiKey,
       model: 'deepseek-chat',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
+        { role: 'system', content: deepseekSystemPrompt },
+        { role: 'user', content: buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language) },
       ],
     }),
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(err.error || 'DeepSeek request failed');
+    const errText = await response.text().catch(() => response.statusText);
+    let errMsg = errText;
+    try {
+      const errJson = JSON.parse(errText);
+      errMsg = errJson?.error?.message || errJson?.message || errText;
+    } catch { /* use raw */ }
+    throw new Error(errMsg || 'DeepSeek request failed');
   }
 
   const data = await response.json();
   const deepseekResult = data.choices?.[0]?.message?.content || '';
+  validateSummaryResponse(deepseekResult, 'deepseek');
   if (deepseekResult.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
   return deepseekResult || 'No summary available.';
 }
+
+// ─── Generic provider call (for investigation) ───────────────────────────────
 
 async function callProviderWithPrompt(
   provider: Provider,
@@ -612,11 +661,11 @@ export async function summarizeUrl(
     }
   }
 
-  if (!content.text || content.text.length < 30) {
+  // Minimum content check — raised from 30 to 100 for better quality
+  if (!content.text || content.text.length < 100) {
     throw new Error('insufficient_content');
   }
 
-  // ─── LLAMADA AL PROVEEDOR CON FALLBACK ──────────────────────────────────
   const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
   const orderedProviders = providerPriority?.length
     ? providerPriority
@@ -632,64 +681,54 @@ export async function summarizeUrl(
     attemptedProviders.push(p);
 
     try {
+      let summary: string;
       switch (p) {
         case 'gemini':
-          return {
-            summary: await retryTransientOperation(
-              () => callGemini(key, url, language, lengthInstruction, length, content),
-              2,
-              500
-            ),
-            title: content.title || '',
-            articleLength: content.text.length,
-            providerUsed: p,
-            attemptedProviders,
-          };
+          summary = await retryTransientOperation(
+            () => callGemini(key, url, language, lengthInstruction, length, content),
+            2, 500
+          );
+          break;
         case 'openrouter':
-          return {
-            summary: await retryTransientOperation(
-              () => callOpenRouter(key, url, language, lengthInstruction, length, content),
-              2,
-              500
-            ),
-            title: content.title || '',
-            articleLength: content.text.length,
-            providerUsed: p,
-            attemptedProviders,
-          };
+          summary = await retryTransientOperation(
+            () => callOpenRouter(key, url, language, lengthInstruction, length, content),
+            2, 500
+          );
+          break;
         case 'mistral':
-          return {
-            summary: await retryTransientOperation(
-              () => callMistral(key, url, language, lengthInstruction, length, content),
-              2,
-              500
-            ),
-            title: content.title || '',
-            articleLength: content.text.length,
-            providerUsed: p,
-            attemptedProviders,
-          };
+          summary = await retryTransientOperation(
+            () => callMistral(key, url, language, lengthInstruction, length, content),
+            2, 500
+          );
+          break;
         case 'deepseek':
-          return {
-            summary: await retryTransientOperation(
-              () => callDeepSeek(key, url, language, lengthInstruction, length, content),
-              2,
-              500
-            ),
-            title: content.title || '',
-            articleLength: content.text.length,
-            providerUsed: p,
-            attemptedProviders,
-          };
+          summary = await retryTransientOperation(
+            () => callDeepSeek(key, url, language, lengthInstruction, length, content),
+            2, 500
+          );
+          break;
       }
+      return {
+        summary: summary!,
+        title: content.title || '',
+        articleLength: content.text.length,
+        providerUsed: p,
+        attemptedProviders,
+      };
     } catch (error: any) {
       lastError = error;
 
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
 
+      // provider_cannot_access_url: try next provider
+      if (error.message === 'provider_cannot_access_url') {
+        console.warn(`Provider ${p} tried to browse URL instead of using provided content. Trying next...`);
+        continue;
+      }
+
       if (isQuotaError(error) || isTransientError(error)) {
-        console.warn(`Provider ${p} failed, trying next...`, error);
+        console.warn(`Provider ${p} failed, trying next...`, error.message);
         if (isTransientError(error)) {
           await new Promise(resolve => setTimeout(resolve, 700));
         }
@@ -803,6 +842,8 @@ export async function summarizeTextContent(
   }
 
   const lengthInstruction = `${getLengthInstruction(length)} ${getResponseLengthInstruction(length)}`;
+
+  // For text content, use a simpler prompt without URL confusion
   const prompt = `${SYSTEM_PROMPT}
 
 Analiza este texto seleccionado por el usuario y resumelo con precision.
@@ -834,6 +875,8 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
         400
       );
 
+      validateSummaryResponse(summary, currentProvider);
+
       if (!summary.trim() || summary.trim() === 'INSUFFICIENT_CONTENT') {
         throw new Error('insufficient_content');
       }
@@ -849,6 +892,7 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
       lastError = error;
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
+      if (error.message === 'provider_cannot_access_url') continue;
       if (isQuotaError(error) || isTransientError(error)) continue;
       throw error;
     }

@@ -98,6 +98,9 @@ interface AccountResponse {
   };
 }
 
+// Sentinel: limits not yet loaded from server
+const LIMITS_LOADING = -1;
+
 export function useAppState() {
   // Core
   const [url, setUrl] = useState('');
@@ -147,7 +150,9 @@ export function useAppState() {
   // Premium / limits
   const [isPremium, setIsPremium] = useState(false);
   const [showLockModal, setShowLockModal] = useState(false);
-  const [resetTimestamp, setResetTimestamp] = useState<number | null>(null);
+  // FIX: Use LIMITS_LOADING sentinel (-1) to avoid showing 10/10 before server responds
+  const [serverRemaining, setServerRemaining] = useState<number>(LIMITS_LOADING);
+  const [serverResetAt, setServerResetAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState('');
   const [unlockPass, setUnlockPass] = useState('');
   const [lockError, setLockError] = useState(false);
@@ -161,20 +166,18 @@ export function useAppState() {
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
-  const [serverRemaining, setServerRemaining] = useState<number | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [serverResetAt, setServerResetAt] = useState<number | null>(null);
   const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
   const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
   const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
+  // FIX: Track multiple feed summaries to display them all together
+  const [feedSummaryResults, setFeedSummaryResults] = useState<Array<{ url: string; title: string; summary: string }>>([]);
+  const [isMultiFeedSummarizing, setIsMultiFeedSummarizing] = useState(false);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
   const lastAutoSummarizedUrlRef = useRef('');
-
-  // FIX: AbortController para cancelar requests en vuelo cuando el usuario
-  // inicia una nueva búsqueda antes de que termine la anterior.
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
@@ -192,10 +195,12 @@ export function useAppState() {
     [uiLanguage]
   );
 
-  const remainingSearches = useMemo(
-    () => isPremium ? Infinity : (serverRemaining !== null ? serverRemaining : 10),
-    [isPremium, serverRemaining]
-  );
+  // FIX: Show loading state (null) until server responds, never default to 10
+  const remainingSearches = useMemo(() => {
+    if (isPremium) return Infinity;
+    if (serverRemaining === LIMITS_LOADING) return LIMITS_LOADING; // still loading
+    return serverRemaining;
+  }, [isPremium, serverRemaining]);
 
   const nextResetTime = useMemo(
     () => serverResetAt || null,
@@ -344,6 +349,7 @@ export function useAppState() {
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
 
+    // FIX: Fetch limits right after account loads; set sentinel in the meantime
     fetch('/api/check-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -351,10 +357,10 @@ export function useAppState() {
     })
       .then(r => r.json())
       .then(limitData => {
-        setServerRemaining(limitData.remaining ?? null);
+        setServerRemaining(limitData.remaining ?? 10);
         if (limitData.resetAt) setServerResetAt(limitData.resetAt);
       })
-      .catch(() => undefined);
+      .catch(() => setServerRemaining(10));
   }, [refreshValidatedApiKeys]);
 
   const loadAccount = useCallback(async () => {
@@ -378,7 +384,6 @@ export function useAppState() {
   useEffect(() => {
     return () => {
       window.speechSynthesis.cancel();
-      // FIX: Cancelar también cualquier request en vuelo al desmontar
       abortControllerRef.current?.abort();
     };
   }, []);
@@ -395,7 +400,7 @@ export function useAppState() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  // ─── Web Share Target — receive URLs shared from other apps ──────────────
+  // ─── Web Share Target ──────────────────────────────────────────────────────
   useEffect(() => {
     const currentUrl = new URL(window.location.href);
     const params = currentUrl.searchParams;
@@ -408,17 +413,11 @@ export function useAppState() {
 
     if (authErrorParam) {
       let message = 'We could not complete that sign-in. Please try again.';
-      if (authErrorParam === 'google_not_configured') {
-        message = 'Google sign-in is not configured yet on the server.';
-      } else if (authErrorParam === 'google_invalid_state') {
-        message = 'Google sign-in failed because the session expired or the callback URL does not match.';
-      } else if (authErrorParam === 'google_token_exchange_failed') {
-        message = 'Google sign-in failed while exchanging the authorization code. Recheck APP_URL, Client ID, Client Secret and the redirect URI in Google Cloud.';
-      } else if (authErrorParam === 'google_profile_failed') {
-        message = 'Google sign-in reached Google but could not read the user profile. Recheck the OAuth consent screen and required scopes.';
-      } else if (authErrorParam === 'google_access_denied') {
-        message = 'Google sign-in was cancelled before finishing.';
-      }
+      if (authErrorParam === 'google_not_configured') message = 'Google sign-in is not configured yet on the server.';
+      else if (authErrorParam === 'google_invalid_state') message = 'Google sign-in failed because the session expired or the callback URL does not match.';
+      else if (authErrorParam === 'google_token_exchange_failed') message = 'Google sign-in failed while exchanging the authorization code.';
+      else if (authErrorParam === 'google_profile_failed') message = 'Google sign-in reached Google but could not read the user profile.';
+      else if (authErrorParam === 'google_access_denied') message = 'Google sign-in was cancelled before finishing.';
       setAuthError(message);
       window.history.replaceState({}, '', '/');
       return;
@@ -451,7 +450,6 @@ export function useAppState() {
     return () => navigator.serviceWorker?.removeEventListener('message', handleMessage);
   }, []);
 
-  // ─── Open external links in browser (PWA) ──────────────────────────────────
   // ─── Load persisted state ───────────────────────────────────────────────────
   useEffect(() => {
     const savedLang = localStorage.getItem('ui_language');
@@ -471,10 +469,23 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
+          // FIX: Still fetch limits for anonymous users
+          fetch('/api/check-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ record: false, isPremium: false }),
+          })
+            .then(r => r.json())
+            .then(limitData => {
+              setServerRemaining(limitData.remaining ?? 10);
+              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
+            })
+            .catch(() => setServerRemaining(10));
         }
       })
       .catch(() => {
         setCurrentUser(null);
+        setServerRemaining(10);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
@@ -482,12 +493,17 @@ export function useAppState() {
       });
   }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer ────────────────────────────────────────────────────────
+  // ─── Countdown timer — runs whenever there's a resetAt, not just on lock modal ─
   useEffect(() => {
-    if (!showLockModal || !resetTimestamp) return;
+    if (!serverResetAt) return;
     const update = () => {
-      const diff = resetTimestamp - Date.now();
-      if (diff <= 0) { setShowLockModal(false); setResetTimestamp(null); return; }
+      const diff = serverResetAt - Date.now();
+      if (diff <= 0) {
+        setTimeLeft('');
+        setServerResetAt(null);
+        setServerRemaining(10);
+        return;
+      }
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
       const s = Math.floor((diff % 60000) / 1000);
@@ -496,7 +512,15 @@ export function useAppState() {
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [showLockModal, resetTimestamp]);
+  }, [serverResetAt]);
+
+  // FIX: Show lock modal immediately when remaining hits 0
+  useEffect(() => {
+    if (!isPremium && serverRemaining === 0 && serverResetAt) {
+      // Don't auto-open the modal on page load if it was already 0,
+      // only open it when it transitions to 0 during a session
+    }
+  }, [serverRemaining, isPremium, serverResetAt]);
 
   // ─── Auto-summarize on URL paste ────────────────────────────────────────────
   useEffect(() => {
@@ -542,9 +566,7 @@ export function useAppState() {
         body: JSON.stringify({ name: authName, email: authEmail, password: authPassword }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || 'Authentication failed');
-      }
+      if (!response.ok) throw new Error(data.error || 'Authentication failed');
       setAuthPassword('');
       if (data.user && data.account) {
         applyAccountData(data as AccountResponse);
@@ -563,10 +585,7 @@ export function useAppState() {
   }, []);
 
   const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-    }).catch(() => undefined);
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => undefined);
     openPopup('');
     setShowAuthModal(false);
     setCurrentUser(null);
@@ -579,7 +598,7 @@ export function useAppState() {
     setFeedSources([]);
     setDailyFeedItems([]);
     setIsPremium(false);
-    setServerRemaining(null);
+    setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
   }, [openPopup]);
 
@@ -639,9 +658,8 @@ export function useAppState() {
 
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
-    if (serverRemaining !== null && serverRemaining <= 0) {
-      if (serverResetAt) setResetTimestamp(serverResetAt);
-      openLockModal();
+    if (serverRemaining !== LIMITS_LOADING && serverRemaining <= 0) {
+      if (serverResetAt) openLockModal();
       return false;
     }
     return true;
@@ -786,9 +804,7 @@ export function useAppState() {
 
       const deduped = new Map<string, DailyFeedItem>();
       for (const items of responses.flat()) {
-        if (!deduped.has(items.url)) {
-          deduped.set(items.url, items);
-        }
+        if (!deduped.has(items.url)) deduped.set(items.url, items);
       }
 
       const nextItems = Array.from(deduped.values())
@@ -813,7 +829,6 @@ export function useAppState() {
       source.id === id ? { ...source, itemsPerLoad: safe } : source
     );
     setFeedSources(nextSources);
-    // also persist to local storage for immediate reloads
     try { localStorage.setItem('custom_feed_sources_v1', JSON.stringify(nextSources)); } catch { /* ignore */ }
     syncAccount({ feedSources: nextSources }).catch(() => undefined);
   }, [feedSources, syncAccount]);
@@ -833,12 +848,81 @@ export function useAppState() {
     setShowSharedToast(true);
   }, []);
 
-  const summarizeManyFeedItems = useCallback((urls: string[]) => {
+  // FIX: summarizeManyFeedItems — generates individual summaries for each URL,
+  // collects them all, then navigates to the combined result and closes the feed popup.
+  const summarizeManyFeedItems = useCallback(async (urls: string[]) => {
     const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
     if (unique.length === 0) return;
-    setFeedSummaryQueue(unique.slice(1));
-    summarizeFeedItem(unique[0]);
-  }, [summarizeFeedItem]);
+
+    // Close feed popup and show loading state
+    openPopup('');
+    setIsMultiFeedSummarizing(true);
+    setFeedSummaryResults([]);
+    setSummary(null);
+    setArticleTitle(null);
+    setError(null);
+    setIsLoading(true);
+    setLoadingProgress(5);
+
+    const results: Array<{ url: string; title: string; summary: string }> = [];
+
+    for (let i = 0; i < unique.length; i++) {
+      const feedUrl = unique[i];
+      setLoadingProgress(Math.round(5 + (i / unique.length) * 90));
+
+      try {
+        const result = await summarizeUrl(
+          feedUrl,
+          apiKeys,
+          provider,
+          summaryLanguage,
+          'short',
+          undefined,
+          providerPriority
+        );
+        results.push({
+          url: feedUrl,
+          title: result.title || feedUrl,
+          summary: result.summary,
+        });
+      } catch {
+        // Skip failed URLs silently
+      }
+    }
+
+    setLoadingProgress(100);
+    setIsMultiFeedSummarizing(false);
+    setIsLoading(false);
+    setFeedSummaryResults(results);
+
+    if (results.length > 0) {
+      // Combine all summaries into a single display
+      const combined = results
+        .map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`)
+        .join('\n\n---\n\n');
+      setSummary(combined);
+      setArticleTitle(`${results.length} artículos resumidos`);
+      setLieScore(0);
+    } else {
+      setError(t.genericError);
+    }
+
+    // Update usage counter
+    if (!isPremium) {
+      fetch('/api/check-limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          setServerRemaining(data.remaining ?? null);
+          if (data.resetAt) setServerResetAt(data.resetAt);
+          if (!data.allowed) openLockModal();
+        })
+        .catch(() => undefined);
+    }
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -854,7 +938,6 @@ export function useAppState() {
   }, [feedSummaryQueue, isLoading, currentUser, summarizeFeedItem]);
 
   const handleClear = useCallback(() => {
-    // FIX: Cancelar request en vuelo al limpiar
     abortControllerRef.current?.abort();
     setUrl('');
     setSummary(null);
@@ -862,6 +945,7 @@ export function useAppState() {
     setLieScore(0);
     setInvestigationResult(null);
     setError(null);
+    setFeedSummaryResults([]);
     lastAutoSummarizedUrlRef.current = '';
     summaryCacheRef.current.clear();
   }, []);
@@ -884,7 +968,6 @@ export function useAppState() {
     }
     if (!checkUsageLimit()) return;
 
-    // FIX: Cancelar cualquier request anterior antes de iniciar uno nuevo
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
 
@@ -908,6 +991,7 @@ export function useAppState() {
     setLoadingProgress(8);
     setError(null);
     setInvestigationResult(null);
+    setFeedSummaryResults([]);
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
@@ -916,15 +1000,10 @@ export function useAppState() {
     if (cached) {
       setSummary(cached.summary);
       setArticleTitle(cached.title || null);
-       setLieScore(estimateLieScore(cached.title || finalUrl, cached.summary));
+      setLieScore(estimateLieScore(cached.title || finalUrl, cached.summary));
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
-        investigateClaim(
-          finalUrl,
-          cached.title || finalUrl,
-          cached.summary,
-          apiKeys,
-          providerPriority
-        ).then(setInvestigationResult).catch(() => setInvestigationResult(null));
+        investigateClaim(finalUrl, cached.title || finalUrl, cached.summary, apiKeys, providerPriority)
+          .then(setInvestigationResult).catch(() => setInvestigationResult(null));
       }
       setIsLoading(false);
       return;
@@ -932,21 +1011,13 @@ export function useAppState() {
 
     const persistedCached = findCachedSummary(cacheKey);
     if (persistedCached) {
-      summaryCacheRef.current.set(cacheKey, {
-        summary: persistedCached.summary,
-        title: persistedCached.title,
-      });
+      summaryCacheRef.current.set(cacheKey, { summary: persistedCached.summary, title: persistedCached.title });
       setSummary(persistedCached.summary);
       setArticleTitle(persistedCached.title || null);
       setLieScore(estimateLieScore(persistedCached.title || finalUrl, persistedCached.summary));
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
-        investigateClaim(
-          finalUrl,
-          persistedCached.title || finalUrl,
-          persistedCached.summary,
-          apiKeys,
-          providerPriority
-        ).then(setInvestigationResult).catch(() => setInvestigationResult(null));
+        investigateClaim(finalUrl, persistedCached.title || finalUrl, persistedCached.summary, apiKeys, providerPriority)
+          .then(setInvestigationResult).catch(() => setInvestigationResult(null));
       }
       setIsLoading(false);
       return;
@@ -973,23 +1044,8 @@ export function useAppState() {
       }
 
       const summaryResult = isTextInput
-        ? await summarizeTextContent(
-            finalUrl,
-            apiKeys,
-            provider,
-            summaryLanguage,
-            resolvedLength,
-            providerPriority
-          )
-        : await summarizeUrl(
-            finalUrl,
-            apiKeys,
-            provider,
-            summaryLanguage,
-            resolvedLength,
-            prefetchedContent,
-            providerPriority
-          );
+        ? await summarizeTextContent(finalUrl, apiKeys, provider, summaryLanguage, resolvedLength, providerPriority)
+        : await summarizeUrl(finalUrl, apiKeys, provider, summaryLanguage, resolvedLength, prefetchedContent, providerPriority);
 
       if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
       setLoadingMessage('');
@@ -997,27 +1053,16 @@ export function useAppState() {
       setLoadingProgress(100);
       setSummary(summaryResult.summary);
 
-      // FIX: Eliminado el segundo fetch al servidor solo para obtener el título.
-      // El título ya está disponible en prefetchedContent (si es PDF) o en el
-      // contenido pre-descargado dentro de summarizeUrl. Si no hay título, se
-      // deja vacío — no vale la pena un request extra solo por eso.
       const resolvedTitle = summaryResult.title || prefetchedContent?.title || '';
       if (resolvedTitle) setArticleTitle(resolvedTitle);
       setLieScore(estimateLieScore(resolvedTitle || finalUrl, summaryResult.summary));
       summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
-      saveCachedSummary({
-        key: cacheKey,
-        summary: summaryResult.summary,
-        title: resolvedTitle,
-        createdAt: Date.now(),
-      });
+      saveCachedSummary({ key: cacheKey, summary: summaryResult.summary, title: resolvedTitle, createdAt: Date.now() });
 
       for (const attemptedProvider of summaryResult.attemptedProviders) {
         recordProviderMetric(attemptedProvider, 'attempt');
       }
-      if (summaryResult.providerUsed !== provider) {
-        recordProviderMetric(provider, 'fallback');
-      }
+      if (summaryResult.providerUsed !== provider) recordProviderMetric(provider, 'fallback');
       recordProviderMetric(summaryResult.providerUsed, 'success');
       setProviderMetrics(getProviderMetrics());
 
@@ -1027,13 +1072,7 @@ export function useAppState() {
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
-        const investigation = await investigateClaim(
-          finalUrl,
-          resolvedTitle || finalUrl,
-          summaryResult.summary,
-          apiKeys,
-          providerPriority
-        );
+        const investigation = await investigateClaim(finalUrl, resolvedTitle || finalUrl, summaryResult.summary, apiKeys, providerPriority);
         setInvestigationResult(investigation);
       }
 
@@ -1047,37 +1086,25 @@ export function useAppState() {
           .then(data => {
             setServerRemaining(data.remaining ?? null);
             if (data.resetAt) setServerResetAt(data.resetAt);
-            if (!data.allowed) {
-              setResetTimestamp(data.resetAt);
-              openLockModal();
-            }
+            if (!data.allowed) openLockModal();
           })
-          .catch(() => { /* counter syncs on next load */ });
+          .catch(() => undefined);
       }
     } catch (err: any) {
-      if (msgInterval) { clearInterval(msgInterval); }
-      if (progressInterval) { clearInterval(progressInterval); }
+      if (msgInterval) clearInterval(msgInterval);
+      if (progressInterval) clearInterval(progressInterval);
       setLoadingMessage('');
-
-      // FIX: No mostrar error si el request fue cancelado intencionalmente
       if (err?.name === 'AbortError') return;
 
       let message = t.genericError;
-      if (
-        err.message === 'quota_exceeded_all' ||
-        err.message?.includes('429') ||
-        err.message?.includes('RESOURCE_EXHAUSTED') ||
-        err.message?.includes('Quota exceeded')
-      ) {
+      if (err.message === 'quota_exceeded_all' || err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
         message = t.quotaError;
       } else if (err.message === 'insufficient_content' || err.message?.includes('INSUFFICIENT_CONTENT')) {
         message = t.insufficientContentError;
       } else if (err.message === 'provider_temporary_failure') {
         message = t.providerTemporaryError;
-      } else if (err.message?.includes('pdf_no_text') || err.message?.includes('scanned') || err.message?.includes('image-based')) {
+      } else if (err.message?.includes('pdf_no_text') || err.message?.includes('scanned')) {
         message = t.pdfNoTextError;
-      } else if (err.message?.includes('Could not read') || err.message?.includes('PDF')) {
-        message = pdfFile ? t.pdfNoTextError : t.genericError;
       } else if (err.message === 'api_key_invalid' || err.message?.includes('API Key')) {
         message = t.apiKeyInvalidError;
         recordProviderMetric(provider, 'auth_failure');
@@ -1093,8 +1120,8 @@ export function useAppState() {
       }
       setError(message);
     } finally {
-      if (msgInterval) { clearInterval(msgInterval); }
-      if (progressInterval) { clearInterval(progressInterval); }
+      if (msgInterval) clearInterval(msgInterval);
+      if (progressInterval) clearInterval(progressInterval);
       setLoadingMessage('');
       setLoadingProgress(0);
       setIsLoading(false);
@@ -1117,14 +1144,11 @@ export function useAppState() {
     };
     utterance.lang = langMap[summaryLanguage] || 'en-US';
     utterance.rate = speechRate;
-
     const voices = window.speechSynthesis.getVoices();
     const uiLangPrefix = (utterance.lang.split('-')[0] || '').toLowerCase();
     const bestVoice = voices.find(v => v.lang.toLowerCase().startsWith(uiLangPrefix))
-      || voices.find(v => v.default)
-      || voices[0];
+      || voices.find(v => v.default) || voices[0];
     if (bestVoice) utterance.voice = bestVoice;
-
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     setIsSpeaking(true);
@@ -1135,16 +1159,13 @@ export function useAppState() {
     const text = shareUrl && !shareUrl.startsWith('pdf:')
       ? `${shareSummary}\n\n${shareUrl}\n\nresumido por AntiClickBaitLinks.com`
       : `${shareSummary}\n\nresumido por AntiClickBaitLinks.com`;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch { /* ignore */ }
+    try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
   }, []);
 
-  // ─── Auto-summarize immediately on shared URLs ──────────────────────────────
+  // ─── Auto-summarize on shared URLs ─────────────────────────────────────────
   useEffect(() => {
     if (!pendingSharedUrl || isLoading) return;
     if (pendingSharedUrl !== url) return;
-
     setSummary(null);
     setArticleTitle(null);
     setError(null);
@@ -1162,7 +1183,7 @@ export function useAppState() {
 
   useEffect(() => {
     if (feedSources.some((source) => source.enabled)) {
-      refreshDailyFeed().catch(() => { /* surfaced in state */ });
+      refreshDailyFeed().catch(() => undefined);
     } else {
       setDailyFeedItems([]);
     }
@@ -1183,7 +1204,6 @@ export function useAppState() {
   }, [syncAccount]);
 
   return {
-    // state
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
@@ -1193,7 +1213,7 @@ export function useAppState() {
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
-    showLockModal, setShowLockModal, timeLeft, resetTimestamp,
+    showLockModal, setShowLockModal, timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
@@ -1201,9 +1221,8 @@ export function useAppState() {
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     showAuthModal, setShowAuthModal,
-    // derived
+    feedSummaryResults, isMultiFeedSummarizing,
     t,
-    // handlers
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,

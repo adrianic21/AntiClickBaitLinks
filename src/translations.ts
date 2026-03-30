@@ -106,7 +106,7 @@ export const UI_TRANSLATIONS = {
     feedUseLink: "Use link",
     feedSummarizeNow: "Summarize now",
     feedDailySelected: "Selected daily feed",
-    feedConnectorHint: "Tip: most sites have an RSS feed. Look for "RSS" or "Feed" links, or try adding /rss or /feed to the homepage URL.",
+    feedConnectorHint: "Tip: most sites have an RSS feed. Look for \u201cRSS\u201d or \u201cFeed\u201d links, or try adding /rss or /feed to the homepage URL.",
     feedSummarizeAll: "Summarize selected",
     noHistoryLabel: "No saved summaries yet.",
     openOriginalLabel: "Open original",
@@ -404,7 +404,7 @@ export const UI_TRANSLATIONS = {
     apiKeyInvalidError: "Votre clé API semble invalide ou expirée. Ouvrez votre profil (👤) pour la mettre à jour.",
     providerTemporaryError: "Nous n'avons pas pu lire ce lien cette fois car le fournisseur d'API semble temporairement indisponible. Réessayez dans un moment ou changez de fournisseur dans votre profil (👤).",
     share: "Copier le résumé",
-    loadingMessages: ['Récupération de l\'article...', 'Analyse du contenu...', 'Élimination du clickbait...', 'Presque fini...'],
+    loadingMessages: ["Récupération de l'article...", 'Analyse du contenu...', 'Élimination du clickbait...', 'Presque fini...'],
   },
   German: {
     title: "AntiClickBaitLinks",
@@ -558,7 +558,7 @@ export const UI_TRANSLATIONS = {
     apiKeyInvalidError: "La tua API Key sembra non valida o scaduta. Apri il tuo profilo (👤) per aggiornarla.",
     providerTemporaryError: "Non abbiamo potuto leggere questo link questa volta perché il provider API sembra temporaneamente non disponibile. Riprova tra un momento o cambia provider nel tuo profilo (👤).",
     share: "Copia riassunto",
-    loadingMessages: ['Recupero dell\'articolo...', 'Analisi del contenuto...', 'Eliminazione del clickbait...', 'Quasi fatto...'],
+    loadingMessages: ["Recupero dell'articolo...", 'Analisi del contenuto...', 'Eliminazione del clickbait...', 'Quasi fatto...'],
   },
   Russian: {
     title: "AntiClickBaitLinks",

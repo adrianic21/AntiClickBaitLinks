@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Key, LogOut, UserRound, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, ChevronUp, Key, LogOut, Sparkles, UserRound, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { InsightsPanel } from './InsightsPanel';
@@ -11,10 +11,7 @@ interface ProfilePanelProps {
   t: Translations;
   show: boolean;
   onClose: () => void;
-  currentUser: {
-    email: string;
-    displayName: string;
-  };
+  currentUser: { email: string; displayName: string };
   isPremium: boolean;
   provider: Provider;
   setProvider: (provider: Provider) => void;
@@ -53,31 +50,135 @@ const PROVIDER_PLACEHOLDERS: Record<Provider, string> = {
   deepseek: 'sk-...',
 };
 
-export function ProfilePanel({
+// ─── Collapsible "Hazte Premium" section ─────────────────────────────────────
+function PremiumSection({
   t,
-  show,
-  onClose,
-  currentUser,
-  isPremium,
-  provider,
-  setProvider,
-  userApiKey,
-  setUserApiKey,
-  apiKeys,
-  isKeySaved,
-  onSaveApiKey,
-  onLogout,
-  appInsights,
-  onUpdateName,
-  remainingSearches,
-  nextResetTime,
-  timeLeft,
   unlockPass,
   lockError,
   deviceMismatchError,
   isLoading,
   onPassChange,
   onUnlock,
+}: {
+  t: Translations;
+  unlockPass: string;
+  lockError: boolean;
+  deviceMismatchError: boolean;
+  isLoading: boolean;
+  onPassChange: (v: string) => void;
+  onUnlock: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="rounded-3xl overflow-hidden border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <p className="text-sm font-extrabold text-emerald-800">¡Hazte Premium!</p>
+            <p className="text-xs text-emerald-600">Búsquedas ilimitadas · Pago único</p>
+          </div>
+        </div>
+        {open
+          ? <ChevronUp size={18} className="text-emerald-600 shrink-0" />
+          : <ChevronDown size={18} className="text-emerald-600 shrink-0" />}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 space-y-4">
+              {/* Benefits */}
+              <ul className="space-y-1.5">
+                {[
+                  'Búsquedas ilimitadas sin esperar',
+                  'Acceso en todos tus dispositivos',
+                  'Pago único — sin suscripciones',
+                ].map((b) => (
+                  <li key={b} className="flex items-center gap-2 text-xs text-emerald-800">
+                    <Check size={13} className="text-emerald-500 shrink-0" />
+                    {b}
+                  </li>
+                ))}
+              </ul>
+
+              {/* PayPal CTA — goes directly to PayPal */}
+              <a
+                href="https://www.paypal.com/ncp/payment/SD8UXPABAFFJL"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-200 transition-all hover:bg-emerald-700 active:scale-[0.98]"
+              >
+                {t.buyBtn} <ArrowRight size={16} />
+              </a>
+
+              {/* Divider */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-px bg-emerald-200" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  {t.alreadyPremium}
+                </span>
+                <div className="flex-1 h-px bg-emerald-200" />
+              </div>
+
+              {/* Token input */}
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder={t.unlockPlaceholder}
+                    value={unlockPass}
+                    onChange={(e) => onPassChange(e.target.value)}
+                    className={cn(
+                      'flex-1 rounded-xl border bg-white px-3 py-2.5 text-xs font-mono outline-none transition-all',
+                      lockError
+                        ? 'border-red-300 ring-1 ring-red-400'
+                        : 'border-zinc-200 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400'
+                    )}
+                  />
+                  <button
+                    type="button"
+                    onClick={onUnlock}
+                    disabled={isLoading}
+                    className="rounded-xl bg-zinc-900 px-4 py-2.5 text-xs font-bold text-white transition-all hover:bg-zinc-800 active:scale-[0.95] disabled:opacity-60"
+                  >
+                    {t.unlockBtn}
+                  </button>
+                </div>
+                {lockError && (
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-red-500">
+                    {deviceMismatchError ? t.deviceMismatchError : t.invalidPass}
+                  </p>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+}
+
+// ─── Main ProfilePanel ────────────────────────────────────────────────────────
+export function ProfilePanel({
+  t, show, onClose, currentUser, isPremium,
+  provider, setProvider, userApiKey, setUserApiKey, apiKeys, isKeySaved, onSaveApiKey,
+  onLogout, appInsights, onUpdateName,
+  remainingSearches, nextResetTime, timeLeft,
+  unlockPass, lockError, deviceMismatchError, isLoading, onPassChange, onUnlock,
 }: ProfilePanelProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(currentUser.displayName);
@@ -100,9 +201,7 @@ export function ProfilePanel({
       {show && (
         <>
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]"
             onClick={onClose}
           />
@@ -113,6 +212,8 @@ export function ProfilePanel({
             className="fixed inset-x-4 top-24 bottom-6 z-[46] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto"
           >
             <div className="space-y-6">
+
+              {/* Header */}
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
@@ -123,46 +224,36 @@ export function ProfilePanel({
                       {t.profileTitle || 'Profile'}
                     </p>
                     <div className="flex items-center gap-2">
-                    {isEditingName ? (
-                      <>
-                        <input
-                          type="text"
-                          value={tempName}
-                          onChange={(e) => setTempName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSaveName();
-                            if (e.key === 'Escape') {
-                              setIsEditingName(false);
-                              setTempName(currentUser.displayName);
-                            }
-                          }}
-                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-sm font-semibold text-zinc-900 outline-none focus:border-emerald-400"
-                          placeholder="Alias / Nombre"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSaveName}
-                          className="text-emerald-600 text-xs font-bold"
-                        >
-                          Guardar
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-lg font-bold text-zinc-900">{currentUser.displayName}</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsEditingName(true);
-                            setTempName(currentUser.displayName);
-                          }}
-                          className="text-zinc-400 hover:text-emerald-600 text-xs"
-                          title="Editar alias / nombre"
-                        >
-                          ✏️
-                        </button>
-                      </>
-                    )}
+                      {isEditingName ? (
+                        <>
+                          <input
+                            type="text"
+                            value={tempName}
+                            onChange={(e) => setTempName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveName();
+                              if (e.key === 'Escape') { setIsEditingName(false); setTempName(currentUser.displayName); }
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-sm font-semibold text-zinc-900 outline-none focus:border-emerald-400"
+                            placeholder="Alias / Nombre"
+                          />
+                          <button type="button" onClick={handleSaveName} className="text-emerald-600 text-xs font-bold">
+                            Guardar
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-lg font-bold text-zinc-900">{currentUser.displayName}</p>
+                          <button
+                            type="button"
+                            onClick={() => { setIsEditingName(true); setTempName(currentUser.displayName); }}
+                            className="text-zinc-400 hover:text-emerald-600 text-xs"
+                            title="Editar alias / nombre"
+                          >
+                            ✏️
+                          </button>
+                        </>
+                      )}
                     </div>
                     <p className="text-sm text-zinc-500 break-all">{currentUser.email}</p>
                     <button
@@ -184,6 +275,7 @@ export function ProfilePanel({
                 </button>
               </div>
 
+              {/* Account status */}
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-3xl bg-white/85 p-4 shadow-sm border border-white/70">
                   <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
@@ -197,7 +289,6 @@ export function ProfilePanel({
                       {t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10
                     </p>
                   )}
-                  {/* Countdown when limit is reached */}
                   {isLimitReached && nextResetTime && (
                     <div className="mt-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 border border-red-100">
                       <span className="text-[10px] font-bold uppercase tracking-wide text-red-400">{t.limitReset || 'Resetea en'}</span>
@@ -207,16 +298,14 @@ export function ProfilePanel({
                 </div>
               </div>
 
+              {/* API settings */}
               <section className="rounded-3xl bg-white/80 p-5 sm:p-6 shadow-sm space-y-4 border border-white/70">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                       {t.settingsTitle}
                     </p>
-                    <p className="text-sm text-zinc-500 mt-1">
-                      {t.settingsDesc}
-                    </p>
-                    {/* Corrected privacy note */}
+                    <p className="text-sm text-zinc-500 mt-1">{t.settingsDesc}</p>
                     <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-2 border border-emerald-100">
                       🔐 Tus API Keys se guardan en tu cuenta y se sincronizan entre dispositivos. Nunca se comparten con terceros.
                     </p>
@@ -238,10 +327,7 @@ export function ProfilePanel({
                       <button
                         key={providerName}
                         type="button"
-                        onClick={() => {
-                          setProvider(providerName);
-                          setUserApiKey(apiKeys[providerName] || '');
-                        }}
+                        onClick={() => { setProvider(providerName); setUserApiKey(apiKeys[providerName] || ''); }}
                         className={cn(
                           'px-3 py-2 text-xs font-bold rounded-xl border transition-all',
                           provider === providerName
@@ -260,7 +346,7 @@ export function ProfilePanel({
                     type="password"
                     placeholder={PROVIDER_PLACEHOLDERS[provider]}
                     value={userApiKey}
-                    onChange={(event) => setUserApiKey(event.target.value)}
+                    onChange={(e) => setUserApiKey(e.target.value)}
                     className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400"
                   />
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -282,45 +368,24 @@ export function ProfilePanel({
                     </a>
                   </div>
                 </div>
-
-                {!isPremium && (
-                  <div className="mt-4 pt-4 border-t border-zinc-100 space-y-3">
-                    <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                      {t.alreadyPremium}
-                    </h5>
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        placeholder={t.unlockPlaceholder}
-                        value={unlockPass}
-                        onChange={(e) => { onPassChange(e.target.value); }}
-                        className={cn(
-                          "flex-1 px-3 py-2 bg-zinc-100 rounded-xl outline-none transition-all text-xs font-mono",
-                          lockError ? "ring-1 ring-red-500" : "focus:ring-1 focus:ring-emerald-500"
-                        )}
-                      />
-                      <button
-                        type="button"
-                        onClick={onUnlock}
-                        disabled={isLoading}
-                        className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all active:scale-[0.95] disabled:opacity-60"
-                      >
-                        {t.unlockBtn}
-                      </button>
-                    </div>
-                    {lockError && (
-                      <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider">
-                        {deviceMismatchError ? t.deviceMismatchError : t.invalidPass}
-                      </p>
-                    )}
-                  </div>
-                )}
               </section>
 
-              <InsightsPanel
-                t={t}
-                insights={appInsights}
-              />
+              {/* Activity insights */}
+              <InsightsPanel t={t} insights={appInsights} />
+
+              {/* ¡Hazte Premium! — solo usuarios gratuitos */}
+              {!isPremium && (
+                <PremiumSection
+                  t={t}
+                  unlockPass={unlockPass}
+                  lockError={lockError}
+                  deviceMismatchError={deviceMismatchError}
+                  isLoading={isLoading}
+                  onPassChange={onPassChange}
+                  onUnlock={onUnlock}
+                />
+              )}
+
             </div>
           </motion.div>
         </>

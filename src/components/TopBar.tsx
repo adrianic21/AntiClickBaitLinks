@@ -167,11 +167,15 @@ export function TopBar({
                 )}
               </div>
               {!isPremium && (
-                <button onClick={() => { setShowStatusPopover(false); openLockModal(); }}
-                  className="w-full py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98]"
+                <a
+                  href="https://www.paypal.com/ncp/payment/SD8UXPABAFFJL"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setShowStatusPopover(false)}
+                  className="w-full py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
                 >
                   {t.buyBtn}
-                </button>
+                </a>
               )}
             </motion.div>
           </>

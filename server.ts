@@ -45,7 +45,6 @@ interface TokenData {
   revokedAt?: string;
 }
 
-// FIX: Interfaces separadas para evitar abuso de tipos con TokenData
 interface UsageData {
   count: number;
   windowStart: number;
@@ -133,6 +132,15 @@ const TRUSTED_NEWS_DOMAINS = [
   'washingtonpost.com',
 ];
 
+// ─── User-Agent pool ──────────────────────────────────────────────────────────
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+];
+
 function decodeHtmlEntities(input: string): string {
   if (!input) return '';
   return input
@@ -167,8 +175,6 @@ function decodeHtmlResponseBody(response: Response): Promise<string> {
     const looksLatin1 =
       charset.includes('iso-8859-1') || charset.includes('latin1');
 
-    // If server declared Latin1 OR UTF-8 decode produced many replacement chars,
-    // fall back to ISO-8859-1 which is common on some older sites.
     if (looksLatin1 || replacementCount >= 6) {
       return new TextDecoder('iso-8859-1', { fatal: false }).decode(bytes);
     }
@@ -293,7 +299,6 @@ async function redisSet<T>(key: string, value: T, ttlSeconds?: number): Promise<
   }
 
   try {
-    // SET con EX en una sola llamada
     const command = ttlSeconds
       ? ["SET", key, JSON.stringify(value), "EX", String(ttlSeconds)]
       : ["SET", key, JSON.stringify(value)];
@@ -572,9 +577,8 @@ async function revokeTokensByEmail(email: string): Promise<void> {
 // ─── IP-based usage tracking (free tier limit) ───────────────────────────────
 
 const FREE_LIMIT = 10;
-const USAGE_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+const USAGE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-// FIX: Una única función getClientIp — eliminada la duplicada que vivía dentro de startServer
 function getClientIp(req: express.Request): string {
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
@@ -602,8 +606,6 @@ async function getUsageCount(ip: string): Promise<number> {
   return typeof count === 'number' && Number.isFinite(count) ? count : 0;
 }
 
-// FIX: Operación atómica con INCR de Redis para evitar race condition.
-// Antes: GET + SET separados permitían que requests simultáneos burlasen el límite.
 async function incrementUsage(ip: string): Promise<number> {
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -612,7 +614,6 @@ async function incrementUsage(ip: string): Promise<number> {
   const key = `usage_count:${ip}`;
   const windowKey = `usage_window:${ip}`;
 
-  // Incremento atómico
   const incrRes = await fetch(`${redisUrl}/incr/${encodeURIComponent(key)}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${redisToken}` },
@@ -620,14 +621,12 @@ async function incrementUsage(ip: string): Promise<number> {
   const incrData = await incrRes.json() as { result: number };
   const newCount = incrData.result;
 
-  // Si es el primer uso, establecer TTL de 24h en ambas claves
   if (newCount === 1) {
     const ttl = Math.floor(USAGE_WINDOW_MS / 1000);
     await fetch(`${redisUrl}/expire/${encodeURIComponent(key)}/${ttl}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${redisToken}` },
     });
-    // Guardar el windowStart para poder calcular el resetAt
     await redisSet<UsageData>(windowKey, { count: newCount, windowStart: Date.now() });
     await fetch(`${redisUrl}/expire/${encodeURIComponent(windowKey)}/${ttl}`, {
       method: 'POST',
@@ -729,8 +728,6 @@ async function sendPremiumEmail(toEmail: string, token: string) {
 }
 
 // ─── PayPal webhook signature verification ───────────────────────────────────
-// FIX: Reemplazada la verificación custom con crc32c (que no existe en Node.js crypto
-// y lanzaría un error en producción) por la API oficial de verificación de PayPal.
 
 async function getPayPalAccessToken(): Promise<string> {
   const clientId = process.env.PAYPAL_CLIENT_ID || '';
@@ -785,19 +782,17 @@ async function verifyPaypalWebhook(req: express.Request): Promise<boolean> {
 }
 
 // ─── URL safety validation (SSRF protection) ─────────────────────────────────
-// FIX: Evitar que un atacante envíe URLs internas (localhost, red Railway, metadatos cloud)
 
 function isAllowedUrl(urlString: string): boolean {
   try {
     const parsed = new URL(urlString);
     if (!['http:', 'https:'].includes(parsed.protocol)) return false;
     const hostname = parsed.hostname.toLowerCase();
-    // Block localhost and private IP ranges
     if (
       hostname === 'localhost' ||
       hostname === '127.0.0.1' ||
       hostname === '0.0.0.0' ||
-      hostname === '169.254.169.254' || // AWS/GCP metadata
+      hostname === '169.254.169.254' ||
       hostname.startsWith('10.') ||
       hostname.startsWith('192.168.') ||
       /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
@@ -813,7 +808,6 @@ function isAllowedUrl(urlString: string): boolean {
 async function startServer() {
   const app = express();
 
-  // FIX: Eliminado el `app.set('trust proxy', 1)` duplicado — solo se necesita uno
   app.set('trust proxy', 1);
 
   const PORT = Number(process.env.PORT) || 3000;
@@ -935,7 +929,6 @@ async function startServer() {
 
     const user = await getUserByEmail(normalizedEmail);
     if (!user) {
-      // Do not reveal whether the email exists
       return res.status(200).json({ ok: true });
     }
 
@@ -1097,7 +1090,7 @@ async function startServer() {
     return res.json({ ok: true, user: toPublicUser(user) });
   });
 
-  // ── Fetch URL content ─────────────────────────────────────────────────────
+  // ── Content extraction helpers ────────────────────────────────────────────
 
   function cleanReadableText(text: string): string {
     return text
@@ -1170,6 +1163,54 @@ async function startServer() {
     return { text: bestText, title: bestTitle };
   }
 
+  // NEW: Extract embedded JavaScript data (Next.js, Nuxt, etc.)
+  function extractEmbeddedJsData($: cheerio.CheerioAPI): string {
+    const candidates: string[] = [];
+
+    // Next.js __NEXT_DATA__
+    const nextDataEl = $('script#__NEXT_DATA__');
+    if (nextDataEl.length) {
+      try {
+        const raw = nextDataEl.text();
+        const data = JSON.parse(raw);
+        const stringified = JSON.stringify(data);
+        // Extract long strings likely to be article content
+        const matches = stringified.match(/"[^"\\]{300,}"/g) || [];
+        const extracted = matches
+          .map(m => m.slice(1, -1)
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, ' ')
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\')
+          )
+          .filter(s => s.split(' ').length > 20) // at least 20 words
+          .join('\n\n');
+        if (extracted.length > 200) candidates.push(extracted);
+      } catch { /* ignore */ }
+    }
+
+    // Nuxt __NUXT_DATA__ or window.__NUXT__
+    $('script').each((_i, el) => {
+      const content = $(el).text();
+      if (!content || content.length < 500) return;
+      if (content.includes('__NUXT__') || content.includes('window.__NUXT_DATA__')) {
+        try {
+          const jsonMatch = content.match(/\{[\s\S]{500,}\}/);
+          if (jsonMatch) {
+            const matches = jsonMatch[0].match(/"[^"\\]{300,}"/g) || [];
+            const extracted = matches
+              .map(m => m.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"'))
+              .filter(s => s.split(' ').length > 20)
+              .join('\n\n');
+            if (extracted.length > 200) candidates.push(extracted);
+          }
+        } catch { /* ignore */ }
+      }
+    });
+
+    return candidates.join('\n\n').substring(0, 15000);
+  }
+
   function extractFromHtml(html: string): { text: string; title: string } {
     const $ = cheerio.load(html);
 
@@ -1184,6 +1225,7 @@ async function startServer() {
       $('meta[name="description"]').attr('content') ||
       '';
     const structured = extractStructuredArticleData($);
+    const embeddedJs = extractEmbeddedJsData($);
 
     $(
       'script, style, noscript, iframe, ' +
@@ -1232,6 +1274,7 @@ async function startServer() {
 
     const candidates: string[] = [];
     if (structured.text) candidates.push(structured.text);
+    if (embeddedJs) candidates.push(embeddedJs);
 
     for (const sel of contentSelectors) {
       const el = $(sel).first();
@@ -1285,6 +1328,110 @@ async function startServer() {
     };
   }
 
+  // ── Fetch strategies ──────────────────────────────────────────────────────
+
+  /** Strategy 1: Direct fetch with a given user agent */
+  async function fetchDirectWithUA(url: string, userAgent: string): Promise<{ text: string; title: string } | null> {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': userAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+          'Cache-Control': 'no-cache',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(9000),
+      });
+
+      if (!response.ok) return null;
+
+      const html = await decodeHtmlResponseBody(response as any);
+      const result = extractFromHtml(html);
+      if (scoreReadableCandidate(result.text) > 180) return result;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Strategy 2: AMP version of the URL */
+  async function fetchViaAmp(url: string): Promise<{ text: string; title: string } | null> {
+    const ampUrls = [
+      `${url.replace(/\/$/, '')}/amp`,
+      url.includes('?') ? `${url}&amp=1` : `${url}?amp=1`,
+    ];
+    for (const ampUrl of ampUrls) {
+      try {
+        const response = await fetch(ampUrl, {
+          headers: {
+            'User-Agent': USER_AGENTS[0],
+            'Accept': 'text/html',
+          },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(7000),
+        });
+        if (!response.ok) continue;
+        const html = await decodeHtmlResponseBody(response as any);
+        const result = extractFromHtml(html);
+        if (scoreReadableCandidate(result.text) > 300) return result;
+      } catch { /* try next */ }
+    }
+    return null;
+  }
+
+  /** Strategy 3: Google AMP Cache */
+  async function fetchViaGoogleAmpCache(url: string): Promise<{ text: string; title: string } | null> {
+    try {
+      const parsed = new URL(url);
+      // Convert domain to AMP cache format: dots become dashes
+      const domainSlug = parsed.hostname.replace(/\./g, '-');
+      const ampCacheUrl = `https://${domainSlug}.cdn.ampproject.org/c/${parsed.hostname}${parsed.pathname}${parsed.search}`;
+
+      const response = await fetch(ampCacheUrl, {
+        headers: {
+          'User-Agent': USER_AGENTS[0],
+          'Accept': 'text/html',
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) return null;
+      const html = await decodeHtmlResponseBody(response as any);
+      const result = extractFromHtml(html);
+      if (scoreReadableCandidate(result.text) > 300) return result;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Strategy 4: 12ft.io paywall bypass */
+  async function fetchVia12ft(url: string): Promise<{ text: string; title: string } | null> {
+    try {
+      const response = await fetch(`https://12ft.io/proxy?q=${encodeURIComponent(url)}`, {
+        headers: {
+          'User-Agent': USER_AGENTS[0],
+          'Accept': 'text/html,application/xhtml+xml',
+          'Referer': 'https://12ft.io/',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!response.ok) return null;
+      const html = await decodeHtmlResponseBody(response as any);
+      const result = extractFromHtml(html);
+      if (scoreReadableCandidate(result.text) > 300) return result;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Strategy 5: Jina Reader */
   async function fetchViaJina(url: string): Promise<{ text: string; title: string }> {
     const jinaUrl = `https://r.jina.ai/${url}`;
     const response = await fetch(jinaUrl, {
@@ -1293,6 +1440,7 @@ async function startServer() {
         'X-Return-Format': 'text',
         'X-Remove-Selector': 'header,footer,nav,aside,.cookie,.banner,.popup,.modal,.sidebar,.related,.ads,.newsletter',
         'X-Timeout': '25',
+        'X-No-Cache': 'true',
       },
       signal: AbortSignal.timeout(30000),
     });
@@ -1307,7 +1455,119 @@ async function startServer() {
       : '';
     const body = titleLine ? text.replace(titleLine, '').trim() : text;
 
-    return { text: body.substring(0, 20000), title: decodeHtmlEntities(title) };
+    return { text: body.substring(0, 22000), title: decodeHtmlEntities(title) };
+  }
+
+  /** Strategy 6: Jina Reader with markdown format */
+  async function fetchViaJinaMarkdown(url: string): Promise<{ text: string; title: string } | null> {
+    try {
+      const jinaUrl = `https://r.jina.ai/${url}`;
+      const response = await fetch(jinaUrl, {
+        headers: {
+          'Accept': 'text/plain',
+          'X-Return-Format': 'markdown',
+          'X-Timeout': '25',
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!response.ok) return null;
+      const text = await response.text();
+      if (!text || text.length < 150) return null;
+
+      const lines = text.split('\n').filter(l => l.trim());
+      const titleLine = lines.find(l => l.startsWith('# '));
+      const title = titleLine ? titleLine.replace(/^# /, '').trim() : '';
+      const body = titleLine ? text.replace(titleLine, '').trim() : text;
+
+      // Remove markdown formatting for cleaner text
+      const cleaned = body
+        .replace(/#{1,6}\s/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+        .trim();
+
+      if (cleaned.length > 200) return { text: cleaned.substring(0, 22000), title };
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Strategy 7: Wayback Machine (archive.org) */
+  async function fetchViaWayback(url: string): Promise<{ text: string; title: string } | null> {
+    try {
+      const availRes = await fetch(
+        `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`,
+        { signal: AbortSignal.timeout(6000) }
+      );
+      if (!availRes.ok) return null;
+
+      const avail = await availRes.json() as {
+        archived_snapshots?: { closest?: { url?: string; available?: boolean } }
+      };
+      const snapshotUrl = avail.archived_snapshots?.closest?.url;
+      if (!snapshotUrl || !avail.archived_snapshots?.closest?.available) return null;
+
+      const response = await fetch(snapshotUrl, {
+        headers: {
+          'User-Agent': USER_AGENTS[0],
+          'Accept': 'text/html',
+        },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!response.ok) return null;
+
+      const html = await decodeHtmlResponseBody(response as any);
+      const result = extractFromHtml(html);
+      if (scoreReadableCandidate(result.text) > 300) return result;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Strategy 8: Minimal fallback — extract ANY content (meta, headings, first paragraphs) */
+  async function fetchMinimalContent(url: string): Promise<{ text: string; title: string } | null> {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': USER_AGENTS[4], // Googlebot
+          'Accept': 'text/html',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) return null;
+
+      const html = await decodeHtmlResponseBody(response as any);
+      const $ = cheerio.load(html);
+
+      const title =
+        $('meta[property="og:title"]').attr('content') ||
+        $('meta[name="twitter:title"]').attr('content') ||
+        $('title').text().trim() || '';
+
+      const parts: string[] = [
+        $('meta[property="og:description"]').attr('content') || '',
+        $('meta[name="twitter:description"]').attr('content') || '',
+        $('meta[name="description"]').attr('content') || '',
+        $('h1').first().text().trim() || '',
+        $('h2').map((_i, el) => $(el).text().trim()).get().slice(0, 6).join('. ') || '',
+        $('p').map((_i, el) => $(el).text().trim()).get()
+          .filter(p => p.length > 40)
+          .slice(0, 30)
+          .join('\n') || '',
+      ].filter(Boolean);
+
+      const text = cleanReadableText(parts.join('\n\n'));
+      if (text.length > 100) {
+        return { text: text.substring(0, 10000), title: decodeHtmlEntities(title.trim()) };
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   function getCachedArticle(url: string): ArticleCacheEntry | null {
@@ -1329,6 +1589,116 @@ async function startServer() {
     return cachedEntry;
   }
 
+  /**
+   * Main article fetching pipeline with 8 progressive strategies.
+   * Returns as soon as a strategy succeeds with readable content.
+   */
+  async function fetchWithAllStrategies(url: string): Promise<{ text: string; title: string; type: string }> {
+    // Minimum score thresholds
+    const MIN_SCORE = 180;
+    const MIN_LENGTH = 150;
+
+    // Helper to check if a result is good enough
+    const isGood = (r: { text: string; title: string } | null): r is { text: string; title: string } => {
+      if (!r) return false;
+      return r.text.length >= MIN_LENGTH || scoreReadableCandidate(r.text) >= MIN_SCORE;
+    };
+
+    // Strategy 1a: Direct fetch with Chrome UA
+    {
+      const result = await fetchDirectWithUA(url, USER_AGENTS[0]);
+      if (isGood(result)) {
+        console.log(`✅ [direct/chrome] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 1b: Direct fetch with Safari UA
+    {
+      const result = await fetchDirectWithUA(url, USER_AGENTS[1]);
+      if (isGood(result)) {
+        console.log(`✅ [direct/safari] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 1c: Direct fetch with Mobile UA
+    {
+      const result = await fetchDirectWithUA(url, USER_AGENTS[2]);
+      if (isGood(result)) {
+        console.log(`✅ [direct/mobile] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 2: AMP version
+    {
+      const result = await fetchViaAmp(url);
+      if (isGood(result)) {
+        console.log(`✅ [amp] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 3: Google AMP Cache
+    {
+      const result = await fetchViaGoogleAmpCache(url);
+      if (isGood(result)) {
+        console.log(`✅ [google-amp-cache] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 4: 12ft.io (paywall bypass)
+    {
+      const result = await fetchVia12ft(url);
+      if (isGood(result)) {
+        console.log(`✅ [12ft] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 5: Jina Reader (text format)
+    try {
+      const result = await fetchViaJina(url);
+      if (isGood(result)) {
+        console.log(`✅ [jina/text] ${result.text.length} chars`);
+        return { ...result, type: 'web' };
+      }
+    } catch (e: any) {
+      console.warn(`⚠️ [jina/text] failed: ${e.message}`);
+    }
+
+    // Strategy 6: Jina Reader (markdown format)
+    {
+      const result = await fetchViaJinaMarkdown(url);
+      if (isGood(result)) {
+        console.log(`✅ [jina/markdown] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 7: Wayback Machine (async, can be slow)
+    {
+      const result = await fetchViaWayback(url);
+      if (isGood(result)) {
+        console.log(`✅ [wayback] ${result!.text.length} chars`);
+        return { ...result!, type: 'web' };
+      }
+    }
+
+    // Strategy 8: Minimal fallback — get ANYTHING available
+    {
+      const result = await fetchMinimalContent(url);
+      if (result && result.text.length > 100) {
+        console.log(`✅ [minimal] ${result.text.length} chars`);
+        return { ...result, type: 'web' };
+      }
+    }
+
+    throw new Error('All fetch strategies exhausted — insufficient content');
+  }
+
   async function fetchReadableArticle(url: string): Promise<{ text: string; title: string; type: string }> {
     const cachedArticle = getCachedArticle(url);
     if (cachedArticle) {
@@ -1339,12 +1709,6 @@ async function startServer() {
       };
     }
 
-    const candidateUrls = Array.from(new Set([
-      url,
-      url.includes('?') ? `${url}&output=amp` : `${url}?output=amp`,
-      url.endsWith('/') ? `${url}amp/` : `${url}/amp`,
-    ]));
-
     if (url.toLowerCase().endsWith('.pdf')) {
       try {
         const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
@@ -1352,69 +1716,32 @@ async function startServer() {
           const buffer = Buffer.from(await pdfRes.arrayBuffer());
           const { text, title: pdfTitle } = await extractPdfText(buffer);
           if (text.length > 100) {
-            const cachedPdf = setCachedArticle(url, {
+            const entry = setCachedArticle(url, {
               text: text.substring(0, 20000),
               title: pdfTitle,
               type: 'pdf',
             });
-            return { text: cachedPdf.text, title: cachedPdf.title, type: 'pdf' };
+            return { text: entry.text, title: entry.title, type: 'pdf' };
           }
         }
-      } catch {
-        // Fall through to HTML strategies
-      }
+      } catch { /* fall through */ }
     }
 
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
-    ];
-
-    for (const candidateUrl of candidateUrls) {
-      for (const userAgent of userAgents) {
-        try {
-          const response = await fetch(candidateUrl, {
-            headers: {
-              'User-Agent': userAgent,
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-              'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-              'Cache-Control': 'no-cache',
-              'Upgrade-Insecure-Requests': '1',
-            },
-            redirect: 'follow',
-            signal: AbortSignal.timeout(8000),
-          });
-
-          if (!response.ok) continue;
-
-          const html = await decodeHtmlResponseBody(response as any);
-          const { text, title } = extractFromHtml(html);
-
-          if (scoreReadableCandidate(text) > 180) {
-            const cachedHtml = setCachedArticle(url, {
-              text: text.substring(0, 20000),
-              title,
-              type: 'web',
-            });
-            return { text: cachedHtml.text, title: cachedHtml.title, type: 'web' };
-          }
-        } catch {
-          // Try next candidate/agent
-        }
-      }
-    }
-
-    const { text, title } = await fetchViaJina(url);
-    const cachedJina = setCachedArticle(url, { text, title, type: 'web' });
-    return { text: cachedJina.text, title: cachedJina.title, type: 'web' };
+    const result = await fetchWithAllStrategies(url);
+    const entry = setCachedArticle(url, {
+      text: result.text.substring(0, 22000),
+      title: result.title,
+      type: result.type,
+    });
+    return { text: entry.text, title: entry.title, type: entry.type || 'web' };
   }
+
+  // ── Fetch URL endpoint ────────────────────────────────────────────────────
 
   app.post("/api/fetch-url", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
-    // FIX: Validar URL para prevenir SSRF antes de hacer cualquier fetch
     if (!isAllowedUrl(url)) {
       return res.status(400).json({ error: "Invalid or disallowed URL" });
     }
@@ -1429,8 +1756,7 @@ async function startServer() {
       });
     }
 
-    // FIX: Usar .endsWith('.pdf') en lugar de .includes('pdf') para evitar falsos positivos
-    // (ej. pdfcandy.com o /update-pdf-viewer)
+    // PDF via URL
     if (url.toLowerCase().endsWith('.pdf')) {
       try {
         const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
@@ -1439,12 +1765,12 @@ async function startServer() {
           const { text, title: pdfTitle } = await extractPdfText(buffer);
           if (text.length > 100) {
             console.log(`✅ Fetched PDF via URL (${text.length} chars)`);
-            const cachedPdf = setCachedArticle(url, {
+            const entry = setCachedArticle(url, {
               text: text.substring(0, 20000),
               title: pdfTitle,
               type: 'pdf',
             });
-            return res.json({ text: cachedPdf.text, title: cachedPdf.title, type: 'pdf' });
+            return res.json({ text: entry.text, title: entry.title, type: 'pdf' });
           }
         }
       } catch (pdfErr: any) {
@@ -1452,57 +1778,18 @@ async function startServer() {
       }
     }
 
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
-    ];
-
-    for (const userAgent of userAgents) {
-      try {
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': userAgent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Cache-Control': 'no-cache',
-            'Upgrade-Insecure-Requests': '1',
-          },
-          redirect: 'follow',
-          signal: AbortSignal.timeout(8000),
-        });
-
-        if (!response.ok) continue;
-
-        const html = await decodeHtmlResponseBody(response as any);
-        const { text, title } = extractFromHtml(html);
-
-        if (scoreReadableCandidate(text) > 180) {
-          console.log(`✅ Fetched via Cheerio (${text.length} chars)`);
-          const cachedHtml = setCachedArticle(url, {
-            text: text.substring(0, 20000),
-            title,
-            type: 'web',
-          });
-          return res.json({ text: cachedHtml.text, title: cachedHtml.title, type: 'web' });
-        }
-      } catch {
-        // Try next user agent
-      }
-    }
-
     try {
-      console.log(`🔄 Cheerio failed, trying Jina Reader...`);
-      const { text, title } = await fetchViaJina(url);
-      console.log(`✅ Fetched via Jina (${text.length} chars)`);
-      const cachedJina = setCachedArticle(url, { text, title, type: 'web' });
-      return res.json({ text: cachedJina.text, title: cachedJina.title, type: 'web' });
-    } catch (jinaError: any) {
-      console.error('Jina fetch failed:', jinaError.message);
+      const result = await fetchWithAllStrategies(url);
+      const entry = setCachedArticle(url, {
+        text: result.text.substring(0, 22000),
+        title: result.title,
+        type: result.type,
+      });
+      return res.json({ text: entry.text, title: entry.title, type: entry.type || 'web' });
+    } catch (err: any) {
+      console.error("All fetch strategies failed for:", url, err.message);
+      return res.status(500).json({ error: 'Failed to fetch URL' });
     }
-
-    console.error("All fetch strategies failed for:", url);
-    res.status(500).json({ error: 'Failed to fetch URL' });
   });
 
   app.post("/api/rss-preview", async (req, res) => {
@@ -1640,7 +1927,6 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid JSON" });
     }
 
-    // FIX: verifyPaypalWebhook ahora es async (usa la API oficial de PayPal)
     const isValid = await verifyPaypalWebhook(req);
     if (!isValid) {
       console.warn("⚠️ PayPal webhook signature invalid");
@@ -1736,7 +2022,6 @@ async function startServer() {
         return res.status(200).json({ valid: false, reason: 'device_mismatch' });
       }
 
-      // Compatibilidad con bindings antiguos (solo deviceId): se migra en caliente.
       if (boundDevice.fingerprint && boundDevice.fingerprint !== currentFingerprint) {
         return res.status(200).json({ valid: false, reason: 'device_mismatch' });
       }
@@ -1915,8 +2200,6 @@ async function startServer() {
   });
 
   // ── Mistral Proxy ──────────────────────────────────────────────────────────
-  // El system prompt llega ya incluido en el array `messages` desde el cliente.
-  // El proxy solo reenvía lo que recibe — no necesita saber nada del system prompt.
 
   app.post("/api/mistral", async (req, res) => {
     const { apiKey, messages, model } = req.body;
@@ -1949,7 +2232,6 @@ async function startServer() {
   });
 
   // ── DeepSeek Proxy ─────────────────────────────────────────────────────────
-  // Igual que Mistral — el system prompt viene en el array `messages` del cliente.
 
   app.post("/api/deepseek", async (req, res) => {
     const { apiKey, messages, model } = req.body;
@@ -1965,12 +2247,19 @@ async function startServer() {
         body: JSON.stringify({
           model: model || "deepseek-chat",
           messages,
+          max_tokens: 2048,
         }),
       });
 
       if (!response.ok) {
-        const err = await response.text();
-        return res.status(response.status).json({ error: err });
+        const errText = await response.text();
+        let errMsg = errText;
+        try {
+          const errJson = JSON.parse(errText);
+          errMsg = errJson?.error?.message || errJson?.message || errText;
+        } catch { /* use raw text */ }
+        console.error(`DeepSeek API error ${response.status}:`, errMsg);
+        return res.status(response.status).json({ error: errMsg });
       }
 
       const data = await response.json();

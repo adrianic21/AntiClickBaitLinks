@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Check, ChevronDown, ChevronUp, Key, LogOut, Sparkles, UserRound, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, ChevronUp, Key, LogOut, Sparkles, UserRound, Wrench, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { InsightsPanel } from './InsightsPanel';
@@ -181,6 +181,7 @@ export function ProfilePanel({
   unlockPass, lockError, deviceMismatchError, isLoading, onPassChange, onUnlock,
 }: ProfilePanelProps) {
   const [isEditingName, setIsEditingName] = useState(false);
+  const [showApiSettings, setShowApiSettings] = useState(false);
   const [tempName, setTempName] = useState(currentUser.displayName);
 
   const isLimitReached = !isPremium && remainingSearches <= 0;
@@ -309,74 +310,87 @@ export function ProfilePanel({
 
               {/* API settings */}
               <section className="rounded-3xl bg-white/80 p-5 sm:p-6 shadow-sm space-y-4 border border-white/70">
-                <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowApiSettings((current) => !current)}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
                   <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400 flex items-center gap-2">
+                      <Wrench size={14} />
                       {t.settingsTitle}
                     </p>
-                    <p className="text-sm text-zinc-500 mt-1">{t.settingsDesc}</p>
-                    <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-2 border border-emerald-100">
-                      Your API keys are encrypted in your account, synced across devices, and never shared with third parties.
-                    </p>
+                    <p className="text-sm text-zinc-500 mt-1">Manage your API providers and keys only when you need to.</p>
                   </div>
-                  {isKeySaved && (
+                  <div className="flex items-center gap-2">
+                    {isKeySaved && (
                     <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 shrink-0">
                       <Check size={14} />
                       {t.apiKeysActive || t.apiKeyActive}
                     </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
-                    {t.apiProvider}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {PROVIDERS.map((providerName) => (
-                      <button
-                        key={providerName}
-                        type="button"
-                        onClick={() => { setProvider(providerName); setUserApiKey(apiKeys[providerName] || ''); }}
-                        className={cn(
-                          'px-3 py-2 text-xs font-bold rounded-xl border transition-all',
-                          provider === providerName
-                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
-                            : 'bg-white border-zinc-200 text-zinc-600 hover:border-emerald-200'
-                        )}
-                      >
-                        {providerName.charAt(0).toUpperCase() + providerName.slice(1)}
-                      </button>
-                    ))}
+                    )}
+                    {showApiSettings ? <ChevronUp size={18} className="text-zinc-500" /> : <ChevronDown size={18} className="text-zinc-500" />}
                   </div>
-                </div>
+                </button>
 
-                <div className="space-y-2">
-                  <input
-                    type="password"
-                    placeholder={PROVIDER_PLACEHOLDERS[provider]}
-                    value={userApiKey}
-                    onChange={(e) => setUserApiKey(e.target.value)}
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400"
-                  />
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <button
-                      type="button"
-                      onClick={onSaveApiKey}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700"
-                    >
-                      <Key size={16} />
-                      {t.saveBtn}
-                    </button>
-                    <a
-                      href={PROVIDER_LINKS[provider]}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-emerald-700 transition-all hover:border-emerald-300 hover:bg-emerald-50"
-                    >
-                      {t.noKeyLink}
-                    </a>
-                  </div>
-                </div>
+                {showApiSettings && (
+                  <>
+                    <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 border border-emerald-100">
+                      Your API keys are encrypted in your account, synced across devices, and never shared with third parties.
+                    </p>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
+                        {t.apiProvider}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {PROVIDERS.map((providerName) => (
+                          <button
+                            key={providerName}
+                            type="button"
+                            onClick={() => { setProvider(providerName); setUserApiKey(apiKeys[providerName] || ''); }}
+                            className={cn(
+                              'px-3 py-2 text-xs font-bold rounded-xl border transition-all',
+                              provider === providerName
+                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                                : 'bg-white border-zinc-200 text-zinc-600 hover:border-emerald-200'
+                            )}
+                          >
+                            {providerName.charAt(0).toUpperCase() + providerName.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <input
+                        type="password"
+                        placeholder={PROVIDER_PLACEHOLDERS[provider]}
+                        value={userApiKey}
+                        onChange={(e) => setUserApiKey(e.target.value)}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400"
+                      />
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <button
+                          type="button"
+                          onClick={onSaveApiKey}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700"
+                        >
+                          <Key size={16} />
+                          {t.saveBtn}
+                        </button>
+                        <a
+                          href={PROVIDER_LINKS[provider]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-emerald-700 transition-all hover:border-emerald-300 hover:bg-emerald-50"
+                        >
+                          {t.noKeyLink}
+                        </a>
+                      </div>
+                    </div>
+                  </>
+                )}
               </section>
 
               {/* Activity insights */}

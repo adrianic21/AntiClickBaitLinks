@@ -297,7 +297,8 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
   }
 
   const data = await fetchResponse.json();
-  return { text: data.text || '', title: data.title || deriveTitleFromUrl(url), type: data.type || contentType };
+  const resolvedTitle = typeof data.title === 'string' ? data.title.trim() : '';
+  return { text: data.text || '', title: resolvedTitle, type: data.type || contentType };
 }
 
 // ─── Fetch PDF from uploaded file (base64) ───────────────────────────────────

@@ -943,7 +943,7 @@ export function useAppState() {
         .then(data => {
           setServerRemaining(data.remaining ?? null);
           if (data.resetAt) setServerResetAt(data.resetAt);
-          if (!data.allowed) openLockModal();
+          if (!data.allowed || data.remaining === 0) openLockModal();
         })
         .catch(() => undefined);
     }
@@ -1108,7 +1108,7 @@ export function useAppState() {
           .then(data => {
             setServerRemaining(data.remaining ?? null);
             if (data.resetAt) setServerResetAt(data.resetAt);
-            if (!data.allowed) openLockModal();
+            if (!data.allowed || data.remaining === 0) openLockModal();
           })
           .catch(() => undefined);
       }

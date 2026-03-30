@@ -5,11 +5,33 @@
 }
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+  }
+
   body {
     @apply bg-zinc-50 text-zinc-900 antialiased;
+  }
+
+  .dark body {
+    @apply bg-zinc-950 text-zinc-100;
   }
 }
 
 .glass {
   @apply bg-white/80 backdrop-blur-md border border-zinc-200 shadow-sm;
+}
+
+.dark .glass {
+  @apply bg-zinc-900/80 border-zinc-800 shadow-black/20;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  @apply bg-zinc-950 text-zinc-100 border-zinc-800 placeholder:text-zinc-500;
 }

@@ -35,7 +35,6 @@ export default function App() {
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     preferredLength, setPreferredLength, setSummaryLanguage,
-    isDarkMode, setDarkMode,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleShare,
     updateDisplayName,
@@ -69,14 +68,14 @@ export default function App() {
   }
 
   return (
-    <div className={cn("min-h-screen flex flex-col items-center justify-start pt-32 sm:pt-36 p-6 sm:p-12 transition-colors", isDarkMode && "dark")}>
+    <div className="min-h-screen flex flex-col items-center justify-start px-6 pb-6 pt-0 sm:px-12 sm:pb-12">
 
       {/* Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-white via-white to-emerald-100 dark:from-zinc-950 dark:via-zinc-950 dark:to-emerald-950/60" />
-        <div className="absolute bottom-0 left-0 w-full h-[50%] bg-gradient-to-t from-emerald-200/70 via-emerald-100/40 to-transparent dark:from-emerald-900/30 dark:via-emerald-950/10" />
-        <div className="absolute -bottom-[20%] -left-[10%] w-[50%] h-[50%] bg-emerald-300/25 rounded-full blur-3xl dark:bg-emerald-500/15" />
-        <div className="absolute -bottom-[10%] right-[5%] w-[35%] h-[35%] bg-teal-200/25 rounded-full blur-3xl dark:bg-teal-500/10" />
+        <div className="absolute inset-0 bg-gradient-to-b from-white via-white to-emerald-100" />
+        <div className="absolute bottom-0 left-0 w-full h-[50%] bg-gradient-to-t from-emerald-200/70 via-emerald-100/40 to-transparent" />
+        <div className="absolute -bottom-[20%] -left-[10%] w-[50%] h-[50%] bg-emerald-300/25 rounded-full blur-3xl" />
+        <div className="absolute -bottom-[10%] right-[5%] w-[35%] h-[35%] bg-teal-200/25 rounded-full blur-3xl" />
       </div>
 
       {/* Auth modal */}
@@ -117,28 +116,27 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Top bar */}
-      <TopBar
-        t={t}
-        isPremium={isPremium}
-        remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
-        showInfo={showInfo}
-        showLangMenu={showLangMenu}
-        showProfile={showProfile}
-        showFeed={showFeed}
-        showStatusPopover={showStatusPopover}
-        uiLanguage={uiLanguage}
-        isDarkMode={isDarkMode}
-        timeLeft={timeLeft}
-        nextResetTime={nextResetTime}
-        togglePopup={togglePopup}
-        setShowStatusPopover={(v) => openPopup(v ? 'status' : '')}
-        setShowLangMenu={(v) => openPopup(v ? 'lang' : '')}
-        setDarkMode={setDarkMode}
-        openLockModal={openLockModal}
-        changeUiLanguage={changeUiLanguage}
-        currentUser={currentUser}
-      />
+      <div className="sticky top-0 z-40 w-full py-4 sm:py-6">
+        <TopBar
+          t={t}
+          isPremium={isPremium}
+          remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+          showInfo={showInfo}
+          showLangMenu={showLangMenu}
+          showProfile={showProfile}
+          showFeed={showFeed}
+          showStatusPopover={showStatusPopover}
+          uiLanguage={uiLanguage}
+          timeLeft={timeLeft}
+          nextResetTime={nextResetTime}
+          togglePopup={togglePopup}
+          setShowStatusPopover={(v) => openPopup(v ? 'status' : '')}
+          setShowLangMenu={(v) => openPopup(v ? 'lang' : '')}
+          openLockModal={openLockModal}
+          changeUiLanguage={changeUiLanguage}
+          currentUser={currentUser}
+        />
+      </div>
 
       <FeedModal
         t={t}
@@ -270,8 +268,8 @@ export default function App() {
           >
             <ShieldCheck size={32} />
           </button>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">{t.title}</h1>
-          <p className="mx-auto max-w-xl text-sm text-zinc-500 dark:text-zinc-300">
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-zinc-900">{t.title}</h1>
+          <p className="mx-auto max-w-xl text-sm text-zinc-500">
             {(t as any).platformsDesc || 'Use AntiClickBaitLinks on the web, with the browser extension, and with native apps for Android, iPhone/iPad and Windows.'}
           </p>
         </div>

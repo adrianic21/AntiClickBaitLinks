@@ -59,11 +59,11 @@ export function AuthGate({
       return;
     }
     if (!email) {
-      setResetMessage('Introduce tu email para restablecer la contraseña.');
+      setResetMessage('Enter your email to reset the password.');
       return;
     }
     if (!password || password.length < 8) {
-      setResetMessage('La nueva contraseña debe tener al menos 8 caracteres.');
+      setResetMessage('Your new password must be at least 8 characters long.');
       return;
     }
     try {
@@ -76,13 +76,13 @@ export function AuthGate({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.error || 'No se pudo restablecer la contraseña.');
+        throw new Error(data.error || 'We could not reset your password.');
       }
       setResetMessage('Password updated. You can sign in now.');
       onModeChange('login');
       onPasswordChange('');
     } catch (err: any) {
-      setResetMessage(err?.message || 'No se pudo restablecer la contraseña.');
+      setResetMessage(err?.message || 'We could not reset your password.');
     } finally {
       setResetLoading(false);
     }
@@ -109,7 +109,7 @@ export function AuthGate({
               {(resetMode || t.authDescription) && (
                 <p className="text-sm text-zinc-500">
                   {resetMode
-                    ? 'Elige una nueva contraseña para tu cuenta.'
+                    ? 'Choose a new password for your account.'
                     : t.authDescription}
                 </p>
               )}
@@ -169,7 +169,7 @@ export function AuthGate({
             onChange={(event) => onPasswordChange(event.target.value)}
             placeholder={
               resetMode
-                ? 'Nueva contraseña'
+                ? 'New password'
                 : (t.authPasswordPlaceholder || 'Password')
             }
             className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-400"

@@ -14,7 +14,7 @@ import { FeedModal } from './components/FeedModal';
 export default function App() {
   const state = useAppState();
   const {
-    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult, appInsights, summary, articleTitle, isLoading, error,
+    url, setUrl, uiLanguage, deepResearchEnabled, lieScore, investigationResult, appInsights, summary, articleTitle, isLoading, error,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
@@ -34,7 +34,7 @@ export default function App() {
     saveApiKey, changeUiLanguage,
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
     summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
-    preferredLength, setPreferredLength, setSummaryLanguage,
+    preferredLength, setPreferredLength,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleShare,
     updateDisplayName,
@@ -417,24 +417,6 @@ export default function App() {
           onShare={handleShare}
         />
 
-        {summary && (
-          <div className="flex items-center justify-center">
-            <label className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white/80 px-4 py-3 text-sm text-zinc-600 shadow-sm">
-              <span className="font-medium">{t.summaryLanguageLabel}</span>
-              <select
-                value={summaryLanguage}
-                onChange={(event) => setSummaryLanguage(event.target.value)}
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 outline-none focus:border-emerald-400"
-              >
-                {LANGUAGES.map((language) => (
-                  <option key={language.code} value={language.code}>
-                    {language.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
       </motion.div>
 
       <AnimatePresence>

@@ -86,7 +86,6 @@ interface AccountResponse {
       preferredLength?: 'short' | 'medium' | 'long';
       speechRate?: number;
       provider?: Provider;
-      darkMode?: boolean;
       deepResearchEnabled?: boolean;
       dontShowAgain?: boolean;
     };
@@ -113,7 +112,6 @@ export function useAppState() {
   const [currentLength, setCurrentLength] = useState<'short' | 'medium' | 'long' | 'child'>('short');
   const [preferredLength, setPreferredLengthState] = useState<'short' | 'medium' | 'long'>('short');
   const [summaryLanguage, setSummaryLanguageState] = useState('English');
-  const [isDarkMode, setIsDarkModeState] = useState(false);
   const [deepResearchEnabled, setDeepResearchEnabled] = useState(false);
   const [lieScore, setLieScore] = useState(0);
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
@@ -193,8 +191,6 @@ export function useAppState() {
         merged.originalTitle = 'Título original';
       }
       Object.assign(merged as Record<string, unknown>, {
-        darkModeOn: (merged as any).darkModeOn || 'Dark mode',
-        darkModeOff: (merged as any).darkModeOff || 'Light mode',
         platformsTitle: (merged as any).platformsTitle || 'Available everywhere',
         platformsDesc: (merged as any).platformsDesc || 'Use AntiClickBaitLinks on the web, with the browser extension, and with native apps for Android, iPhone/iPad and Windows.',
       });
@@ -342,6 +338,15 @@ export function useAppState() {
 
     const accountKeys = data.account?.apiKeys || {};
     setApiKeys(accountKeys);
+    const storedValidLookingKeys = Object.entries(accountKeys).reduce<ApiKeys>((acc, [providerName, keyValue]) => {
+      const trimmedKey = keyValue?.trim();
+      if (trimmedKey && trimmedKey !== 'undefined') {
+        acc[providerName as Provider] = trimmedKey;
+      }
+      return acc;
+    }, {});
+    setValidatedApiKeys(storedValidLookingKeys);
+    setIsKeySaved(Object.keys(storedValidLookingKeys).length > 0);
     const selectedProvider = (data.account?.preferences?.provider as Provider) || 'gemini';
     setProvider(selectedProvider);
     setUserApiKey(accountKeys[selectedProvider] || '');
@@ -351,7 +356,6 @@ export function useAppState() {
     if (data.account?.preferences?.summaryLanguage) setSummaryLanguageState(data.account.preferences.summaryLanguage);
     if (data.account?.preferences?.preferredLength) setPreferredLengthState(data.account.preferences.preferredLength);
     if (typeof data.account?.preferences?.speechRate === 'number') setSpeechRateState(data.account.preferences.speechRate);
-    if (typeof data.account?.preferences?.darkMode === 'boolean') setIsDarkModeState(data.account.preferences.darkMode);
     if (typeof data.account?.preferences?.deepResearchEnabled === 'boolean') setDeepResearchEnabled(data.account.preferences.deepResearchEnabled);
     if (typeof data.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(data.account.preferences.dontShowAgain);
 
@@ -467,11 +471,6 @@ export function useAppState() {
       setSummaryLanguageState(savedLang);
     }
 
-    const savedDarkMode = localStorage.getItem('dark_mode');
-    if (savedDarkMode === 'true' || savedDarkMode === 'false') {
-      setIsDarkModeState(savedDarkMode === 'true');
-    }
-
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
 
@@ -506,11 +505,6 @@ export function useAppState() {
         setIsAuthLoading(false);
       });
   }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDarkMode);
-    document.documentElement.dataset.theme = isDarkMode ? 'dark' : 'light';
-  }, [isDarkMode]);
 
   // ─── Countdown timer — runs whenever there's a resetAt, not just on lock modal ─
   useEffect(() => {
@@ -674,12 +668,6 @@ export function useAppState() {
       setShowLangMenu(false);
     }
   }, [showOnboardingLang, syncAccount]);
-
-  const setDarkMode = useCallback((enabled: boolean) => {
-    setIsDarkModeState(enabled);
-    localStorage.setItem('dark_mode', enabled ? 'true' : 'false');
-    syncAccount({ preferences: { darkMode: enabled } }).catch(() => undefined);
-  }, [syncAccount]);
 
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
@@ -1244,7 +1232,6 @@ export function useAppState() {
   return {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
-    isDarkMode, setDarkMode,
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,

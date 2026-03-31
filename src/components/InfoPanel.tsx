@@ -33,24 +33,24 @@ const API_LINKS = [
 const INFO_FAQ = {
   Spanish: [
     {
-      q: 'Por que necesito una cuenta?',
-      a: 'Tu cuenta sincroniza tus API Keys, tu feed diario, el idioma, el estado Premium y las preferencias entre dispositivos.',
+      q: '¿Por qué necesito una cuenta?',
+      a: 'Tu cuenta sincroniza tus API Keys, feed diario, idioma, estado Premium y preferencias entre dispositivos.',
     },
     {
-      q: 'Por que necesito una API Key?',
-      a: 'La app usa proveedores externos de IA como Gemini, DeepSeek, OpenRouter o Mistral para generar resumenes y procesar el contenido.',
+      q: '¿Por qué necesito una API Key?',
+      a: 'La app utiliza proveedores externos de IA (Gemini, DeepSeek, OpenRouter y Mistral) para generar resúmenes y procesar contenido.',
     },
     {
-      q: 'Que enlaces se pueden resumir?',
-      a: 'La app funciona con articulos y noticias, PDFs con texto, videos de YouTube compatibles con subtitulos y elementos del Feed Diario.',
+      q: '¿Qué enlaces se pueden resumir?',
+      a: 'Funciona con artículos y noticias, PDFs con texto, vídeos de YouTube compatibles con subtítulos y elementos del Feed Diario.',
     },
     {
-      q: 'Por que a veces falla un enlace?',
-      a: 'Algunas webs bloquean la extraccion automatica o muestran contenido parcial. Si ocurre, prueba el enlace directo al articulo o cambia de proveedor.',
+      q: '¿Por qué falla un enlace?',
+      a: 'Algunas webs bloquean la extracción automática o entregan contenido parcial. Si sucede, prueba con el enlace directo del artículo o cambia de proveedor.',
     },
     {
-      q: 'Como funciona el limite gratuito?',
-      a: 'Las cuentas gratuitas disponen de un numero diario de resumenes. La app te muestra las busquedas restantes y la cuenta atras hasta el siguiente reinicio.',
+      q: '¿Cómo funciona el límite gratuito?',
+      a: 'Las cuentas gratuitas tienen un número diario de resúmenes. La app muestra las búsquedas restantes y la cuenta atrás hasta el próximo reinicio.',
     },
   ],
   English: [
@@ -79,12 +79,12 @@ const INFO_FAQ = {
 
 const INFO_USE_CASES = {
   Spanish: [
-    { title: 'Titulares antes de compartir', desc: 'Comprueba una noticia antes de enviarla por WhatsApp, Telegram o redes sociales.' },
-    { title: 'Estudios y contenido tecnico', desc: 'Resume papers, informes o articulos densos sin tener que leerlos enteros antes.' },
-    { title: 'YouTube con subtitulos', desc: 'Entiende entrevistas, documentales o conferencias compatibles antes de dedicarles tiempo.' },
-    { title: 'Fuentes en otros idiomas', desc: 'Pega el enlace original y recibe el resumen en el idioma que usas en la app.' },
-    { title: 'PDFs y documentos', desc: 'Sube contratos, informes o material academico y obten las ideas clave rapidamente.' },
-    { title: 'Feed Diario', desc: 'Conecta tus webs favoritas, revisa titulares desde un solo lugar y resume solo lo importante.' },
+    { title: 'Verifica titulares antes de compartir', desc: 'Comprueba rápidamente un titular antes de enviarlo por WhatsApp, Telegram o redes sociales.' },
+    { title: 'Resumen de documentos técnicos', desc: 'Resume informes, estudios y artículos complejos para entender lo esencial sin leer todo.' },
+    { title: 'YouTube con subtítulos', desc: 'Analiza vídeos compatibles con subtítulos para captar la idea principal antes de verlos.' },
+    { title: 'Contenido en otros idiomas', desc: 'Pega el enlace original y recibe el resumen en el idioma de la app.' },
+    { title: 'PDFs y documentos', desc: 'Sube contratos, propuestas o material académico y extrae los puntos clave al instante.' },
+    { title: 'Feed Diario', desc: 'Conecta tus sitios favoritos, revisa titulares en un solo lugar y resume solo lo importante.' },
   ],
   English: [
     { title: 'Headlines before sharing', desc: 'Check a story before sending it on WhatsApp, Telegram or social media.' },
@@ -116,30 +116,30 @@ export function InfoPanel({
       return {
         eyebrow: 'Sobre AntiClickBaitLinks',
         intro:
-          'AntiClickBaitLinks te ayuda a ver lo importante de una noticia, un PDF o un video compatible sin perder tiempo con titulares inflados o enlaces enganosos.',
-        aboutTitle: 'Que hace hoy la app',
+          'AntiClickBaitLinks identifica el contenido relevante de un enlace, PDF o vídeo compatible para que no pierdas tiempo con titulares sensacionalistas o páginas engañosas.',
+        aboutTitle: 'Qué hace la app',
         aboutPoints: [
-          'Resume articulos y noticias pegando el enlace directo.',
-          'Lee PDFs con texto y videos de YouTube que tengan subtitulos disponibles.',
-          'Sincroniza tu cuenta, tus API Keys, tu feed diario y tus preferencias entre dispositivos.',
-          'Muestra limites gratuitos claros y una cuenta atras hasta el siguiente reinicio.',
+          'Resume artículos y noticias a partir de enlaces directos.',
+          'Procesa PDFs con texto y vídeos de YouTube compatibles con subtítulos.',
+          'Sincroniza cuenta, API Keys, feed diario y preferencias entre dispositivos.',
+          'Muestra tu límite gratuito y el tiempo restante hasta el próximo reinicio.',
         ],
-        howTitle: 'Como usarlo',
-        howStep1Title: '1. Entra en tu cuenta',
+        howTitle: 'Cómo usarlo',
+        howStep1Title: '1. Inicia sesión',
         howStep1Desc:
-          'Tu cuenta mantiene sincronizados el idioma, el feed diario, el estado Premium y tus proveedores activos.',
+          'Tu cuenta mantiene sincronizados idioma, feed diario, estado Premium y proveedores activos.',
         howStep2Title: '2. Activa al menos un proveedor',
         howStep2Desc:
-          'Guarda una API Key valida en tu perfil. Puedes activar varios proveedores para que la app tenga una alternativa si alguno falla o se queda sin cuota.',
+          'Guarda una API Key válida en tu perfil. Puedes activar varios proveedores para que la app cambie automáticamente si uno falla o agota cuota.',
         faqLabel: 'FAQ',
         tipsLabel: 'Tips',
         aboutTab: 'Sobre',
-        platformsTitle: 'Disponible en mas sitios',
+        platformsTitle: 'Disponible más allá de la web',
         platformsDesc:
-          'Ademas de la web, puedes usar AntiClickBaitLinks con extension de navegador y con apps nativas para Android, iPhone/iPad y Windows.',
+          'Además de la web, puedes usar AntiClickBaitLinks con la extensión de navegador y apps nativas para Android, iPhone/iPad y Windows.',
         premiumTitle: 'Premium',
         premiumDesc:
-          'Premium elimina el limite diario gratuito con un unico pago y mantiene tu acceso vinculado a tu cuenta.',
+          'Premium elimina el límite diario gratuito con un pago único y mantiene tu acceso siempre vinculado a tu cuenta.',
       };
     }
 

@@ -16,6 +16,7 @@ import {
   findCachedSummary,
   getProviderMetrics,
   recordProviderMetric,
+  recordProviderMetrics,
   recordSavedSummary,
   saveCachedSummary,
   type AppInsights,
@@ -55,6 +56,29 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+
+  const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const runWorker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  };
+
+  await Promise.all(Array.from({ length: safeConcurrency }, () => runWorker()));
+  return results;
 }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
@@ -175,6 +199,7 @@ export function useAppState() {
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
+  const apiValidationCacheRef = useRef<Partial<Record<Provider, string>>>({});
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
@@ -271,7 +296,15 @@ export function useAppState() {
       (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
         const trimmedKey = keyValue?.trim();
         if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
+        if (apiValidationCacheRef.current[providerName] === trimmedKey) {
+          return [providerName, trimmedKey] as const;
+        }
         const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
+        if (isValid) {
+          apiValidationCacheRef.current[providerName] = trimmedKey;
+        } else {
+          delete apiValidationCacheRef.current[providerName];
+        }
         return [providerName, isValid ? trimmedKey : undefined] as const;
       })
     );
@@ -613,6 +646,7 @@ export function useAppState() {
     setIsPremium(false);
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
+    apiValidationCacheRef.current = {};
   }, [openPopup]);
 
   const saveApiKey = useCallback(async () => {
@@ -639,9 +673,11 @@ export function useAppState() {
     if (trimmedKey) {
       newKeys[provider] = trimmedKey;
       localStorage.setItem(`api_key_${provider}`, trimmedKey);
+      apiValidationCacheRef.current[provider] = trimmedKey;
     } else {
       delete newKeys[provider];
       localStorage.removeItem(`api_key_${provider}`);
+      delete apiValidationCacheRef.current[provider];
     }
     setApiKeys(newKeys);
     const nextValidatedKeys = { ...validatedApiKeys };
@@ -901,12 +937,8 @@ export function useAppState() {
     setIsLoading(true);
     setLoadingProgress(5);
 
-    const results: Array<{ url: string; title: string; summary: string }> = [];
-
-    for (let i = 0; i < unique.length; i++) {
-      const feedUrl = unique[i];
-      setLoadingProgress(Math.round(5 + (i / unique.length) * 90));
-
+    const progressRef = { completed: 0 };
+    const settledResults = await mapWithConcurrency(unique, 3, async (feedUrl) => {
       try {
         const result = await summarizeUrl(
           feedUrl,
@@ -917,15 +949,19 @@ export function useAppState() {
           undefined,
           providerPriority
         );
-        results.push({
+        return {
           url: feedUrl,
           title: result.title || feedUrl,
           summary: result.summary,
-        });
+        };
       } catch {
-        // Skip failed URLs silently
+        return null;
+      } finally {
+        progressRef.completed += 1;
+        setLoadingProgress(Math.round(5 + (progressRef.completed / unique.length) * 90));
       }
-    }
+    });
+    const results = settledResults.filter(Boolean) as Array<{ url: string; title: string; summary: string }>;
 
     setLoadingProgress(100);
     setIsMultiFeedSummarizing(false);
@@ -1076,11 +1112,13 @@ export function useAppState() {
       summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
       saveCachedSummary({ key: cacheKey, summary: summaryResult.summary, title: resolvedTitle, createdAt: Date.now() });
 
-      for (const attemptedProvider of summaryResult.attemptedProviders) {
-        recordProviderMetric(attemptedProvider, 'attempt');
+      const metricOperations: Array<[Provider, 'attempt' | 'success' | 'fallback' | 'auth_failure' | 'transient_failure']> =
+        summaryResult.attemptedProviders.map((attemptedProvider) => [attemptedProvider, 'attempt']);
+      if (summaryResult.providerUsed !== provider) {
+        metricOperations.push([provider, 'fallback']);
       }
-      if (summaryResult.providerUsed !== provider) recordProviderMetric(provider, 'fallback');
-      recordProviderMetric(summaryResult.providerUsed, 'success');
+      metricOperations.push([summaryResult.providerUsed, 'success']);
+      recordProviderMetrics(metricOperations);
       setProviderMetrics(getProviderMetrics());
 
       const minutesSaved = estimateMinutesSaved(summaryResult.articleLength, summaryResult.summary.length);

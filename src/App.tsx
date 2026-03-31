@@ -67,7 +67,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start pt-32 sm:pt-36 p-6 sm:p-12">
+    <div className="min-h-screen flex flex-col items-center justify-start pt-8 sm:pt-10 p-6 sm:p-12">
 
       {/* Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
@@ -115,6 +115,8 @@ export default function App() {
         setShowLangMenu={(v) => openPopup(v ? 'lang' : '')}
         openLockModal={openLockModal} changeUiLanguage={changeUiLanguage} currentUser={currentUser}
       />
+
+      <div className="w-full max-w-5xl h-[1.5px] rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-500/70 shadow-sm shadow-emerald-300/40 my-6" />
 
       <FeedModal
         t={t} show={showFeed} onClose={() => openPopup('')}
@@ -192,7 +194,7 @@ export default function App() {
       {/* Main content */}
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-2xl space-y-6 sm:space-y-8"
+        className="w-full max-w-2xl space-y-6 sm:space-y-8 mt-10"
       >
         {/* Logo + title */}
         <div className="text-center space-y-2 sm:space-y-4">

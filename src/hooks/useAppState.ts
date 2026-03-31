@@ -149,8 +149,10 @@ export function useAppState() {
 
   // Premium / limits
   const [isPremium, setIsPremium] = useState(false);
+  // FIX: Stable ref so async callbacks always read the latest isPremium value
+  const isPremiumRef = useRef(false);
   const [showLockModal, setShowLockModal] = useState(false);
-  // Sentinel (-1) means limits not yet loaded from server
+  // FIX: Use LIMITS_LOADING sentinel (-1) to avoid showing 10/10 before server responds
   const [serverRemaining, setServerRemaining] = useState<number>(LIMITS_LOADING);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState('');
@@ -171,6 +173,7 @@ export function useAppState() {
   const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
   const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
+  // FIX: Track multiple feed summaries to display them all together
   const [feedSummaryResults, setFeedSummaryResults] = useState<Array<{ url: string; title: string; summary: string }>>([]);
   const [isMultiFeedSummarizing, setIsMultiFeedSummarizing] = useState(false);
 
@@ -179,8 +182,10 @@ export function useAppState() {
   const lastAutoSummarizedUrlRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // FIX #3: ref to track the current feed refresh request so stale responses are discarded
-  const feedRefreshIdRef = useRef<number>(0);
+  // FIX: Keep isPremiumRef in sync with isPremium state for stable async access
+  useEffect(() => {
+    isPremiumRef.current = isPremium;
+  }, [isPremium]);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
@@ -197,11 +202,10 @@ export function useAppState() {
     [uiLanguage]
   );
 
-  // FIX #2: remainingSearches correctly distinguishes loading (-1), zero, and positive values.
-  // Components must check `=== LIMITS_LOADING` before treating 0 as exhausted.
+  // FIX: Show loading state (null) until server responds, never default to 10
   const remainingSearches = useMemo(() => {
     if (isPremium) return Infinity;
-    // Return sentinel as-is so UI can show loading state
+    if (serverRemaining === LIMITS_LOADING) return LIMITS_LOADING; // still loading
     return serverRemaining;
   }, [isPremium, serverRemaining]);
 
@@ -288,11 +292,10 @@ export function useAppState() {
     return nextValidatedKeys;
   }, []);
 
-  // FIX #4: validatePremiumSession no longer auto-grants premium on network/server errors.
-  // On error, it preserves the previously known state rather than returning true.
   const validatePremiumSession = useCallback(async (): Promise<boolean> => {
     const savedToken = localStorage.getItem('premium_token');
-    if (!savedToken) return isPremium;
+    // FIX: Use isPremiumRef.current for stable async access instead of stale closure value
+    if (!savedToken) return isPremiumRef.current;
 
     try {
       const res = await fetch('/api/validate-token', {
@@ -300,18 +303,9 @@ export function useAppState() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: savedToken, deviceId: getDeviceId() }),
       });
-
-      // Only trust a successful 2xx response
-      if (!res.ok) {
-        // Server error (5xx) or unexpected status — preserve current state, do not grant
-        console.warn('Premium validation returned non-OK status:', res.status);
-        return isPremium;
-      }
-
       const data = await res.json();
       if (data.valid) return true;
 
-      // Explicit invalid response from server — revoke premium
       setIsPremium(false);
       localStorage.removeItem('is_premium');
       localStorage.removeItem('premium_token');
@@ -322,11 +316,10 @@ export function useAppState() {
       }
       return false;
     } catch {
-      // Network/parse error — preserve current known state, do NOT grant premium
-      console.warn('Premium validation failed due to network error, preserving current state.');
-      return isPremium;
+      // FIX: Use isPremiumRef.current for stable fallback in async error path
+      return isPremiumRef.current;
     }
-  }, [isPremium]);
+  }, []);
 
   const syncAccount = useCallback(async (payload: Record<string, unknown>) => {
     if (!currentUser) return;
@@ -341,6 +334,7 @@ export function useAppState() {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
     setIsPremium(premiumEnabled);
+    isPremiumRef.current = premiumEnabled;
     localStorage.setItem('is_premium', premiumEnabled ? 'true' : 'false');
     if (data.account?.premium?.token) {
       localStorage.setItem('premium_token', data.account.premium.token);
@@ -365,11 +359,11 @@ export function useAppState() {
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
 
-    // FIX #1: Remove isPremium from client request — backend derives it from session
+    // FIX: Fetch limits right after account loads; set sentinel in the meantime
     fetch('/api/check-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ record: false }),
+      body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
       .then(limitData => {
@@ -421,17 +415,6 @@ export function useAppState() {
     const currentUrl = new URL(window.location.href);
     const params = currentUrl.searchParams;
     const authErrorParam = params.get('authError') || '';
-
-    // FIX #5: Only clean the URL when there are share/auth params to process,
-    // and only replace state once — never strip unrelated query params.
-    const hasShareParams =
-      params.has('shared') ||
-      params.has('url') ||
-      params.has('text') ||
-      params.has('sharedText') ||
-      currentUrl.pathname === '/share-target';
-    const hasAuthParams = Boolean(authErrorParam) || params.get('auth') === 'success';
-
     const sharedCandidate = params.get('shared')
       || params.get('url')
       || extractUrlFromText(params.get('text') || '')
@@ -446,8 +429,7 @@ export function useAppState() {
       else if (authErrorParam === 'google_profile_failed') message = 'Google sign-in reached Google but could not read the user profile.';
       else if (authErrorParam === 'google_access_denied') message = 'Google sign-in was cancelled before finishing.';
       setAuthError(message);
-      // Only replace state when we have auth params to clean up
-      if (hasAuthParams) window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', '/');
       return;
     }
 
@@ -455,16 +437,12 @@ export function useAppState() {
       setPendingSharedUrl(sharedCandidate);
       setUrl(sharedCandidate);
       setShowSharedToast(true);
-      // Only clean up when we actually processed share params
-      if (hasShareParams || hasAuthParams) window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', '/');
     } else if (sharedTextCandidate.trim()) {
       const normalizedText = sharedTextCandidate.trim();
       setPendingSharedText(normalizedText);
       setUrl(normalizedText);
       setShowSharedToast(true);
-      if (hasShareParams || hasAuthParams) window.history.replaceState({}, '', '/');
-    } else if (hasAuthParams && params.get('auth') === 'success') {
-      // Clean up auth=success param after successful OAuth redirect
       window.history.replaceState({}, '', '/');
     }
 
@@ -501,11 +479,11 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
-          // FIX #1: Remove isPremium from client request — backend derives it from session
+          // FIX: Still fetch limits for anonymous users
           fetch('/api/check-limit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ record: false }),
+            body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
             .then(limitData => {
@@ -525,7 +503,7 @@ export function useAppState() {
       });
   }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer ────────────────────────────────────────────────────────
+  // ─── Countdown timer — runs whenever there's a resetAt, not just on lock modal ─
   useEffect(() => {
     if (!serverResetAt) return;
     const update = () => {
@@ -622,6 +600,7 @@ export function useAppState() {
     setFeedSources([]);
     setDailyFeedItems([]);
     setIsPremium(false);
+    isPremiumRef.current = false;
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
   }, [openPopup]);
@@ -680,19 +659,15 @@ export function useAppState() {
     }
   }, [showOnboardingLang, syncAccount]);
 
-  // FIX #2: checkUsageLimit correctly distinguishes LIMITS_LOADING from 0.
-  // While loading, we allow the action (do not false-block).
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
-    // Still loading from server — allow the action, server will enforce on record
-    if (serverRemaining === LIMITS_LOADING) return true;
-    // Explicitly exhausted with a known reset time
-    if (serverRemaining <= 0 && serverResetAt) {
+    // FIX: Only trigger lock when serverRemaining is exactly 0 (not LIMITS_LOADING sentinel)
+    if (serverRemaining === 0) {
       openLockModal();
       return false;
     }
     return true;
-  }, [isPremium, serverRemaining, serverResetAt, openLockModal]);
+  }, [isPremium, serverRemaining, openLockModal]);
 
   const handleUnlock = useCallback(async () => {
     if (!unlockPass.trim()) return;
@@ -706,6 +681,7 @@ export function useAppState() {
       const data = await res.json();
       if (data.valid) {
         setIsPremium(true);
+        isPremiumRef.current = true;
         localStorage.setItem('is_premium', 'true');
         localStorage.setItem('premium_token', unlockPass.trim());
         syncAccount({ premium: { isPremium: true, token: unlockPass.trim() } }).catch(() => undefined);
@@ -791,8 +767,6 @@ export function useAppState() {
     syncAccount({ feedSources: nextSources }).catch(() => undefined);
   }, [syncAccount]);
 
-  // FIX #3: Each refresh call gets a unique requestId. State is only updated if the
-  // response belongs to the most recent call, discarding any stale in-flight responses.
   const refreshDailyFeed = useCallback(async () => {
     const enabledSources = feedSources.filter((source) => source.enabled);
     if (enabledSources.length === 0) {
@@ -800,10 +774,6 @@ export function useAppState() {
       setFeedError(null);
       return;
     }
-
-    // Increment the request ID and capture it for this invocation
-    feedRefreshIdRef.current += 1;
-    const thisRequestId = feedRefreshIdRef.current;
 
     setIsFeedLoading(true);
     setFeedError(null);
@@ -837,9 +807,6 @@ export function useAppState() {
         })
       );
 
-      // FIX #3: Discard stale response if a newer refresh has been initiated
-      if (thisRequestId !== feedRefreshIdRef.current) return;
-
       const deduped = new Map<string, DailyFeedItem>();
       for (const items of responses.flat()) {
         if (!deduped.has(items.url)) deduped.set(items.url, items);
@@ -855,14 +822,9 @@ export function useAppState() {
 
       setDailyFeedItems(nextItems);
     } catch (err: any) {
-      // FIX #3: Only set error state if this is still the current request
-      if (thisRequestId !== feedRefreshIdRef.current) return;
       setFeedError(err?.message || 'Could not load the selected feed.');
     } finally {
-      // FIX #3: Only clear loading state if this is still the current request
-      if (thisRequestId === feedRefreshIdRef.current) {
-        setIsFeedLoading(false);
-      }
+      setIsFeedLoading(false);
     }
   }, [feedSources]);
 
@@ -891,10 +853,13 @@ export function useAppState() {
     setShowSharedToast(true);
   }, []);
 
+  // FIX: summarizeManyFeedItems — generates individual summaries for each URL,
+  // collects them all, then navigates to the combined result and closes the feed popup.
   const summarizeManyFeedItems = useCallback(async (urls: string[]) => {
     const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
     if (unique.length === 0) return;
 
+    // Close feed popup and show loading state
     openPopup('');
     setIsMultiFeedSummarizing(true);
     setFeedSummaryResults([]);
@@ -936,6 +901,7 @@ export function useAppState() {
     setFeedSummaryResults(results);
 
     if (results.length > 0) {
+      // Combine all summaries into a single display
       const combined = results
         .map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`)
         .join('\n\n---\n\n');
@@ -946,17 +912,16 @@ export function useAppState() {
       setError(t.genericError);
     }
 
-    // FIX #1: Remove isPremium from client request
+    // Update usage counter
     if (!isPremium) {
       fetch('/api/check-limit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record: true, deviceId: getDeviceId() }),
+        body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
       })
         .then(r => r.json())
         .then(data => {
-          // FIX #2: Only update remaining if we got a valid number, not loading sentinel
-          if (typeof data.remaining === 'number') setServerRemaining(data.remaining);
+          setServerRemaining(data.remaining ?? null);
           if (data.resetAt) setServerResetAt(data.resetAt);
           if (!data.allowed) openLockModal();
         })
@@ -1111,23 +1076,25 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      // FIX #1: Remove isPremium from client request — backend derives it from session
+      // FIX: Record usage BEFORE investigation so it's always counted on success,
+      // even if investigateClaim throws afterwards.
       if (!isPremium) {
         fetch('/api/check-limit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ record: true, deviceId: getDeviceId() }),
+          body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
           .then(data => {
-            // FIX #2: Only update remaining when we got an explicit number from server
-            if (typeof data.remaining === 'number') setServerRemaining(data.remaining);
+            setServerRemaining(data.remaining ?? null);
             if (data.resetAt) setServerResetAt(data.resetAt);
             if (!data.allowed) openLockModal();
           })
           .catch(() => undefined);
       }
 
+      // FIX: Wrap investigateClaim in its own try/catch so a failure here never
+      // overwrites a successful summary with genericError.
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         try {
           const investigation = await investigateClaim(finalUrl, resolvedTitle || finalUrl, summaryResult.summary, apiKeys, providerPriority);

@@ -22,13 +22,11 @@ import {
   type ProviderMetrics,
 } from '../lib/appInsights';
 import {
-  addFeedSource as persistFeedSource,
-  removeFeedSource as deleteFeedSource,
-  toggleFeedSource as persistFeedSourceToggle,
   type DailyFeedItem,
   type FeedSource,
   type FeedSourceType,
 } from '../lib/feedSources';
+import { useFeedState } from './useFeedState';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
 function getDeviceId(): string {
@@ -117,10 +115,6 @@ export function useAppState() {
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
   const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0 });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
-  const [feedSources, setFeedSources] = useState<FeedSource[]>([]);
-  const [dailyFeedItems, setDailyFeedItems] = useState<DailyFeedItem[]>([]);
-  const [isFeedLoading, setIsFeedLoading] = useState(false);
-  const [feedError, setFeedError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -129,6 +123,8 @@ export function useAppState() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
+  const clearPasswordResetToken = useCallback(() => setPasswordResetToken(null), []);
 
   // API
   const [userApiKey, setUserApiKey] = useState('');
@@ -333,6 +329,21 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
+  const feedState = useFeedState(syncAccount);
+  const {
+    feedSources,
+    dailyFeedItems,
+    isFeedLoading,
+    feedError,
+    addFeedSource,
+    removeFeedSource,
+    toggleFeedSource,
+    refreshDailyFeed,
+    updateFeedSourceItemsPerLoad,
+    setFeedSources,
+    setDailyFeedItems,
+  } = feedState;
+
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
@@ -418,11 +429,20 @@ export function useAppState() {
     const currentUrl = new URL(window.location.href);
     const params = currentUrl.searchParams;
     const authErrorParam = params.get('authError') || '';
+    const resetTokenParam = params.get('resetToken')?.trim() || '';
     const sharedCandidate = params.get('shared')
       || params.get('url')
       || extractUrlFromText(params.get('text') || '')
       || (currentUrl.pathname === '/share-target' ? extractUrlFromText(params.get('title') || '') : '');
     const sharedTextCandidate = params.get('sharedText') || '';
+
+    if (resetTokenParam) {
+      setPasswordResetToken(resetTokenParam);
+      setShowAuthModal(true);
+      setAuthMode('login');
+      window.history.replaceState({}, '', currentUrl.pathname);
+      return;
+    }
 
     if (authErrorParam) {
       let message = 'We could not complete that sign-in. Please try again.';
@@ -632,17 +652,14 @@ export function useAppState() {
     const newKeys = { ...apiKeys };
     if (trimmedKey) {
       newKeys[provider] = trimmedKey;
-      localStorage.setItem(`api_key_${provider}`, trimmedKey);
     } else {
       delete newKeys[provider];
-      localStorage.removeItem(`api_key_${provider}`);
     }
     setApiKeys(newKeys);
     const nextValidatedKeys = { ...validatedApiKeys };
     if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
     else delete nextValidatedKeys[provider];
     setValidatedApiKeys(nextValidatedKeys);
-    localStorage.setItem('api_provider', provider);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
     await syncAccount({ apiKeys: newKeys, preferences: { provider } });
     setError(null);
@@ -744,103 +761,6 @@ export function useAppState() {
     localStorage.setItem('speech_rate', String(rate));
     syncAccount({ preferences: { speechRate: rate } }).catch(() => undefined);
   }, [syncAccount]);
-
-  const addFeedSource = useCallback((name: string, sourceUrl: string, type: FeedSourceType) => {
-    const trimmedUrl = sourceUrl.trim();
-    if (!trimmedUrl) return;
-    const nextSources = persistFeedSource({
-      name: name.trim() || trimmedUrl,
-      url: trimmedUrl,
-      type,
-      enabled: true,
-    });
-    setFeedSources(nextSources);
-    setFeedError(null);
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [syncAccount]);
-
-  const removeFeedSource = useCallback((id: string) => {
-    const nextSources = deleteFeedSource(id);
-    setFeedSources(nextSources);
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [syncAccount]);
-
-  const toggleFeedSource = useCallback((id: string) => {
-    const nextSources = persistFeedSourceToggle(id);
-    setFeedSources(nextSources);
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [syncAccount]);
-
-  const refreshDailyFeed = useCallback(async () => {
-    const enabledSources = feedSources.filter((source) => source.enabled);
-    if (enabledSources.length === 0) {
-      setDailyFeedItems([]);
-      setFeedError(null);
-      return;
-    }
-
-    setIsFeedLoading(true);
-    setFeedError(null);
-
-    try {
-      const responses = await Promise.all(
-        enabledSources.map(async (source) => {
-          const response = await fetch('/api/rss-preview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: source.url }),
-          });
-
-          if (!response.ok) {
-            const errorBody = await response.json().catch(() => ({}));
-            throw new Error(errorBody.error || `Could not load ${source.name}`);
-          }
-
-          const data = await response.json() as RssPreviewResponse;
-          const perSourceLimit = Math.max(1, Math.min(25, Number(source.itemsPerLoad || 6)));
-          return data.items
-            .slice(0, perSourceLimit)
-            .map<DailyFeedItem>((item, index) => ({
-              id: `${source.id}-${index}-${item.url}`,
-              title: item.title,
-              url: item.url,
-              sourceName: source.name || data.title || source.url,
-              sourceType: source.type,
-              publishedAt: item.publishedAt || null,
-            }));
-        })
-      );
-
-      const deduped = new Map<string, DailyFeedItem>();
-      for (const items of responses.flat()) {
-        if (!deduped.has(items.url)) deduped.set(items.url, items);
-      }
-
-      const nextItems = Array.from(deduped.values())
-        .sort((a, b) => {
-          const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
-          const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
-          return timeB - timeA;
-        })
-        .slice(0, 60);
-
-      setDailyFeedItems(nextItems);
-    } catch (err: any) {
-      setFeedError(err?.message || 'Could not load the selected feed.');
-    } finally {
-      setIsFeedLoading(false);
-    }
-  }, [feedSources]);
-
-  const updateFeedSourceItemsPerLoad = useCallback((id: string, itemsPerLoad: number) => {
-    const safe = Math.max(1, Math.min(25, Math.round(itemsPerLoad)));
-    const nextSources = feedSources.map((source) =>
-      source.id === id ? { ...source, itemsPerLoad: safe } : source
-    );
-    setFeedSources(nextSources);
-    try { localStorage.setItem('custom_feed_sources_v1', JSON.stringify(nextSources)); } catch { /* ignore */ }
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [feedSources, syncAccount]);
 
   const useFeedItem = useCallback((feedUrl: string) => {
     setPdfFile(null);
@@ -1238,6 +1158,7 @@ export function useAppState() {
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     showAuthModal, setShowAuthModal,
+    passwordResetToken, clearPasswordResetToken,
     feedSummaryResults, isMultiFeedSummarizing,
     t,
     openPopup, togglePopup, openLockModal, closeInfo,

@@ -168,16 +168,13 @@ export function useAppState() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
-  const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
-  const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
   // FIX: Track multiple feed summaries to display them all together
   const [feedSummaryResults, setFeedSummaryResults] = useState<Array<{ url: string; title: string; summary: string }>>([]);
   const [isMultiFeedSummarizing, setIsMultiFeedSummarizing] = useState(false);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
-  const lastAutoSummarizedUrlRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
@@ -325,6 +322,39 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
+  const refreshUsageLimit = useCallback(async (premiumOverride = isPremium) => {
+    const response = await fetch('/api/check-limit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record: false, isPremium: premiumOverride, deviceId: getDeviceId() }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (premiumOverride) {
+      setServerRemaining(Infinity);
+      setServerResetAt(null);
+      return { allowed: true, remaining: null, resetAt: null };
+    }
+    setServerRemaining(typeof data.remaining === 'number' ? data.remaining : 0);
+    setServerResetAt(typeof data.resetAt === 'number' ? data.resetAt : null);
+    return data;
+  }, [isPremium]);
+
+  const consumeUsageLimit = useCallback(async (amount = 1) => {
+    if (isPremium) return true;
+    const response = await fetch('/api/check-limit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record: true, isPremium: false, amount, deviceId: getDeviceId() }),
+    });
+    const data = await response.json().catch(() => ({}));
+    setServerRemaining(typeof data.remaining === 'number' ? data.remaining : 0);
+    setServerResetAt(typeof data.resetAt === 'number' ? data.resetAt : null);
+    if (!data.allowed || data.remaining === 0) {
+      openLockModal();
+    }
+    return Boolean(data.allowed);
+  }, [isPremium, openLockModal]);
+
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
@@ -366,19 +396,12 @@ export function useAppState() {
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
 
-    // FIX: Fetch limits right after account loads; set sentinel in the meantime
-    fetch('/api/check-limit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
-    })
-      .then(r => r.json())
-      .then(limitData => {
-        setServerRemaining(limitData.remaining ?? 10);
-        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-      })
-      .catch(() => setServerRemaining(10));
-  }, [refreshValidatedApiKeys]);
+    setServerRemaining(LIMITS_LOADING);
+    refreshUsageLimit(premiumEnabled).catch(() => {
+      setServerRemaining(premiumEnabled ? Infinity : 0);
+      setServerResetAt(null);
+    });
+  }, [refreshValidatedApiKeys, refreshUsageLimit]);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch('/api/account', { credentials: 'include' });
@@ -447,7 +470,7 @@ export function useAppState() {
       window.history.replaceState({}, '', '/');
     } else if (sharedTextCandidate.trim()) {
       const normalizedText = sharedTextCandidate.trim();
-      setPendingSharedText(normalizedText);
+      setPendingSharedUrl(normalizedText);
       setUrl(normalizedText);
       setShowSharedToast(true);
       window.history.replaceState({}, '', '/');
@@ -486,29 +509,22 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
-          // FIX: Still fetch limits for anonymous users
-          fetch('/api/check-limit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ record: false, isPremium: false }),
-          })
-            .then(r => r.json())
-            .then(limitData => {
-              setServerRemaining(limitData.remaining ?? 10);
-              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-            })
-            .catch(() => setServerRemaining(10));
+          refreshUsageLimit(false).catch(() => {
+            setServerRemaining(0);
+            setServerResetAt(null);
+          });
         }
       })
       .catch(() => {
         setCurrentUser(null);
-        setServerRemaining(10);
+        setServerRemaining(0);
+        setServerResetAt(null);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
         setIsAuthLoading(false);
       });
-  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAccount, refreshUsageLimit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Countdown timer — runs whenever there's a resetAt, not just on lock modal ─
   useEffect(() => {
@@ -518,7 +534,11 @@ export function useAppState() {
       if (diff <= 0) {
         setTimeLeft('');
         setServerResetAt(null);
-        setServerRemaining(10);
+        setServerRemaining(LIMITS_LOADING);
+        refreshUsageLimit(false).catch(() => {
+          setServerRemaining(0);
+          setServerResetAt(null);
+        });
         return;
       }
       const h = Math.floor(diff / 3600000);
@@ -529,7 +549,7 @@ export function useAppState() {
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [serverResetAt]);
+  }, [serverResetAt, refreshUsageLimit]);
 
   // FIX: Show lock modal immediately when remaining hits 0
   useEffect(() => {
@@ -538,30 +558,6 @@ export function useAppState() {
       // only open it when it transitions to 0 during a session
     }
   }, [serverRemaining, isPremium, serverResetAt]);
-
-  // ─── Auto-summarize on URL paste ────────────────────────────────────────────
-  useEffect(() => {
-    if (!currentUser) return;
-    const timer = setTimeout(() => {
-      if (url && !isLoading) {
-        try {
-          const normalizedUrl = extractUrlFromText(url);
-          new URL(normalizedUrl);
-          if (normalizedUrl !== lastAutoSummarizedUrlRef.current) {
-            lastAutoSummarizedUrlRef.current = normalizedUrl;
-            handleSummarize();
-          }
-        } catch {
-          const normalizedText = url.trim();
-          if (normalizedText.length >= 80 && normalizedText !== lastAutoSummarizedUrlRef.current) {
-            lastAutoSummarizedUrlRef.current = normalizedText;
-            handleSummarize();
-          }
-        }
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [url, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Scroll to results ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -677,12 +673,28 @@ export function useAppState() {
 
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
+    if (serverRemaining === LIMITS_LOADING) return false;
     if (serverRemaining !== LIMITS_LOADING && serverRemaining <= 0) {
       if (serverResetAt) openLockModal();
       return false;
     }
     return true;
   }, [isPremium, serverRemaining, serverResetAt, openLockModal]);
+
+  const verifyUsageLimitBeforeSummary = useCallback(async (amount = 1) => {
+    if (isPremium) return true;
+    const latest = await refreshUsageLimit(false).catch(() => null);
+    if (!latest || latest.allowed === false) {
+      if (latest?.resetAt) openLockModal();
+      return false;
+    }
+    const remaining = typeof latest.remaining === 'number' ? latest.remaining : 0;
+    if (remaining < amount) {
+      if (latest.resetAt) openLockModal();
+      return false;
+    }
+    return true;
+  }, [isPremium, refreshUsageLimit, openLockModal]);
 
   const handleUnlock = useCallback(async () => {
     if (!unlockPass.trim()) return;
@@ -866,6 +878,18 @@ export function useAppState() {
   const summarizeManyFeedItems = useCallback(async (urls: string[]) => {
     const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
     if (unique.length === 0) return;
+    if (!currentUser) {
+      setAuthError('Please sign in or create an account to generate summaries.');
+      setShowAuthModal(true);
+      return;
+    }
+    if (isPremium) {
+      const stillValidPremium = await validatePremiumSession();
+      if (!stillValidPremium) return;
+    } else {
+      const canUseBatch = await verifyUsageLimitBeforeSummary(unique.length);
+      if (!canUseBatch) return;
+    }
 
     // Close feed popup and show loading state
     openPopup('');
@@ -916,39 +940,13 @@ export function useAppState() {
       setSummary(combined);
       setArticleTitle(`${results.length} artículos resumidos`);
       setLieScore(0);
+      if (!isPremium) {
+        await consumeUsageLimit(results.length);
+      }
     } else {
       setError(t.genericError);
     }
-
-    // Update usage counter
-    if (!isPremium) {
-      fetch('/api/check-limit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          setServerRemaining(data.remaining ?? null);
-          if (data.resetAt) setServerResetAt(data.resetAt);
-          if (!data.allowed || data.remaining === 0) openLockModal();
-        })
-        .catch(() => undefined);
-    }
-  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    if (isLoading) return;
-    if (feedSummaryQueue.length === 0) return;
-    const next = feedSummaryQueue[0];
-    const rest = feedSummaryQueue.slice(1);
-    const id = setTimeout(() => {
-      setFeedSummaryQueue(rest);
-      summarizeFeedItem(next);
-    }, 250);
-    return () => clearTimeout(id);
-  }, [feedSummaryQueue, isLoading, currentUser, summarizeFeedItem]);
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, t.genericError, currentUser, validatePremiumSession, verifyUsageLimitBeforeSummary, consumeUsageLimit]);
 
   const handleClear = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -959,7 +957,7 @@ export function useAppState() {
     setInvestigationResult(null);
     setError(null);
     setFeedSummaryResults([]);
-    lastAutoSummarizedUrlRef.current = '';
+    setPendingSharedUrl(null);
     summaryCacheRef.current.clear();
   }, []);
 
@@ -979,7 +977,13 @@ export function useAppState() {
       const stillValidPremium = await validatePremiumSession();
       if (!stillValidPremium) return;
     }
-    if (!checkUsageLimit()) return;
+    if (!checkUsageLimit()) {
+      const latestAllowed = await verifyUsageLimitBeforeSummary(1);
+      if (!latestAllowed) return;
+    } else if (!isPremium) {
+      const latestAllowed = await verifyUsageLimitBeforeSummary(1);
+      if (!latestAllowed) return;
+    }
 
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
@@ -1084,21 +1088,8 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      // FIX: Record usage BEFORE investigation so it's always counted on success,
-      // even if investigateClaim throws afterwards.
       if (!isPremium) {
-        fetch('/api/check-limit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
-        })
-          .then(r => r.json())
-          .then(data => {
-            setServerRemaining(data.remaining ?? null);
-            if (data.resetAt) setServerResetAt(data.resetAt);
-            if (!data.allowed || data.remaining === 0) openLockModal();
-          })
-          .catch(() => undefined);
+        await consumeUsageLimit(1);
       }
 
       // FIX: Wrap investigateClaim in its own try/catch so a failure here never
@@ -1147,7 +1138,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, verifyUsageLimitBeforeSummary, consumeUsageLimit]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -1161,7 +1152,7 @@ export function useAppState() {
     const utterance = new SpeechSynthesisUtterance(speechText);
     const langMap: Record<string, string> = {
       Spanish: 'es-ES', English: 'en-US', Portuguese: 'pt-BR',
-      French: 'fr-FR', German: 'de-DE', Italian: 'it-IT',
+      French: 'fr-FR', German: 'de-DE', Italian: 'it-IT', Russian: 'ru-RU',
     };
     utterance.lang = langMap[summaryLanguage] || 'en-US';
     utterance.rate = speechRate;
@@ -1177,16 +1168,19 @@ export function useAppState() {
   }, [summary, isSpeaking, summaryLanguage, speechRate]);
 
   const handleShare = useCallback(async (shareSummary: string, shareUrl?: string) => {
+    const shareSignature = uiLanguage === 'Spanish'
+      ? 'resumido por AntiClickBaitLinks.com'
+      : 'summarized by AntiClickBaitLinks.com';
     const text = shareUrl && !shareUrl.startsWith('pdf:')
-      ? `${shareSummary}\n\n${shareUrl}\n\nresumido por AntiClickBaitLinks.com`
-      : `${shareSummary}\n\nresumido por AntiClickBaitLinks.com`;
+      ? `${shareSummary}\n\n${shareUrl}\n\n${shareSignature}`
+      : `${shareSummary}\n\n${shareSignature}`;
     try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
-  }, []);
+  }, [uiLanguage]);
 
   // ─── Auto-summarize on shared URLs ─────────────────────────────────────────
   useEffect(() => {
     if (!pendingSharedUrl || isLoading || isAuthLoading) return;
-    if (pendingSharedUrl !== url) return;
+    if (pendingSharedUrl !== url.trim()) return;
     if (!currentUser) {
       setAuthError('Please sign in or create an account to summarize the shared link.');
       setShowAuthModal(true);

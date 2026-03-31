@@ -293,7 +293,12 @@ function clearSessionCookie(): string {
 }
 
 function getAccountEncryptionSecret(): string {
-  return process.env.ACCOUNT_DATA_SECRET || process.env.ADMIN_SECRET || 'anticlickbait-account-secret';
+  const secret = process.env.ACCOUNT_DATA_SECRET || process.env.ADMIN_SECRET;
+  if (!secret) {
+    console.warn('⚠️ ACCOUNT_DATA_SECRET is not configured. Account data encryption is using a fallback secret. Set ACCOUNT_DATA_SECRET in production.');
+    return 'anticlickbait-account-secret';
+  }
+  return secret;
 }
 
 function getNormalizedAppUrl(): string {
@@ -418,6 +423,24 @@ async function saveOAuthState(state: string, data: OAuthStateData): Promise<void
 }
 
 async function getOAuthState(state: string): Promise<OAuthStateData | null> { return redisGet<OAuthStateData>(`oauth_state:${state}`); }
+
+interface PasswordResetTokenData {
+  email: string;
+  createdAt: string;
+  used: boolean;
+}
+
+async function getPasswordResetToken(token: string): Promise<PasswordResetTokenData | null> {
+  return redisGet<PasswordResetTokenData>(`password_reset:${token}`);
+}
+
+async function savePasswordResetToken(token: string, data: PasswordResetTokenData, ttlSeconds: number): Promise<void> {
+  await redisSet<PasswordResetTokenData>(`password_reset:${token}`, data, ttlSeconds);
+}
+
+async function deletePasswordResetToken(token: string): Promise<void> {
+  await redisDelete(`password_reset:${token}`);
+}
 
 function toPublicUser(user: StoredUserAccount) {
   return { id: user.id, email: user.email, displayName: user.displayName, avatarUrl: user.avatarUrl || null, providers: user.providers, isPremium: Boolean(user.premium?.isPremium) };
@@ -550,6 +573,30 @@ async function sendPremiumEmail(toEmail: string, token: string) {
   });
   if (!response.ok) { const error = await response.text(); throw new Error(`Brevo error: ${error}`); }
   console.log('✅ Email sent via Brevo to:', toEmail);
+}
+
+async function sendPasswordResetEmail(toEmail: string, token: string) {
+  const apiKey = process.env.BREVO_API_KEY || '';
+  const appUrl = getNormalizedAppUrl() || 'http://localhost:3000';
+  const resetUrl = `${appUrl}/?resetToken=${encodeURIComponent(token)}`;
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'accept': 'application/json', 'api-key': apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sender: { name: 'AntiClickBaitLinks', email: 'noreply@anticlickbaitlinks.com' },
+      to: [{ email: toEmail }],
+      subject: 'Reset your AntiClickBaitLinks password',
+      htmlContent: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #059669;">Password reset request</h2>
+        <p>We received a request to reset the password for your AntiClickBaitLinks account.</p>
+        <p style="margin: 24px 0;"><a href="${resetUrl}" style="display: inline-block; padding: 12px 20px; background: #059669; color: #ffffff; text-decoration: none; border-radius: 10px;">Reset your password</a></p>
+        <p>If you did not request a password reset, you can safely ignore this email.</p>
+        <p style="font-size: 0.9rem; color: #6b7280;">This link expires in one hour.</p>
+      </div>`,
+    }),
+  });
+  if (!response.ok) { const error = await response.text(); throw new Error(`Brevo error: ${error}`); }
+  console.log('✅ Password reset email sent via Brevo to:', toEmail);
 }
 
 // ─── PayPal webhook signature verification ───────────────────────────────────
@@ -1150,16 +1197,43 @@ async function startServer() {
   });
 
   app.post('/api/auth/forgot-password', tokenLimiter, async (req, res) => {
-    const { email, newPassword } = req.body || {};
+    const { email } = req.body || {};
     const normalizedEmail = String(email || '').trim().toLowerCase();
-    const rawPassword = String(newPassword || '');
-    if (!normalizedEmail || !normalizedEmail.includes('@')) return res.status(400).json({ error: 'Valid email required' });
-    if (rawPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    if (!normalizedEmail || !normalizedEmail.includes('@')) return res.status(200).json({ ok: true });
+
     const user = await getUserByEmail(normalizedEmail);
-    if (!user) return res.status(200).json({ ok: true });
+    const token = crypto.randomBytes(24).toString('base64url');
+    await savePasswordResetToken(token, { email: normalizedEmail, createdAt: new Date().toISOString(), used: false }, 60 * 60);
+
+    if (user) {
+      try {
+        await sendPasswordResetEmail(normalizedEmail, token);
+      } catch (err) {
+        console.error('Password reset email failed:', err);
+      }
+    }
+
+    return res.json({ ok: true });
+  });
+
+  app.post('/api/auth/reset-password', tokenLimiter, async (req, res) => {
+    const { token, newPassword } = req.body || {};
+    const resetToken = String(token || '').trim();
+    const rawPassword = String(newPassword || '');
+    if (!resetToken) return res.status(400).json({ error: 'Invalid reset token' });
+    if (rawPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    const tokenData = await getPasswordResetToken(resetToken);
+    if (!tokenData || tokenData.used) return res.status(400).json({ error: 'Invalid or expired reset token' });
+
+    const user = await getUserByEmail(tokenData.email);
+    if (!user) return res.status(400).json({ error: 'Invalid reset token' });
+
     user.passwordHash = await hashPassword(rawPassword);
     if (!user.providers.includes('password')) user.providers.push('password');
     await saveUser(user);
+    await deletePasswordResetToken(resetToken);
+
     return res.json({ ok: true });
   });
 

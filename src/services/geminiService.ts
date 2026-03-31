@@ -258,20 +258,6 @@ export function detectContentType(url: string): 'youtube' | 'pdf' | 'web' {
   return 'web';
 }
 
-function deriveTitleFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname;
-    const decoded = decodeURIComponent(lastSegment)
-      .replace(/\.[a-z0-9]+$/i, '')
-      .replace(/[-_]+/g, ' ')
-      .trim();
-    return decoded || parsed.hostname;
-  } catch {
-    return '';
-  }
-}
-
 function deriveTitleFromText(text: string): string {
   return text
     .replace(/\s+/g, ' ')

@@ -5,6 +5,7 @@ import type { DailyFeedItem, FeedSource, FeedSourceType } from '../lib/feedSourc
 import { FeedPanel } from './FeedPanel';
 
 interface FeedModalProps {
+  uiLanguage: string;
   t: Translations;
   show: boolean;
   onClose: () => void;
@@ -12,7 +13,7 @@ interface FeedModalProps {
   items: DailyFeedItem[];
   isLoading: boolean;
   error: string | null;
-  onAddSource: (name: string, url: string, type: FeedSourceType) => void;
+  onAddSource: (name: string, url: string, type: FeedSourceType) => Promise<boolean>;
   onToggleSource: (id: string) => void;
   onRemoveSource: (id: string) => void;
   onRefresh: () => void;
@@ -21,6 +22,7 @@ interface FeedModalProps {
 }
 
 export function FeedModal({
+  uiLanguage,
   t,
   show,
   onClose,
@@ -50,14 +52,18 @@ export function FeedModal({
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
-            className="fixed inset-x-4 top-20 bottom-6 z-[61] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto text-zinc-900 dark:text-zinc-100"
+            className="fixed inset-x-4 top-16 bottom-4 z-[61] mx-auto w-auto max-w-5xl overflow-y-auto rounded-[2rem] border border-emerald-200/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(240,253,250,0.98)_100%)] p-5 shadow-[0_30px_90px_rgba(15,23,42,0.22)] backdrop-blur-xl sm:top-20 sm:bottom-6 sm:p-6"
           >
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-700/70">
                   {t.feedTitle}
                 </p>
-                <p className="text-sm text-zinc-600">{t.feedDescription}</p>
+                <p className="text-sm text-zinc-600">
+                  {uiLanguage === 'Spanish'
+                    ? 'Descubre y resume noticias de tus webs favoritas desde un solo sitio.'
+                    : 'Discover and summarize stories from your favorite websites in one place.'}
+                </p>
               </div>
               <button
                 type="button"
@@ -70,6 +76,7 @@ export function FeedModal({
             </div>
 
             <FeedPanel
+              uiLanguage={uiLanguage}
               t={t}
               sources={sources}
               items={items}

@@ -188,6 +188,9 @@ interface LocalKvEntry {
   expiresAt?: number;
 }
 
+let localKvCache: Record<string, LocalKvEntry> | null = null;
+let localKvFlushPromise: Promise<void> = Promise.resolve();
+
 function ensureLocalKvDir(): void {
   const dir = path.dirname(LOCAL_KV_PATH);
   if (!fs.existsSync(dir)) {
@@ -196,18 +199,31 @@ function ensureLocalKvDir(): void {
 }
 
 function readLocalKvStore(): Record<string, LocalKvEntry> {
+  if (localKvCache) return localKvCache;
   try {
     ensureLocalKvDir();
-    if (!fs.existsSync(LOCAL_KV_PATH)) return {};
-    return JSON.parse(fs.readFileSync(LOCAL_KV_PATH, 'utf-8')) as Record<string, LocalKvEntry>;
+    if (!fs.existsSync(LOCAL_KV_PATH)) {
+      localKvCache = {};
+      return localKvCache;
+    }
+    localKvCache = JSON.parse(fs.readFileSync(LOCAL_KV_PATH, 'utf-8')) as Record<string, LocalKvEntry>;
+    return localKvCache;
   } catch {
-    return {};
+    localKvCache = {};
+    return localKvCache;
   }
 }
 
 function writeLocalKvStore(store: Record<string, LocalKvEntry>): void {
+  localKvCache = store;
   ensureLocalKvDir();
-  fs.writeFileSync(LOCAL_KV_PATH, JSON.stringify(store, null, 2), 'utf-8');
+  const serialized = JSON.stringify(store, null, 2);
+  localKvFlushPromise = localKvFlushPromise
+    .catch(() => undefined)
+    .then(async () => {
+      await fs.promises.writeFile(LOCAL_KV_PATH, serialized, 'utf-8');
+    })
+    .catch(() => undefined);
 }
 
 function getLocalKvEntry(key: string): LocalKvEntry | null {
@@ -671,6 +687,39 @@ async function incrementUsage(usageId: string): Promise<UsageData> {
 async function getUsageResetTime(usageId: string): Promise<number> {
   const state = await getUsageState(usageId);
   return state.resetAt;
+}
+
+async function consumeUsage(usageId: string, amount = 1): Promise<{
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+  count: number;
+}> {
+  const safeAmount = Math.max(1, Math.min(FREE_LIMIT, Math.round(Number(amount) || 1)));
+  const state = await getUsageState(usageId);
+  const remainingBefore = Math.max(0, FREE_LIMIT - state.count);
+
+  if (remainingBefore < safeAmount) {
+    return {
+      allowed: false,
+      remaining: remainingBefore,
+      resetAt: state.resetAt,
+      count: state.count,
+    };
+  }
+
+  const nextState: UsageData = {
+    ...state,
+    count: state.count + safeAmount,
+  };
+  await saveUsageState(usageId, nextState);
+
+  return {
+    allowed: true,
+    remaining: Math.max(0, FREE_LIMIT - nextState.count),
+    resetAt: nextState.resetAt,
+    count: nextState.count,
+  };
 }
 
 // ─── Token device binding ─────────────────────────────────────────────────────
@@ -2129,7 +2178,7 @@ async function startServer() {
   // ── Check / record usage limit (IP-based) ───────────────────────────────
 
   app.post("/api/check-limit", async (req, res) => {
-    const { record, isPremium } = req.body;
+    const { record, isPremium, amount } = req.body;
     if (isPremium) return res.json({ allowed: true, remaining: null, resetAt: null });
 
     const usageId = await getUsageIdForRequest(req);
@@ -2137,14 +2186,11 @@ async function startServer() {
     const resetAt = await getUsageResetTime(usageId);
 
     if (record) {
-      if (count >= FREE_LIMIT) {
-        return res.json({ allowed: false, remaining: 0, resetAt });
-      }
-      const state = await incrementUsage(usageId);
+      const consumed = await consumeUsage(usageId, amount);
       return res.json({
-        allowed: true,
-        remaining: Math.max(0, FREE_LIMIT - state.count),
-        resetAt: state.resetAt,
+        allowed: consumed.allowed,
+        remaining: consumed.remaining,
+        resetAt: consumed.resetAt,
       });
     } else {
       const remaining = Math.max(0, FREE_LIMIT - count);

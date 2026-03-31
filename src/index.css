@@ -5,8 +5,17 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background: rgb(236 253 245);
+  }
+
   body {
     @apply bg-zinc-50 text-zinc-900 antialiased;
+    overscroll-behavior-y: none;
+    overflow-x: hidden;
   }
 }
 

@@ -61,7 +61,7 @@ export default function App() {
 
   if (isAuthLoading && !currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[100dvh] flex items-center justify-center">
         <div className="text-sm font-semibold text-zinc-500">
           {uiLanguage === 'Spanish' ? 'Cargando tu cuenta...' : 'Loading your account...'}
         </div>
@@ -70,7 +70,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start px-6 pb-6 pt-0 sm:px-12 sm:pb-12">
+    <div className="min-h-[100dvh] flex flex-col items-center justify-start px-6 pb-6 pt-0 sm:px-12 sm:pb-12">
 
       {/* Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
@@ -145,6 +145,7 @@ export default function App() {
       </div>
 
       <FeedModal
+        uiLanguage={uiLanguage}
         t={t}
         show={showFeed}
         onClose={() => openPopup('')}

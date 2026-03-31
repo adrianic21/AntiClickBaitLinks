@@ -350,7 +350,7 @@ export default function App() {
           error={error} isLoading={isLoading} loadingMessage={loadingMessage}
           loadingProgress={loadingProgress} currentLength={currentLength}
           isSpeaking={isSpeaking} speechRate={speechRate} lieScore={lieScore}
-          investigationResult={investigationResult} apiKeys={validatedApiKeys}
+          investigationResult={investigationResult} apiKeys={apiKeys} validatedApiKeys={validatedApiKeys} apiKeysValidated={validatedApiKeysReady}
           resultsRef={resultsRef} onSpeak={handleSpeak} onSpeechRateChange={setSpeechRate}
           onExpand={(length) => handleSummarize(undefined, length)} onShare={handleShare}
         />

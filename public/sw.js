@@ -64,12 +64,23 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/')) return;
 
+  const shouldCache = (request) => {
+    try {
+      const requestUrl = new URL(request.url);
+      return requestUrl.origin === self.location.origin && (requestUrl.protocol === 'https:' || requestUrl.protocol === 'http:');
+    } catch {
+      return false;
+    }
+  };
+
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          if (shouldCache(event.request)) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
           return response;
         })
         .catch(async () => {
@@ -85,7 +96,9 @@ self.addEventListener('fetch', (event) => {
     fetch(event.request)
       .then((response) => {
         const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        if (shouldCache(event.request)) {
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
         return response;
       })
       .catch(() => caches.match(event.request))

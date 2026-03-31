@@ -124,6 +124,18 @@ interface AccountResponse {
 
 // Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
+const AUTH_REQUIRED_TEXT: Record<string, string> = {
+  Spanish: 'Inicia sesion o crea una cuenta para continuar.',
+  English: 'Please sign in or create an account to continue.',
+};
+const PASTE_REQUIRED_TEXT: Record<string, string> = {
+  Spanish: 'Crea una cuenta o inicia sesion para pegar un enlace.',
+  English: 'Please sign in or create an account to paste a link.',
+};
+
+function getLocalizedStaticText(language: string, table: Record<string, string>): string {
+  return table[language] || table.English;
+}
 
 export function useAppState() {
   // Core
@@ -201,6 +213,8 @@ export function useAppState() {
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
   const apiValidationCacheRef = useRef<Partial<Record<Provider, string>>>({});
   const abortControllerRef = useRef<AbortController | null>(null);
+  const shareTimeoutRef = useRef<number | null>(null);
+  const feedRequestIdRef = useRef(0);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
@@ -419,6 +433,7 @@ export function useAppState() {
       setUiLanguage(data.account.preferences.uiLanguage);
       setSummaryLanguageState(data.account.preferences.uiLanguage);
     } else if (data.account?.preferences?.summaryLanguage) {
+      setUiLanguage(data.account.preferences.summaryLanguage);
       setSummaryLanguageState(data.account.preferences.summaryLanguage);
     }
     if (data.account?.preferences?.preferredLength) setPreferredLengthState(data.account.preferences.preferredLength);
@@ -458,6 +473,9 @@ export function useAppState() {
     return () => {
       window.speechSynthesis.cancel();
       abortControllerRef.current?.abort();
+      if (shareTimeoutRef.current) {
+        window.clearTimeout(shareTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -468,9 +486,13 @@ export function useAppState() {
       setInstallPrompt(e);
       setShowInstallButton(true);
     };
+    const installedHandler = () => setShowInstallButton(false);
     window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', () => setShowInstallButton(false));
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', installedHandler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('appinstalled', installedHandler);
+    };
   }, []);
 
   // ─── Web Share Target ──────────────────────────────────────────────────────
@@ -647,11 +669,13 @@ export function useAppState() {
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
     apiValidationCacheRef.current = {};
+    localStorage.removeItem('premium_token');
+    localStorage.removeItem('is_premium');
   }, [openPopup]);
 
   const saveApiKey = useCallback(async () => {
     if (!currentUser) {
-      setAuthError('Please sign in to manage your API keys.');
+      setAuthError(getLocalizedStaticText(uiLanguage, AUTH_REQUIRED_TEXT));
       setShowAuthModal(true);
       return;
     }
@@ -690,7 +714,7 @@ export function useAppState() {
     setError(null);
     setShowSettings(false);
     setShowProfile(false);
-  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount, currentUser]);
+  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount, currentUser, uiLanguage]);
 
   const changeUiLanguage = useCallback((lang: string) => {
     setUiLanguage(lang);
@@ -766,7 +790,7 @@ export function useAppState() {
 
   const handlePaste = useCallback(async () => {
     if (!currentUser) {
-      setAuthError('Crea una cuenta o inicia sesión para pegar un link.');
+      setAuthError(getLocalizedStaticText(uiLanguage, PASTE_REQUIRED_TEXT));
       setShowAuthModal(true);
       return;
     }
@@ -777,7 +801,7 @@ export function useAppState() {
       setError(t.pasteError);
       setTimeout(() => setError(null), 5000);
     }
-  }, [t.pasteError, currentUser]);
+  }, [t.pasteError, currentUser, uiLanguage]);
 
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);
@@ -816,6 +840,11 @@ export function useAppState() {
 
       const resolvedUrl = String(data.resolvedUrl || trimmedUrl).trim();
       const resolvedTitle = String(data.title || '').trim();
+      const duplicateSource = feedSources.find((source) => source.url === resolvedUrl);
+      if (duplicateSource) {
+        setFeedError(uiLanguage === 'Spanish' ? 'Ese medio ya esta en tu feed.' : 'That source is already in your feed.');
+        return false;
+      }
       const nextSources = persistFeedSource({
         name: name.trim() || resolvedTitle || trimmedUrl,
         url: resolvedUrl,
@@ -829,7 +858,7 @@ export function useAppState() {
       setFeedError(err?.message || 'Could not detect a news feed for this website.');
       return false;
     }
-  }, [syncAccount]);
+  }, [syncAccount, feedSources, uiLanguage]);
 
   const removeFeedSource = useCallback((id: string) => {
     const nextSources = deleteFeedSource(id);
@@ -853,10 +882,12 @@ export function useAppState() {
 
     setIsFeedLoading(true);
     setFeedError(null);
+    const currentRequestId = feedRequestIdRef.current + 1;
+    feedRequestIdRef.current = currentRequestId;
 
     try {
-      const responses = await Promise.all(
-        enabledSources.map(async (source) => {
+      const responses = await mapWithConcurrency(enabledSources, 3, async (source) => {
+        try {
           const response = await fetch('/api/rss-preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -870,7 +901,8 @@ export function useAppState() {
 
           const data = await response.json() as RssPreviewResponse;
           const perSourceLimit = Math.max(1, Math.min(25, Number(source.itemsPerLoad || 6)));
-          return data.items
+          return {
+            items: data.items
             .slice(0, perSourceLimit)
             .map<DailyFeedItem>((item, index) => ({
               id: `${source.id}-${index}-${item.url}`,
@@ -879,13 +911,26 @@ export function useAppState() {
               sourceName: source.name || data.title || source.url,
               sourceType: source.type,
               publishedAt: item.publishedAt || null,
-            }));
-        })
-      );
+            })),
+            error: null as string | null,
+          };
+        } catch (error: any) {
+          return {
+            items: [] as DailyFeedItem[],
+            error: error?.message || `Could not load ${source.name}`,
+          };
+        }
+      });
+
+      if (feedRequestIdRef.current !== currentRequestId) {
+        return;
+      }
 
       const deduped = new Map<string, DailyFeedItem>();
-      for (const items of responses.flat()) {
-        if (!deduped.has(items.url)) deduped.set(items.url, items);
+      for (const response of responses) {
+        for (const item of response.items) {
+          if (!deduped.has(item.url)) deduped.set(item.url, item);
+        }
       }
 
       const nextItems = Array.from(deduped.values())
@@ -897,12 +942,22 @@ export function useAppState() {
         .slice(0, 60);
 
       setDailyFeedItems(nextItems);
-    } catch (err: any) {
-      setFeedError(err?.message || 'Could not load the selected feed.');
+      const failedResponses = responses.filter((response) => response.error);
+      if (failedResponses.length > 0) {
+        setFeedError(
+          nextItems.length > 0
+            ? (uiLanguage === 'Spanish'
+                ? 'Algunas fuentes no pudieron actualizarse, pero el resto del feed si.'
+                : 'Some sources could not be refreshed, but the rest of the feed loaded correctly.')
+            : failedResponses[0].error
+        );
+      }
     } finally {
-      setIsFeedLoading(false);
+      if (feedRequestIdRef.current === currentRequestId) {
+        setIsFeedLoading(false);
+      }
     }
-  }, [feedSources]);
+  }, [feedSources, uiLanguage]);
 
   const updateFeedSourceItemsPerLoad = useCallback((id: string, itemsPerLoad: number) => {
     const safe = Math.max(1, Math.min(25, Math.round(itemsPerLoad)));
@@ -935,7 +990,7 @@ export function useAppState() {
     const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
     if (unique.length === 0) return;
     if (!currentUser) {
-      setAuthError('Please sign in or create an account to generate summaries.');
+      setAuthError(getLocalizedStaticText(uiLanguage, AUTH_REQUIRED_TEXT));
       setShowAuthModal(true);
       return;
     }
@@ -994,7 +1049,7 @@ export function useAppState() {
         .map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`)
         .join('\n\n---\n\n');
       setSummary(combined);
-      setArticleTitle(`${results.length} artículos resumidos`);
+      setArticleTitle(uiLanguage === 'Spanish' ? `${results.length} articulos resumidos` : `${results.length} summarized articles`);
       setLieScore(0);
       if (!isPremium) {
         await consumeUsageLimit(results.length);
@@ -1002,7 +1057,7 @@ export function useAppState() {
     } else {
       setError(t.genericError);
     }
-  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, t.genericError, currentUser, validatePremiumSession, verifyUsageLimitBeforeSummary, consumeUsageLimit]);
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, t.genericError, currentUser, validatePremiumSession, verifyUsageLimitBeforeSummary, consumeUsageLimit, uiLanguage]);
 
   const handleClear = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -1024,7 +1079,7 @@ export function useAppState() {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
     if (!currentUser) {
-      setAuthError('Please sign in or create an account to generate summaries.');
+      setAuthError(getLocalizedStaticText(uiLanguage, AUTH_REQUIRED_TEXT));
       setShowAuthModal(true);
       return;
     }
@@ -1196,7 +1251,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, verifyUsageLimitBeforeSummary, consumeUsageLimit]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, verifyUsageLimitBeforeSummary, consumeUsageLimit, uiLanguage]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -1240,18 +1295,27 @@ export function useAppState() {
     if (!pendingSharedUrl || isLoading || isAuthLoading) return;
     if (pendingSharedUrl !== url.trim()) return;
     if (!currentUser) {
-      setAuthError('Please sign in or create an account to summarize the shared link.');
+      setAuthError(getLocalizedStaticText(uiLanguage, AUTH_REQUIRED_TEXT));
       setShowAuthModal(true);
       return;
     }
     setSummary(null);
     setArticleTitle(null);
     setError(null);
-    setTimeout(() => {
+    if (shareTimeoutRef.current) {
+      window.clearTimeout(shareTimeoutRef.current);
+    }
+    shareTimeoutRef.current = window.setTimeout(() => {
       handleSummarize();
       setPendingSharedUrl(null);
     }, 50);
-  }, [pendingSharedUrl, url, isLoading, isAuthLoading, currentUser, handleSummarize]);
+    return () => {
+      if (shareTimeoutRef.current) {
+        window.clearTimeout(shareTimeoutRef.current);
+        shareTimeoutRef.current = null;
+      }
+    };
+  }, [pendingSharedUrl, url, isLoading, isAuthLoading, currentUser, handleSummarize, uiLanguage]);
 
   useEffect(() => {
     if (!showSharedToast) return;

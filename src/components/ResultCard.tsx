@@ -19,6 +19,8 @@ interface ResultCardProps {
   lieScore: number;
   investigationResult: InvestigationResult | null;
   apiKeys: ApiKeys;
+  validatedApiKeys: ApiKeys;
+  apiKeysValidated: boolean;
   resultsRef: React.RefObject<HTMLDivElement>;
   onSpeak: () => void;
   onSpeechRateChange: (rate: number) => void;
@@ -45,11 +47,13 @@ function FormattedText({ text }: { text: string }) {
 
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, loadingProgress, currentLength,
-  isSpeaking, speechRate, lieScore, investigationResult, apiKeys, resultsRef,
+  isSpeaking, speechRate, lieScore, investigationResult, apiKeys, validatedApiKeys, apiKeysValidated, resultsRef,
   onSpeak, onSpeechRateChange, onExpand, onShare,
 }: ResultCardProps) {
-  const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
-  const configuredProviders = Object.entries(apiKeys)
+  const hasConfiguredKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
+  const hasAnyKey = Object.values(validatedApiKeys).some(k => k && k !== 'undefined');
+  const isApiKeyValidationPending = !apiKeysValidated && hasConfiguredKey;
+  const configuredProviders = Object.entries(validatedApiKeys)
     .filter(([, value]) => value && value !== 'undefined')
     .map(([key]) => key.charAt(0).toUpperCase() + key.slice(1));
   const hasMultipleKeys = configuredProviders.length > 1;
@@ -309,10 +313,15 @@ export function ResultCard({
       <div
         className={cn(
           'flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2 text-center',
-          hasAnyKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+          isApiKeyValidationPending ? 'bg-zinc-100 text-zinc-600' : hasAnyKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
         )}
       >
-        {hasAnyKey ? (
+        {isApiKeyValidationPending ? (
+          <div className="w-full flex items-center justify-center gap-2 text-center">
+            <Loader2 size={14} className="animate-spin text-zinc-500 shrink-0" />
+            <span>Validando tu API Key...</span>
+          </div>
+        ) : hasAnyKey ? (
           <div className="w-full flex items-center justify-center gap-2 text-center">
             <Check size={14} className="shrink-0" />
             <span>

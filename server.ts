@@ -131,6 +131,18 @@ const UA_CHROME_MOBILE = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/5
 const UA_GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 const UA_FACEBOOK_IA = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
 
+function getBrowserlessEndpoint(): string {
+  return String(process.env.BROWSERLESS_URL || process.env.HEADLESS_BROWSER_URL || '').trim();
+}
+
+function getFirecrawlEndpoint(): string {
+  return String(process.env.FIRECRAWL_URL || 'https://api.firecrawl.com/v1/page').trim();
+}
+
+function getScrapingBeeKey(): string {
+  return String(process.env.SCRAPINGBEE_API_KEY || '').trim();
+}
+
 function decodeHtmlEntities(input: string): string {
   if (!input) return '';
   return input
@@ -1013,6 +1025,140 @@ async function strategyWaybackMachine(url: string): Promise<{ text: string; titl
   } catch { return null; }
 }
 
+function normalizeBrowserlessEndpoint(endpoint: string): string {
+  const trimmed = endpoint.trim();
+  if (!trimmed) return trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    if (!parsed.pathname.endsWith('/content')) {
+      parsed.pathname = parsed.pathname.replace(/\/+$/, '') + '/content';
+    }
+    return parsed.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function extractHtmlFromApiResponse(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('<')) return trimmed;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const candidates: string[] = [];
+
+    const collect = (value: unknown): void => {
+      if (!value) return;
+      if (typeof value === 'string') {
+        const str = value.trim();
+        if (str.startsWith('<') || str.length > 200) candidates.push(str);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(collect);
+        return;
+      }
+      if (typeof value === 'object') {
+        for (const item of Object.values(value)) collect(item);
+      }
+    };
+
+    collect(parsed);
+    return candidates.sort((a, b) => a.length - b.length).pop() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function strategyBrowserless(url: string): Promise<{ text: string; title: string } | null> {
+  const endpoint = getBrowserlessEndpoint();
+  if (!endpoint) return null;
+
+  try {
+    const browserlessUrl = normalizeBrowserlessEndpoint(endpoint);
+    const requestBody = JSON.stringify({
+      url,
+      options: {
+        timeout: 25000,
+        waitUntil: 'networkidle0',
+        userAgent: UA_CHROME_WIN,
+        javaScriptEnabled: true,
+        proxy: 'residential',
+      },
+    });
+
+    const response = await fetch(browserlessUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: requestBody,
+      signal: AbortSignal.timeout(32000),
+    });
+    if (!response.ok) return null;
+    const raw = await response.text();
+    const html = extractHtmlFromApiResponse(raw) || raw;
+    if (!html) return null;
+
+    const { text, title } = extractFromHtml(html);
+    if (scoreReadableCandidate(text) < 150) return null;
+    return { text: text.substring(0, 22000), title };
+  } catch { return null; }
+}
+
+async function strategyScrapingBee(url: string): Promise<{ text: string; title: string } | null> {
+  const apiKey = getScrapingBeeKey();
+  if (!apiKey) return null;
+
+  try {
+    const apiUrl = new URL('https://app.scrapingbee.com/api/v1/');
+    apiUrl.searchParams.set('api_key', apiKey);
+    apiUrl.searchParams.set('url', url);
+    apiUrl.searchParams.set('render_js', 'true');
+    apiUrl.searchParams.set('premium_proxy', 'true');
+    apiUrl.searchParams.set('block_ads', 'true');
+    apiUrl.searchParams.set('geo_code', 'us');
+
+    const response = await fetch(apiUrl.toString(), {
+      headers: { 'Accept': 'text/html,text/plain,*/*' },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const content = extractHtmlFromApiResponse(html) || html;
+    const { text, title } = extractFromHtml(content);
+    if (scoreReadableCandidate(text) < 150) return null;
+    return { text: text.substring(0, 22000), title };
+  } catch { return null; }
+}
+
+async function strategyFirecrawl(url: string): Promise<{ text: string; title: string } | null> {
+  const endpoint = getFirecrawlEndpoint();
+  if (!endpoint) return null;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        url,
+        render: true,
+        js: true,
+        user_agent: UA_CHROME_WIN,
+        proxy: 'residential',
+        timeout: 25000,
+      }),
+      signal: AbortSignal.timeout(32000),
+    });
+    if (!response.ok) return null;
+    const raw = await response.text();
+    const html = extractHtmlFromApiResponse(raw);
+    if (!html) return null;
+    const { text, title } = extractFromHtml(html);
+    if (scoreReadableCandidate(text) < 150) return null;
+    return { text: text.substring(0, 22000), title };
+  } catch { return null; }
+}
+
 // ─── Race helper: returns the first strategy that produces quality content ───
 
 async function raceForContent(
@@ -1126,6 +1272,20 @@ async function fetchReadableArticle(url: string): Promise<{ text: string; title:
   if (mobileResult && mobileResult.text.length > 80) {
     console.log(`  ✅ Group 4 (mobile) succeeded (${mobileResult.text.length} chars)`);
     const entry = setCachedArticle(url, { ...mobileResult, type: 'web' });
+    return { text: entry.text, title: entry.title, type: 'web' };
+  }
+
+  // ── GROUP 5: Rescue layer via headless rendering and scraping APIs ───────────
+  console.log(`  → Group 5: headless / scraping API rescue`);
+  const rescueResult = await raceForContent([
+    () => strategyBrowserless(url),
+    () => strategyScrapingBee(url),
+    () => strategyFirecrawl(url),
+  ], 100);
+
+  if (rescueResult) {
+    console.log(`  ✅ Group 5 succeeded (${rescueResult.text.length} chars)`);
+    const entry = setCachedArticle(url, { ...rescueResult, type: 'web' });
     return { text: entry.text, title: entry.title, type: 'web' };
   }
 

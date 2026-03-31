@@ -1927,14 +1927,14 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
   });
 
   app.post("/api/rss-preview", async (req, res) => {
-    const { url } = req.body;
+    const { url, discover } = req.body;
     if (!url) return res.status(400).json({ error: 'URL is required' });
     if (!isAllowedUrl(url)) {
       return res.status(400).json({ error: 'Invalid or disallowed URL' });
     }
 
-    try {
-      const response = await fetch(url, {
+    const fetchFeed = async (targetUrl: string) => {
+      const response = await fetch(targetUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
@@ -1946,7 +1946,7 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
       });
 
       if (!response.ok) {
-        return res.status(400).json({ error: 'Could not load this RSS feed' });
+        throw new Error('feed_load_failed');
       }
 
       const xml = await response.text();
@@ -1954,7 +1954,7 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
       const feedTitle =
         $('channel > title').first().text().trim() ||
         $('feed > title').first().text().trim() ||
-        'Custom feed';
+        '';
 
       const items = $('item, entry')
         .map((_index, element) => {
@@ -1984,10 +1984,95 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
         .filter(Boolean)
         .slice(0, 25);
 
-      return res.json({ title: feedTitle, items });
+      if (items.length === 0) {
+        throw new Error('feed_empty');
+      }
+
+      return {
+        title: feedTitle || 'Custom feed',
+        items,
+        resolvedUrl: response.url || targetUrl,
+      };
+    };
+
+    const discoverFeed = async (targetUrl: string) => {
+      const response = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.8,es;q=0.7',
+          'Cache-Control': 'no-cache',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (!response.ok) {
+        throw new Error('discover_load_failed');
+      }
+
+      const html = await response.text();
+      const pageUrl = response.url || targetUrl;
+      const page = new URL(pageUrl);
+      const $ = cheerio.load(html);
+
+      const candidateSet = new Set<string>();
+      const pageTitle = $('title').first().text().trim();
+
+      $('link[rel="alternate"]').each((_index, element) => {
+        const node = $(element);
+        const type = String(node.attr('type') || '').toLowerCase();
+        const href = String(node.attr('href') || '').trim();
+        if (!href) return;
+        if (!type.includes('rss') && !type.includes('atom') && !type.includes('xml')) return;
+        try {
+          const absolute = new URL(href, pageUrl).toString();
+          if (isAllowedUrl(absolute)) candidateSet.add(absolute);
+        } catch {
+          return;
+        }
+      });
+
+      const commonPaths = ['/feed', '/rss', '/feed.xml', '/rss.xml', '/atom.xml', '/feeds/posts/default'];
+      for (const path of commonPaths) {
+        try {
+          const absolute = new URL(path, `${page.protocol}//${page.host}`).toString();
+          if (isAllowedUrl(absolute)) candidateSet.add(absolute);
+        } catch {
+          continue;
+        }
+      }
+
+      for (const candidate of candidateSet) {
+        try {
+          const parsed = await fetchFeed(candidate);
+          return {
+            ...parsed,
+            title: parsed.title || pageTitle || page.hostname.replace(/^www\./, ''),
+          };
+        } catch {
+          continue;
+        }
+      }
+
+      throw new Error('feed_not_found');
+    };
+
+    try {
+      try {
+        const parsedFeed = await fetchFeed(url);
+        return res.json(parsedFeed);
+      } catch (directError) {
+        if (!discover) {
+          throw directError;
+        }
+      }
+
+      const discoveredFeed = await discoverFeed(url);
+      return res.json(discoveredFeed);
     } catch (error: any) {
       console.error('RSS preview failed:', error?.message || error);
-      return res.status(500).json({ error: 'Could not parse this feed' });
+      return res.status(500).json({ error: discover ? 'Could not detect a news feed for this website.' : 'Could not parse this feed' });
     }
   });
 

@@ -62,7 +62,9 @@ export default function App() {
   if (isAuthLoading && !currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-sm font-semibold text-zinc-500">Loading your account...</div>
+        <div className="text-sm font-semibold text-zinc-500">
+          {uiLanguage === 'Spanish' ? 'Cargando tu cuenta...' : 'Loading your account...'}
+        </div>
       </div>
     );
   }
@@ -121,7 +123,7 @@ export default function App() {
         <TopBar
           t={t}
           isPremium={isPremium}
-          remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+          remainingSearches={remainingSearches}
           showInfo={showInfo}
           showLangMenu={showLangMenu}
           showProfile={showProfile}
@@ -176,7 +178,7 @@ export default function App() {
           onLogout={logout}
           appInsights={appInsights}
           onUpdateName={updateDisplayName}
-          remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+          remainingSearches={remainingSearches}
           nextResetTime={nextResetTime}
           timeLeft={timeLeft}
           unlockPass={unlockPass}
@@ -269,7 +271,7 @@ export default function App() {
               "inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-200 transition-all duration-500 cursor-pointer hover:bg-emerald-700 hover:scale-105",
               isLoading && "animate-pulse scale-110 shadow-emerald-400"
             )}
-            title="Go to home"
+            title={uiLanguage === 'Spanish' ? 'Ir al inicio' : 'Go to home'}
           >
             <ShieldCheck size={32} />
           </button>
@@ -430,7 +432,7 @@ export default function App() {
             exit={{ opacity: 0, y: 8 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-semibold shadow-xl"
           >
-            Shared link received. Generating summary...
+            {uiLanguage === 'Spanish' ? 'Enlace recibido. Generando resumen...' : 'Shared link received. Generating summary...'}
           </motion.div>
         )}
       </AnimatePresence>

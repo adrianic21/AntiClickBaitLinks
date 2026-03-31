@@ -774,9 +774,34 @@ function decodeLatin1AsUtf8(text: string): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
 }
 
+const KNOWN_TEXT_REPLACEMENTS: Array<[string, string]> = [
+  ['ÃƒÂ¡', '\u00e1'],
+  ['ÃƒÂ©', '\u00e9'],
+  ['ÃƒÂ­', '\u00ed'],
+  ['ÃƒÂ³', '\u00f3'],
+  ['ÃƒÂº', '\u00fa'],
+  ['ÃƒÂ±', '\u00f1'],
+  ['ÃƒÂ¼', '\u00fc'],
+  ['ÃƒÂ§', '\u00e7'],
+  ['ÃƒÂ¨', '\u00e8'],
+  ['ÃƒÂª', '\u00ea'],
+  ['ÃƒÂ´', '\u00f4'],
+  ['ÃƒÂ»', '\u00fb'],
+  ['Ã‚Â¿', '\u00bf'],
+  ['Ã‚Â¡', '\u00a1'],
+  ['Ã¢â‚¬â€', '-'],
+];
+
+function applyKnownTextReplacements(text: string): string {
+  return KNOWN_TEXT_REPLACEMENTS.reduce(
+    (current, [from, to]) => current.split(from).join(to),
+    text
+  );
+}
+
 function repairMojibake(text: string): string {
   if (!MOJIBAKE_PATTERN.test(text)) {
-    return text;
+    return applyKnownTextReplacements(text);
   }
 
   let current = text;
@@ -799,7 +824,7 @@ function repairMojibake(text: string): string {
     }
   }
 
-  return current;
+  return applyKnownTextReplacements(current);
 }
 
 function normalizeDeep(value: unknown): void {

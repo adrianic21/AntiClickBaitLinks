@@ -273,6 +273,7 @@ export function useAppState() {
   }, [openPopup]);
 
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
+    setValidatedApiKeysReady(false);
     const entries = await Promise.all(
       (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
         const trimmedKey = keyValue?.trim();
@@ -289,6 +290,7 @@ export function useAppState() {
 
     setValidatedApiKeys(nextValidatedKeys);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    setValidatedApiKeysReady(true);
     return nextValidatedKeys;
   }, []);
 
@@ -593,6 +595,7 @@ export function useAppState() {
     setCurrentUser(null);
     setApiKeys({});
     setValidatedApiKeys({});
+    setValidatedApiKeysReady(true);
     setUserApiKey('');
     setSummary(null);
     setArticleTitle(null);
@@ -1222,7 +1225,7 @@ export function useAppState() {
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,

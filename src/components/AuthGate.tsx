@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Loader2, LogIn, Mail, ShieldCheck, X } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -29,6 +29,8 @@ interface AuthGateProps {
   onSubmit: () => void;
   onModeChange: (mode: 'login' | 'signup') => void;
   onOAuthStart: (provider: 'google') => void;
+  passwordResetToken?: string | null;
+  onClearResetToken?: () => void;
   onClose: () => void;
 }
 
@@ -47,12 +49,24 @@ export function AuthGate({
   onSubmit,
   onModeChange,
   onOAuthStart,
+  passwordResetToken,
+  onClearResetToken,
   onClose,
 }: AuthGateProps) {
   const isSignup = mode === 'signup';
   const [resetMode, setResetMode] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [hasRequestedReset, setHasRequestedReset] = useState(false);
+
+  useEffect(() => {
+    if (passwordResetToken) {
+      setResetMode(true);
+      setHasRequestedReset(false);
+      setResetMessage(null);
+    }
+  }, [passwordResetToken]);
+
   const copy = {
     English: {
       resetTitle: 'Reset password',
@@ -62,6 +76,8 @@ export function AuthGate({
       resetFailed: 'We could not reset your password.',
       resetSuccess: 'Password updated. You can sign in now.',
       resetButton: 'Reset password',
+      sendResetButton: 'Send reset link',
+      resetRequestSent: 'If an account exists, we sent a reset link to your email.',
       forgot: 'Forgot your password?',
       noAccount: 'No account yet? Switch to "Create account".',
       hasAccount: 'Already have an account? Switch to "Sign in".',
@@ -75,6 +91,8 @@ export function AuthGate({
       resetFailed: 'No se pudo restablecer la contraseña.',
       resetSuccess: 'Contraseña actualizada. Ya puedes iniciar sesión.',
       resetButton: 'Restablecer contraseña',
+      sendResetButton: 'Enviar enlace de restablecimiento',
+      resetRequestSent: 'Si existe una cuenta, hemos enviado un enlace de restablecimiento a tu correo.',
       forgot: '¿Olvidaste tu contraseña?',
       noAccount: '¿Aún no tienes cuenta? Cambia a "Crear cuenta".',
       hasAccount: '¿Ya tienes cuenta? Cambia a "Iniciar sesión".',
@@ -97,15 +115,41 @@ export function AuthGate({
   const handleForgotPassword = async () => {
     if (!resetMode) {
       setResetMode(true);
+      setHasRequestedReset(false);
       setResetMessage(null);
       return;
     }
-    if (!email) {
-      setResetMessage(copy.resetEmail);
+
+    if (passwordResetToken) {
+      if (!password || password.length < 8) {
+        setResetMessage(copy.resetPasswordShort);
+        return;
+      }
+      try {
+        setResetLoading(true);
+        setResetMessage(null);
+        const response = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: passwordResetToken, newPassword: password }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || copy.resetFailed);
+        setResetMessage(copy.resetSuccess);
+        onModeChange('login');
+        onPasswordChange('');
+        setHasRequestedReset(false);
+        onClearResetToken?.();
+      } catch (err: any) {
+        setResetMessage(err?.message || copy.resetFailed);
+      } finally {
+        setResetLoading(false);
+      }
       return;
     }
-    if (!password || password.length < 8) {
-      setResetMessage(copy.resetPasswordShort);
+
+    if (!email) {
+      setResetMessage(copy.resetEmail);
       return;
     }
     try {
@@ -114,15 +158,11 @@ export function AuthGate({
       const response = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, newPassword: password }),
+        body: JSON.stringify({ email }),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || copy.resetFailed);
-      }
-      setResetMessage(copy.resetSuccess);
-      onModeChange('login');
-      onPasswordChange('');
+      await response.json().catch(() => ({}));
+      setResetMessage(copy.resetRequestSent);
+      setHasRequestedReset(true);
     } catch (err: any) {
       setResetMessage(err?.message || copy.resetFailed);
     } finally {
@@ -205,17 +245,19 @@ export function AuthGate({
               className="w-full rounded-2xl border border-zinc-200 bg-white pl-11 pr-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-400"
             />
           </div>
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            placeholder={
-              resetMode
-                ? copy.newPassword
-                : (t.authPasswordPlaceholder || 'Password')
-            }
-            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-400"
-          />
+          {(!resetMode || Boolean(passwordResetToken)) && (
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              placeholder={
+                passwordResetToken
+                  ? copy.newPassword
+                  : (t.authPasswordPlaceholder || 'Password')
+              }
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-400"
+            />
+          )}
           {error && !resetMode && (
             <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
@@ -245,7 +287,7 @@ export function AuthGate({
               className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700 disabled:opacity-60"
             >
               {resetLoading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-              {copy.resetButton}
+              {passwordResetToken ? copy.resetButton : copy.sendResetButton}
             </button>
           )}
         </div>

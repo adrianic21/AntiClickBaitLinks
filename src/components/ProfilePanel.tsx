@@ -204,6 +204,9 @@ export function ProfilePanel({
   const [tempName, setTempName] = useState(currentUser.displayName);
 
   const isLimitReached = !isPremium && remainingSearches <= 0;
+  const remainingLabel = remainingSearches < 0
+    ? '--/10'
+    : `${Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10`;
 
   const handleSaveName = () => {
     const trimmed = tempName.trim();
@@ -307,7 +310,7 @@ export function ProfilePanel({
                   {!isPremium && (
                     <div className="mt-1 space-y-2">
                       <p className="text-sm text-zinc-500">
-                        {t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10
+                        {t.remainingSearches}: {remainingLabel}
                       </p>
                       {nextResetTime && (
                         <div className={cn(

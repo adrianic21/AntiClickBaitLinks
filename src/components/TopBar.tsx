@@ -40,6 +40,7 @@ export function TopBar({
   const isLimitReached = !isPremium && remainingSearches <= 0;
   const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
   const guestLabel = uiLanguage === 'Spanish' ? 'Invitado' : 'Guest';
+  const remainingLabel = !isPremium && remainingSearches < 0 ? '--/10' : `${Math.max(0, remainingSearches)}/10`;
 
   return (
     <>
@@ -67,7 +68,7 @@ export function TopBar({
               <div className={cn("w-2 h-2 rounded-full animate-pulse", isLimitReached ? "bg-red-500" : "bg-amber-400")} />
               <span className="hidden sm:inline">{t.statusFree}</span>
               <span className="bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded-md text-[10px]">
-                {remainingSearches}/10
+                {remainingLabel}
               </span>
             </>
           )}
@@ -164,7 +165,7 @@ export function TopBar({
                 <div className="flex justify-between items-center bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
                   <span className="text-xs text-zinc-500">{t.remainingSearches}</span>
                   <span className="text-sm font-bold text-zinc-900">
-                    {isPremium ? t.unlimited : `${remainingSearches}/10`}
+                    {isPremium ? t.unlimited : remainingLabel}
                   </span>
                 </div>
                 {!isPremium && nextResetTime && (

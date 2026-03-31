@@ -117,10 +117,21 @@ interface OAuthStateData {
 
 const ARTICLE_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_ARTICLE_CACHE_ENTRIES = 250;
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const articleCache = new Map<string, ArticleCacheEntry>();
 const SESSION_COOKIE_NAME = 'acbl_session';
 const OAUTH_STATE_TTL_SECONDS = 10 * 60;
 const LOCAL_KV_PATH = path.join(process.cwd(), 'data', 'local-kv.json');
+const SUPPORTED_UI_LANGUAGES = new Set([
+  'Spanish',
+  'English',
+  'Portuguese',
+  'French',
+  'German',
+  'Italian',
+  'Russian',
+] as const);
+const ALLOWED_PROVIDERS = new Set(['gemini', 'openrouter', 'mistral', 'deepseek']);
 const TRUSTED_NEWS_DOMAINS = [
   'reuters.com',
   'apnews.com',
@@ -502,7 +513,7 @@ async function createSession(userId: string): Promise<SessionData> {
     createdAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
-  await redisSet<SessionData>(`session:${session.token}`, session);
+  await redisSet<SessionData>(`session:${session.token}`, session, SESSION_TTL_SECONDS);
   return session;
 }
 
@@ -512,7 +523,7 @@ async function getSessionByToken(token: string): Promise<SessionData | null> {
 }
 
 async function saveSession(session: SessionData): Promise<void> {
-  await redisSet<SessionData>(`session:${session.token}`, session);
+  await redisSet<SessionData>(`session:${session.token}`, session, SESSION_TTL_SECONDS);
 }
 
 async function getAuthenticatedUser(req: express.Request): Promise<StoredUserAccount | null> {
@@ -544,6 +555,11 @@ async function saveOAuthState(state: string, data: OAuthStateData): Promise<void
 
 async function getOAuthState(state: string): Promise<OAuthStateData | null> {
   return redisGet<OAuthStateData>(`oauth_state:${state}`);
+}
+
+async function deleteOAuthState(state: string): Promise<void> {
+  if (!state) return;
+  await redisDelete(`oauth_state:${state}`);
 }
 
 function toPublicUser(user: StoredUserAccount) {
@@ -868,11 +884,20 @@ function isAllowedUrl(urlString: string): boolean {
     const parsed = new URL(urlString);
     if (!['http:', 'https:'].includes(parsed.protocol)) return false;
     const hostname = parsed.hostname.toLowerCase();
+    if (!hostname || parsed.username || parsed.password) return false;
     if (
       hostname === 'localhost' ||
+      hostname === '::1' ||
+      hostname === '[::1]' ||
+      hostname === 'localhost.localdomain' ||
       hostname === '127.0.0.1' ||
       hostname === '0.0.0.0' ||
       hostname === '169.254.169.254' ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal') ||
+      hostname.startsWith('fc') ||
+      hostname.startsWith('fd') ||
+      hostname.startsWith('fe80:') ||
       hostname.startsWith('10.') ||
       hostname.startsWith('192.168.') ||
       /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
@@ -881,6 +906,68 @@ function isAllowedUrl(urlString: string): boolean {
   } catch {
     return false;
   }
+}
+
+function normalizeExternalUrl(input: unknown): string | null {
+  const trimmed = String(input || '').trim();
+  if (!trimmed || trimmed.length > 2048) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (!isAllowedUrl(parsed.toString())) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeEmail(input: unknown): string {
+  return String(input || '').trim().toLowerCase();
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 160;
+}
+
+function sanitizeModelName(input: unknown, fallback: string): string {
+  const value = String(input || '').trim();
+  if (!value) return fallback;
+  if (!/^[a-zA-Z0-9._:/-]{1,80}$/.test(value)) return fallback;
+  return value;
+}
+
+function sanitizeMessages(input: unknown): Array<{ role: string; content: string }> | null {
+  if (!Array.isArray(input) || input.length === 0 || input.length > 12) return null;
+  const sanitized = input
+    .map((message) => {
+      const role = String(message?.role || '').trim();
+      const content = String(message?.content || '').trim();
+      if (!['system', 'user', 'assistant'].includes(role)) return null;
+      if (!content || content.length > 40000) return null;
+      return { role, content };
+    })
+    .filter(Boolean) as Array<{ role: string; content: string }>;
+  return sanitized.length === input.length ? sanitized : null;
+}
+
+function sanitizeFeedSources(input: unknown): StoredUserAccount['feedSources'] {
+  if (!Array.isArray(input)) return undefined;
+  return input
+    .slice(0, 40)
+    .map((source) => {
+      const normalizedUrl = normalizeExternalUrl(source?.url);
+      const type = String(source?.type || '').trim().toLowerCase();
+      if (!normalizedUrl || !type) return null;
+      return {
+        id: String(source?.id || '').trim().slice(0, 80) || `${Date.now()}`,
+        name: String(source?.name || '').trim().slice(0, 120) || normalizedUrl,
+        url: normalizedUrl,
+        type,
+        enabled: Boolean(source?.enabled),
+        itemsPerLoad: Math.max(1, Math.min(25, Math.round(Number(source?.itemsPerLoad) || 6))),
+        createdAt: Number(source?.createdAt) > 0 ? Number(source.createdAt) : Date.now(),
+      };
+    })
+    .filter(Boolean) as NonNullable<StoredUserAccount['feedSources']>;
 }
 
 // ─── Express app ──────────────────────────────────────────────────────────────
@@ -892,7 +979,7 @@ async function startServer() {
 
   const PORT = Number(process.env.PORT) || 3000;
   app.use('/api/paypal-webhook', express.raw({ type: 'application/json' }));
-  app.use(express.json());
+  app.use(express.json({ limit: '256kb' }));
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
 
@@ -943,11 +1030,11 @@ async function startServer() {
 
   app.post('/api/auth/signup', tokenLimiter, async (req, res) => {
     const { email, password, name } = req.body || {};
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'User';
     const rawPassword = String(password || '');
 
-    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    if (!isValidEmail(normalizedEmail)) {
       return res.status(400).json({ error: 'Valid email required' });
     }
     if (rawPassword.length < 8) {
@@ -980,7 +1067,7 @@ async function startServer() {
 
   app.post('/api/auth/login', tokenLimiter, async (req, res) => {
     const { email, password } = req.body || {};
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const rawPassword = String(password || '');
 
     const user = await getUserByEmail(normalizedEmail);
@@ -997,10 +1084,10 @@ async function startServer() {
 
   app.post('/api/auth/forgot-password', tokenLimiter, async (req, res) => {
     const { email, newPassword } = req.body || {};
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const rawPassword = String(newPassword || '');
 
-    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    if (!isValidEmail(normalizedEmail)) {
       return res.status(400).json({ error: 'Valid email required' });
     }
     if (rawPassword.length < 8) {
@@ -1053,13 +1140,16 @@ async function startServer() {
     const appUrl = getNormalizedAppUrl();
     const stateData = await getOAuthState(state);
     if (denied) {
+      await deleteOAuthState(state);
       return res.redirect('/?authError=google_access_denied');
     }
     if (!code || !stateData || stateData.provider !== 'google' || !appUrl) {
+      await deleteOAuthState(state);
       return res.redirect('/?authError=google_invalid_state');
     }
 
     try {
+      await deleteOAuthState(state);
       const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1132,31 +1222,39 @@ async function startServer() {
 
     const { apiKeys, preferences, appInsights, feedSources, premium, profile } = req.body || {};
     if (apiKeys && typeof apiKeys === 'object') {
-      user.encryptedApiKeys = encryptJson(apiKeys);
+      const sanitizedKeys = Object.entries(apiKeys as Record<string, unknown>).reduce<Record<string, string>>((acc, [providerName, value]) => {
+        const normalizedProvider = String(providerName || '').trim().toLowerCase();
+        const normalizedValue = String(value || '').trim();
+        if (!ALLOWED_PROVIDERS.has(normalizedProvider) || !normalizedValue || normalizedValue.length > 256) {
+          return acc;
+        }
+        acc[normalizedProvider] = normalizedValue;
+        return acc;
+      }, {});
+      user.encryptedApiKeys = encryptJson(sanitizedKeys);
     }
     if (preferences && typeof preferences === 'object') {
-      if (typeof preferences.uiLanguage === 'string') user.uiLanguage = preferences.uiLanguage;
-      if (typeof preferences.summaryLanguage === 'string') user.summaryLanguage = preferences.summaryLanguage;
+      if (typeof preferences.uiLanguage === 'string' && SUPPORTED_UI_LANGUAGES.has(preferences.uiLanguage as any)) {
+        user.uiLanguage = preferences.uiLanguage;
+        user.summaryLanguage = preferences.uiLanguage;
+      }
+      if (typeof preferences.summaryLanguage === 'string' && SUPPORTED_UI_LANGUAGES.has(preferences.summaryLanguage as any)) {
+        user.summaryLanguage = preferences.summaryLanguage;
+      }
       if (preferences.preferredLength === 'short' || preferences.preferredLength === 'medium' || preferences.preferredLength === 'long') user.preferredLength = preferences.preferredLength;
-      if (typeof preferences.speechRate === 'number') user.speechRate = preferences.speechRate;
-      if (typeof preferences.provider === 'string') user.provider = preferences.provider;
+      if (typeof preferences.speechRate === 'number') user.speechRate = Math.max(0.6, Math.min(1.8, preferences.speechRate));
+      if (typeof preferences.provider === 'string' && ALLOWED_PROVIDERS.has(preferences.provider)) user.provider = preferences.provider;
       if (typeof preferences.deepResearchEnabled === 'boolean') user.deepResearchEnabled = preferences.deepResearchEnabled;
       if (typeof preferences.dontShowAgain === 'boolean') user.dontShowAgain = preferences.dontShowAgain;
     }
     if (appInsights && typeof appInsights.savedSummaries === 'number' && typeof appInsights.totalMinutesSaved === 'number') {
       user.appInsights = {
-        savedSummaries: Math.max(0, appInsights.savedSummaries),
-        totalMinutesSaved: Math.max(0, appInsights.totalMinutesSaved),
+        savedSummaries: Math.max(0, Math.min(500000, appInsights.savedSummaries)),
+        totalMinutesSaved: Math.max(0, Math.min(5000000, appInsights.totalMinutesSaved)),
       };
     }
     if (Array.isArray(feedSources)) {
-      user.feedSources = feedSources.slice(0, 40);
-    }
-    if (premium && typeof premium === 'object') {
-      user.premium = {
-        isPremium: Boolean(premium.isPremium),
-        token: typeof premium.token === 'string' ? premium.token : user.premium?.token,
-      };
+      user.feedSources = sanitizeFeedSources(feedSources) || [];
     }
     if (profile && typeof profile === 'object') {
       if (typeof profile.displayName === 'string') {
@@ -1873,14 +1971,14 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
   // ── Fetch URL endpoint ────────────────────────────────────────────────────
 
   app.post("/api/fetch-url", async (req, res) => {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ error: "URL is required" });
+    const normalizedUrl = normalizeExternalUrl(req.body?.url);
+    if (!normalizedUrl) return res.status(400).json({ error: "URL is required" });
 
-    if (!isAllowedUrl(url)) {
+    if (!isAllowedUrl(normalizedUrl)) {
       return res.status(400).json({ error: "Invalid or disallowed URL" });
     }
 
-    const cachedArticle = getCachedArticle(url);
+    const cachedArticle = getCachedArticle(normalizedUrl);
     if (cachedArticle) {
       return res.json({
         text: cachedArticle.text,
@@ -1891,15 +1989,15 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
     }
 
     // PDF via URL
-    if (url.toLowerCase().endsWith('.pdf')) {
+    if (normalizedUrl.toLowerCase().endsWith('.pdf')) {
       try {
-        const pdfRes = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        const pdfRes = await fetch(normalizedUrl, { signal: AbortSignal.timeout(20000) });
         if (pdfRes.ok) {
           const buffer = Buffer.from(await pdfRes.arrayBuffer());
           const { text, title: pdfTitle } = await extractPdfText(buffer);
           if (text.length > 100) {
             console.log(`✅ Fetched PDF via URL (${text.length} chars)`);
-            const entry = setCachedArticle(url, {
+            const entry = setCachedArticle(normalizedUrl, {
               text: text.substring(0, 20000),
               title: pdfTitle,
               type: 'pdf',
@@ -1913,23 +2011,24 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
     }
 
     try {
-      const result = await fetchWithAllStrategies(url);
-      const entry = setCachedArticle(url, {
+      const result = await fetchWithAllStrategies(normalizedUrl);
+      const entry = setCachedArticle(normalizedUrl, {
         text: result.text.substring(0, 22000),
         title: result.title,
         type: result.type,
       });
       return res.json({ text: entry.text, title: entry.title, type: entry.type || 'web' });
     } catch (err: any) {
-      console.error("All fetch strategies failed for:", url, err.message);
+      console.error("All fetch strategies failed for:", normalizedUrl, err.message);
       return res.status(500).json({ error: 'Failed to fetch URL' });
     }
   });
 
   app.post("/api/rss-preview", async (req, res) => {
-    const { url, discover } = req.body;
-    if (!url) return res.status(400).json({ error: 'URL is required' });
-    if (!isAllowedUrl(url)) {
+    const { discover } = req.body || {};
+    const normalizedUrl = normalizeExternalUrl(req.body?.url);
+    if (!normalizedUrl) return res.status(400).json({ error: 'URL is required' });
+    if (!isAllowedUrl(normalizedUrl)) {
       return res.status(400).json({ error: 'Invalid or disallowed URL' });
     }
 
@@ -2060,7 +2159,7 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
 
     try {
       try {
-        const parsedFeed = await fetchFeed(url);
+        const parsedFeed = await fetchFeed(normalizedUrl);
         return res.json(parsedFeed);
       } catch (directError) {
         if (!discover) {
@@ -2068,7 +2167,7 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
         }
       }
 
-      const discoveredFeed = await discoverFeed(url);
+      const discoveredFeed = await discoverFeed(normalizedUrl);
       return res.json(discoveredFeed);
     } catch (error: any) {
       console.error('RSS preview failed:', error?.message || error);
@@ -2077,8 +2176,9 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
   });
 
   app.post("/api/deep-investigate", async (req, res) => {
-    const { url, title } = req.body;
-    if (!url || !title) {
+    const normalizedUrl = normalizeExternalUrl(req.body?.url);
+    const title = String(req.body?.title || '').trim().slice(0, 240);
+    if (!normalizedUrl || !title) {
       return res.status(400).json({ error: 'URL and title are required' });
     }
 
@@ -2100,7 +2200,7 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
         return { link, title: itemTitle, source };
       }).get()
         .filter((item) => item.link && item.title)
-        .filter((item) => item.link !== url)
+        .filter((item) => item.link !== normalizedUrl)
         .filter((item) => TRUSTED_NEWS_DOMAINS.some((domain) => item.link.includes(domain)))
         .slice(0, 6);
 
@@ -2270,10 +2370,13 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
   // ── Check / record usage limit (IP-based) ───────────────────────────────
 
   app.post("/api/check-limit", async (req, res) => {
-    const { record, isPremium, amount } = req.body;
-    if (isPremium) return res.json({ allowed: true, remaining: null, resetAt: null });
+    const { record, amount } = req.body || {};
+    const user = await getAuthenticatedUser(req);
+    if (user?.premium?.isPremium) {
+      return res.json({ allowed: true, remaining: null, resetAt: null });
+    }
 
-    const usageId = await getUsageIdForRequest(req);
+    const usageId = user ? `user:${user.id}` : getUsageId(req);
     const state = await getUsageState(usageId);
 
     if (record) {
@@ -2306,30 +2409,31 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    if (!email) return res.status(400).json({ error: "Email required" });
+    const normalizedEmail = normalizeEmail(email);
+    if (!isValidEmail(normalizedEmail)) return res.status(400).json({ error: "Email required" });
 
     const token = uuidv4();
     await saveToken(token, {
-      email,
+      email: normalizedEmail,
       createdAt: new Date().toISOString(),
       used: false,
     });
 
     try {
-      await sendPremiumEmail(email, token);
-      console.log(`📧 Token manual enviado a ${email}: ${token}`);
+      await sendPremiumEmail(normalizedEmail, token);
+      console.log(`📧 Token manual enviado a ${normalizedEmail}: ${token}`);
     } catch (e: any) {
       console.error("❌ Email failed:", e?.message || e);
     }
 
-    res.json({ token, email });
+    res.json({ token, email: normalizedEmail });
   });
 
   // ── YouTube transcript extractor ─────────────────────────────────────────
 
   app.post("/api/youtube", async (req, res) => {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ error: "URL is required" });
+    const url = String(req.body?.url || '').trim();
+    if (!url || url.length > 2048) return res.status(400).json({ error: "URL is required" });
 
     const videoIdMatch = url.match(
       /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
@@ -2428,8 +2532,10 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
   // ── Mistral Proxy ──────────────────────────────────────────────────────────
 
   app.post("/api/mistral", async (req, res) => {
-    const { apiKey, messages, model } = req.body;
-    if (!apiKey || !messages) return res.status(400).json({ error: "apiKey and messages required" });
+    const apiKey = String(req.body?.apiKey || '').trim();
+    const messages = sanitizeMessages(req.body?.messages);
+    const model = sanitizeModelName(req.body?.model, "mistral-small-latest");
+    if (!apiKey || apiKey.length > 256 || !messages) return res.status(400).json({ error: "apiKey and messages required" });
 
     try {
       const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -2439,7 +2545,7 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
           "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: model || "mistral-small-latest",
+          model,
           messages,
         }),
       });
@@ -2460,8 +2566,10 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
   // ── DeepSeek Proxy ─────────────────────────────────────────────────────────
 
   app.post("/api/deepseek", async (req, res) => {
-    const { apiKey, messages, model } = req.body;
-    if (!apiKey || !messages) return res.status(400).json({ error: "apiKey and messages required" });
+    const apiKey = String(req.body?.apiKey || '').trim();
+    const messages = sanitizeMessages(req.body?.messages);
+    const model = sanitizeModelName(req.body?.model, "deepseek-chat");
+    if (!apiKey || apiKey.length > 256 || !messages) return res.status(400).json({ error: "apiKey and messages required" });
 
     try {
       const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
@@ -2471,7 +2579,7 @@ function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'
           "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: model || "deepseek-chat",
+          model,
           messages,
           max_tokens: 2048,
         }),

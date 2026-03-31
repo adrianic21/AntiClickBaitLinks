@@ -116,6 +116,7 @@ interface OAuthStateData {
 }
 
 const ARTICLE_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_ARTICLE_CACHE_ENTRIES = 250;
 const articleCache = new Map<string, ArticleCacheEntry>();
 const SESSION_COOKIE_NAME = 'acbl_session';
 const OAUTH_STATE_TTL_SECONDS = 10 * 60;
@@ -260,17 +261,19 @@ function listLocalKvKeys(pattern: string): string[] {
   const regex = new RegExp(`^${escapedPattern}$`);
   const store = readLocalKvStore();
   const keys: string[] = [];
+  let mutated = false;
 
   for (const key of Object.keys(store)) {
     const entry = store[key];
     if (entry?.expiresAt && entry.expiresAt <= Date.now()) {
       delete store[key];
+      mutated = true;
       continue;
     }
     if (regex.test(key)) keys.push(key);
   }
 
-  writeLocalKvStore(store);
+  if (mutated) writeLocalKvStore(store);
   return keys;
 }
 
@@ -1707,12 +1710,16 @@ async function startServer() {
     return cached;
   }
 
-  function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'>): ArticleCacheEntry {
-    const cachedEntry: ArticleCacheEntry = {
-      ...entry,
-      cachedAt: Date.now(),
-    };
-    articleCache.set(url, cachedEntry);
+function setCachedArticle(url: string, entry: Omit<ArticleCacheEntry, 'cachedAt'>): ArticleCacheEntry {
+  if (articleCache.size >= MAX_ARTICLE_CACHE_ENTRIES) {
+    const oldestKey = articleCache.keys().next().value;
+    if (oldestKey) articleCache.delete(oldestKey);
+  }
+  const cachedEntry: ArticleCacheEntry = {
+    ...entry,
+    cachedAt: Date.now(),
+  };
+  articleCache.set(url, cachedEntry);
     return cachedEntry;
   }
 
@@ -2182,19 +2189,26 @@ async function startServer() {
     if (isPremium) return res.json({ allowed: true, remaining: null, resetAt: null });
 
     const usageId = await getUsageIdForRequest(req);
-    const count = await getUsageCount(usageId);
-    const resetAt = await getUsageResetTime(usageId);
+    const state = await getUsageState(usageId);
 
     if (record) {
-      const consumed = await consumeUsage(usageId, amount);
+      const safeAmount = Math.max(1, Math.min(FREE_LIMIT, Math.round(Number(amount) || 1)));
+      if (Math.max(0, FREE_LIMIT - state.count) < safeAmount) {
+        return res.json({
+          allowed: false,
+          remaining: Math.max(0, FREE_LIMIT - state.count),
+          resetAt: state.resetAt,
+        });
+      }
+      const consumed = await consumeUsage(usageId, safeAmount);
       return res.json({
         allowed: consumed.allowed,
         remaining: consumed.remaining,
         resetAt: consumed.resetAt,
       });
     } else {
-      const remaining = Math.max(0, FREE_LIMIT - count);
-      return res.json({ allowed: count < FREE_LIMIT, remaining, resetAt });
+      const remaining = Math.max(0, FREE_LIMIT - state.count);
+      return res.json({ allowed: state.count < FREE_LIMIT, remaining, resetAt: state.resetAt });
     }
   });
 

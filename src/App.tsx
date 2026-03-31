@@ -1,15 +1,19 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { ShieldCheck, Link as LinkIcon, Loader2, Clipboard, X, FileText, Youtube } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LANGUAGES } from './translations';
 import { useAppState, cn } from './hooks/useAppState';
 import { TopBar } from './components/TopBar';
-import { InfoPanel } from './components/InfoPanel';
-import { LockModal } from './components/LockModal';
 import { ResultCard } from './components/ResultCard';
-import { AuthGate } from './components/AuthGate';
-import { ProfilePanel } from './components/ProfilePanel';
-import { FeedModal } from './components/FeedModal';
+const InfoPanel = React.lazy(() => import('./components/InfoPanel').then((module) => ({ default: module.InfoPanel })));
+const LockModal = React.lazy(() => import('./components/LockModal').then((module) => ({ default: module.LockModal })));
+const AuthGate = React.lazy(() => import('./components/AuthGate').then((module) => ({ default: module.AuthGate })));
+const ProfilePanel = React.lazy(() => import('./components/ProfilePanel').then((module) => ({ default: module.ProfilePanel })));
+const FeedModal = React.lazy(() => import('./components/FeedModal').then((module) => ({ default: module.FeedModal })));
+
+function ModalFallback() {
+  return <div className="fixed inset-0 z-[65] bg-black/20 backdrop-blur-[1px]" />;
+}
 
 export default function App() {
   const state = useAppState();
@@ -97,23 +101,25 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="fixed top-1/2 left-1/2 z-[71] w-[90%] max-w-md -translate-x-1/2 -translate-y-1/2"
             >
-              <AuthGate
-                uiLanguage={uiLanguage}
-                t={t}
-                mode={authMode}
-                loading={isAuthLoading}
-                error={authError}
-                name={authName}
-                email={authEmail}
-                password={authPassword}
-                onNameChange={setAuthName}
-                onEmailChange={setAuthEmail}
-                onPasswordChange={setAuthPassword}
-                onSubmit={submitAuth}
-                onModeChange={setAuthMode}
-                onOAuthStart={startOAuth}
-                onClose={() => setShowAuthModal(false)}
-              />
+              <Suspense fallback={<ModalFallback />}>
+                <AuthGate
+                  uiLanguage={uiLanguage}
+                  t={t}
+                  mode={authMode}
+                  loading={isAuthLoading}
+                  error={authError}
+                  name={authName}
+                  email={authEmail}
+                  password={authPassword}
+                  onNameChange={setAuthName}
+                  onEmailChange={setAuthEmail}
+                  onPasswordChange={setAuthPassword}
+                  onSubmit={submitAuth}
+                  onModeChange={setAuthMode}
+                  onOAuthStart={startOAuth}
+                  onClose={() => setShowAuthModal(false)}
+                />
+              </Suspense>
             </motion.div>
           </>
         )}
@@ -144,51 +150,55 @@ export default function App() {
         </div>
       </div>
 
-      <FeedModal
-        uiLanguage={uiLanguage}
-        t={t}
-        show={showFeed}
-        onClose={() => openPopup('')}
-        sources={feedSources}
-        items={dailyFeedItems}
-        isLoading={isFeedLoading}
-        error={feedError}
-        onAddSource={addFeedSource}
-        onToggleSource={toggleFeedSource}
-        onRemoveSource={removeFeedSource}
-        onRefresh={refreshDailyFeed}
-        onUpdateSourceItemsPerLoad={updateFeedSourceItemsPerLoad}
-        onSummarizeMany={summarizeManyFeedItems}
-      />
-
-      {currentUser && (
-        <ProfilePanel
+      <Suspense fallback={showFeed ? <ModalFallback /> : null}>
+        <FeedModal
           uiLanguage={uiLanguage}
           t={t}
-          show={showProfile}
+          show={showFeed}
           onClose={() => openPopup('')}
-          currentUser={currentUser}
-          isPremium={isPremium}
-          provider={provider}
-          setProvider={setProvider}
-          userApiKey={userApiKey}
-          setUserApiKey={setUserApiKey}
-          apiKeys={apiKeys}
-          isKeySaved={isKeySaved}
-          onSaveApiKey={saveApiKey}
-          onLogout={logout}
-          appInsights={appInsights}
-          onUpdateName={updateDisplayName}
-          remainingSearches={remainingSearches}
-          nextResetTime={nextResetTime}
-          timeLeft={timeLeft}
-          unlockPass={unlockPass}
-          lockError={lockError}
-          deviceMismatchError={deviceMismatchError}
-          isLoading={isLoading}
-          onPassChange={setUnlockPass}
-          onUnlock={handleUnlock}
+          sources={feedSources}
+          items={dailyFeedItems}
+          isLoading={isFeedLoading}
+          error={feedError}
+          onAddSource={addFeedSource}
+          onToggleSource={toggleFeedSource}
+          onRemoveSource={removeFeedSource}
+          onRefresh={refreshDailyFeed}
+          onUpdateSourceItemsPerLoad={updateFeedSourceItemsPerLoad}
+          onSummarizeMany={summarizeManyFeedItems}
         />
+      </Suspense>
+
+      {currentUser && (
+        <Suspense fallback={showProfile ? <ModalFallback /> : null}>
+          <ProfilePanel
+            uiLanguage={uiLanguage}
+            t={t}
+            show={showProfile}
+            onClose={() => openPopup('')}
+            currentUser={currentUser}
+            isPremium={isPremium}
+            provider={provider}
+            setProvider={setProvider}
+            userApiKey={userApiKey}
+            setUserApiKey={setUserApiKey}
+            apiKeys={apiKeys}
+            isKeySaved={isKeySaved}
+            onSaveApiKey={saveApiKey}
+            onLogout={logout}
+            appInsights={appInsights}
+            onUpdateName={updateDisplayName}
+            remainingSearches={remainingSearches}
+            nextResetTime={nextResetTime}
+            timeLeft={timeLeft}
+            unlockPass={unlockPass}
+            lockError={lockError}
+            deviceMismatchError={deviceMismatchError}
+            isLoading={isLoading}
+            onPassChange={setUnlockPass}
+            onUnlock={handleUnlock}
+          />
+        </Suspense>
       )}
 
       {/* Onboarding language picker */}
@@ -224,39 +234,43 @@ export default function App() {
       </AnimatePresence>
 
       {/* Info panel */}
-      <InfoPanel
-        t={t}
-        uiLanguage={uiLanguage}
-        show={showInfo}
-        dontShowAgain={dontShowAgain}
-        showApiPrivacy={showApiPrivacy}
-        setShowApiPrivacy={setShowApiPrivacy}
-        isPremium={isPremium}
-        unlockPass={unlockPass}
-        lockError={lockError}
-        deviceMismatchError={deviceMismatchError}
-        isLoading={isLoading}
-        onClose={closeInfo}
-        onUnlock={handleUnlock}
-        onPassChange={setUnlockPass}
-        onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
-      />
+      <Suspense fallback={showInfo ? <ModalFallback /> : null}>
+        <InfoPanel
+          t={t}
+          uiLanguage={uiLanguage}
+          show={showInfo}
+          dontShowAgain={dontShowAgain}
+          showApiPrivacy={showApiPrivacy}
+          setShowApiPrivacy={setShowApiPrivacy}
+          isPremium={isPremium}
+          unlockPass={unlockPass}
+          lockError={lockError}
+          deviceMismatchError={deviceMismatchError}
+          isLoading={isLoading}
+          onClose={closeInfo}
+          onUnlock={handleUnlock}
+          onPassChange={setUnlockPass}
+          onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
+        />
+      </Suspense>
 
       {/* Lock modal */}
-      <LockModal
-        t={t}
-        show={showLockModal}
-        timeLeft={timeLeft}
-        nextResetTime={nextResetTime}
-        unlockPass={unlockPass}
-        lockError={lockError}
-        deviceMismatchError={deviceMismatchError}
-        isLoading={isLoading}
-        onClose={() => setShowLockModal(false)}
-        onUnlock={handleUnlock}
-        onPassChange={setUnlockPass}
-        onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
-      />
+      <Suspense fallback={showLockModal ? <ModalFallback /> : null}>
+        <LockModal
+          t={t}
+          show={showLockModal}
+          timeLeft={timeLeft}
+          nextResetTime={nextResetTime}
+          unlockPass={unlockPass}
+          lockError={lockError}
+          deviceMismatchError={deviceMismatchError}
+          isLoading={isLoading}
+          onClose={() => setShowLockModal(false)}
+          onUnlock={handleUnlock}
+          onPassChange={setUnlockPass}
+          onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
+        />
+      </Suspense>
 
       {/* Main content */}
       <motion.div

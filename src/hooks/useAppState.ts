@@ -134,6 +134,7 @@ export function useAppState() {
   const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
+  const [validatedApiKeysReady, setValidatedApiKeysReady] = useState(true);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
 

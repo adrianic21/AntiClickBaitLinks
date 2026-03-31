@@ -96,6 +96,48 @@ interface AccountResponse {
   };
 }
 
+interface CachedAccountData {
+  user: AuthUser;
+  account: {
+    preferences?: {
+      uiLanguage?: string;
+      summaryLanguage?: string;
+      preferredLength?: 'short' | 'medium' | 'long';
+      speechRate?: number;
+      provider?: Provider;
+      deepResearchEnabled?: boolean;
+      dontShowAgain?: boolean;
+    };
+    appInsights?: AppInsights;
+    feedSources?: FeedSource[];
+    premium?: {
+      isPremium: boolean;
+      token?: string;
+    };
+  };
+}
+
+const AUTH_CACHE_KEY = 'acbl_cached_user';
+
+function readCachedAccount(): CachedAccountData | null {
+  const raw = localStorage.getItem(AUTH_CACHE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as CachedAccountData;
+  } catch {
+    localStorage.removeItem(AUTH_CACHE_KEY);
+    return null;
+  }
+}
+
+function writeCachedAccount(data: CachedAccountData): void {
+  localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(data));
+}
+
+function clearCachedAccount(): void {
+  localStorage.removeItem(AUTH_CACHE_KEY);
+}
+
 // Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
 
@@ -117,7 +159,7 @@ export function useAppState() {
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
@@ -372,6 +414,15 @@ export function useAppState() {
 
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
+    writeCachedAccount({
+      user: data.user,
+      account: {
+        preferences: data.account?.preferences || {},
+        appInsights: data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 },
+        feedSources: data.account?.feedSources || [],
+        premium: data.account?.premium || { isPremium: false },
+      },
+    });
 
     // FIX: Fetch limits right after account loads; set sentinel in the meantime
     fetch('/api/check-limit', {
@@ -494,6 +545,30 @@ export function useAppState() {
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
 
+    const cachedAccount = readCachedAccount();
+    if (cachedAccount) {
+      setCurrentUser(cachedAccount.user);
+      const premiumEnabled = Boolean(cachedAccount.account?.premium?.isPremium || cachedAccount.user.isPremium);
+      setIsPremium(premiumEnabled);
+      isPremiumRef.current = premiumEnabled;
+      localStorage.setItem('is_premium', premiumEnabled ? 'true' : 'false');
+      if (cachedAccount.account?.premium?.token) {
+        localStorage.setItem('premium_token', cachedAccount.account.premium.token);
+      } else if (!premiumEnabled) {
+        localStorage.removeItem('premium_token');
+      }
+      setAppInsights(cachedAccount.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
+      setFeedSources(cachedAccount.account?.feedSources || []);
+      if (cachedAccount.account?.preferences?.uiLanguage) setUiLanguage(cachedAccount.account.preferences.uiLanguage);
+      if (cachedAccount.account?.preferences?.summaryLanguage) setSummaryLanguageState(cachedAccount.account.preferences.summaryLanguage);
+      if (cachedAccount.account?.preferences?.preferredLength) setPreferredLengthState(cachedAccount.account.preferences.preferredLength);
+      if (typeof cachedAccount.account?.preferences?.speechRate === 'number') setSpeechRateState(cachedAccount.account.preferences.speechRate);
+      if (typeof cachedAccount.account?.preferences?.deepResearchEnabled === 'boolean') setDeepResearchEnabled(cachedAccount.account.preferences.deepResearchEnabled);
+      if (typeof cachedAccount.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(cachedAccount.account.preferences.dontShowAgain);
+    }
+
+    setIsAuthLoading(false);
+
     fetch('/api/auth/me', { credentials: 'include' })
       .then(r => r.json())
       .then(async (data) => {
@@ -502,6 +577,7 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
+          clearCachedAccount();
           // FIX: Still fetch limits for anonymous users
           fetch('/api/check-limit', {
             method: 'POST',
@@ -618,6 +694,7 @@ export function useAppState() {
     setValidatedApiKeys({});
     setValidatedApiKeysReady(true);
     setUserApiKey('');
+    clearCachedAccount();
     setSummary(null);
     setArticleTitle(null);
     setAppInsights({ savedSummaries: 0, totalMinutesSaved: 0 });

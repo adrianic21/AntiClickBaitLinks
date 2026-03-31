@@ -797,18 +797,38 @@ export function useAppState() {
     syncAccount({ preferences: { speechRate: rate } }).catch(() => undefined);
   }, [syncAccount]);
 
-  const addFeedSource = useCallback((name: string, sourceUrl: string, type: FeedSourceType) => {
+  const addFeedSource = useCallback(async (name: string, sourceUrl: string, type: FeedSourceType) => {
     const trimmedUrl = sourceUrl.trim();
-    if (!trimmedUrl) return;
-    const nextSources = persistFeedSource({
-      name: name.trim() || trimmedUrl,
-      url: trimmedUrl,
-      type,
-      enabled: true,
-    });
-    setFeedSources(nextSources);
+    if (!trimmedUrl) return false;
     setFeedError(null);
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+
+    try {
+      const response = await fetch('/api/rss-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: trimmedUrl, discover: true }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Could not detect a news feed for this website.');
+      }
+
+      const resolvedUrl = String(data.resolvedUrl || trimmedUrl).trim();
+      const resolvedTitle = String(data.title || '').trim();
+      const nextSources = persistFeedSource({
+        name: name.trim() || resolvedTitle || trimmedUrl,
+        url: resolvedUrl,
+        type,
+        enabled: true,
+      });
+      setFeedSources(nextSources);
+      syncAccount({ feedSources: nextSources }).catch(() => undefined);
+      return true;
+    } catch (err: any) {
+      setFeedError(err?.message || 'Could not detect a news feed for this website.');
+      return false;
+    }
   }, [syncAccount]);
 
   const removeFeedSource = useCallback((id: string) => {

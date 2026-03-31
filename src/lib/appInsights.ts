@@ -40,6 +40,17 @@ const EMPTY_INSIGHTS: AppInsights = {
   totalMinutesSaved: 0,
 };
 
+const EMPTY_PROVIDER_METRICS: Record<Provider, ProviderMetrics> = {
+  gemini: createEmptyProviderMetrics('gemini'),
+  openrouter: createEmptyProviderMetrics('openrouter'),
+  mistral: createEmptyProviderMetrics('mistral'),
+  deepseek: createEmptyProviderMetrics('deepseek'),
+};
+
+let cachedSummariesMemory: CachedSummaryEntry[] | null = null;
+let appInsightsMemory: AppInsights | null = null;
+let providerMetricsMemory: Record<Provider, ProviderMetrics> | null = null;
+
 function safeJsonParse<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
   try {
@@ -50,7 +61,9 @@ function safeJsonParse<T>(value: string | null, fallback: T): T {
 }
 
 export function getCachedSummaries(): CachedSummaryEntry[] {
-  return safeJsonParse<CachedSummaryEntry[]>(localStorage.getItem(CACHE_KEY), []);
+  if (cachedSummariesMemory) return cachedSummariesMemory;
+  cachedSummariesMemory = safeJsonParse<CachedSummaryEntry[]>(localStorage.getItem(CACHE_KEY), []);
+  return cachedSummariesMemory;
 }
 
 export function findCachedSummary(key: string): CachedSummaryEntry | undefined {
@@ -63,14 +76,18 @@ export function saveCachedSummary(entry: CachedSummaryEntry): void {
     ...getCachedSummaries().filter((item) => item.key !== entry.key),
   ].slice(0, MAX_CACHE_ITEMS);
 
+  cachedSummariesMemory = next;
   localStorage.setItem(CACHE_KEY, JSON.stringify(next));
 }
 
 export function getAppInsights(): AppInsights {
-  return safeJsonParse<AppInsights>(localStorage.getItem(APP_INSIGHTS_KEY), EMPTY_INSIGHTS);
+  if (appInsightsMemory) return appInsightsMemory;
+  appInsightsMemory = safeJsonParse<AppInsights>(localStorage.getItem(APP_INSIGHTS_KEY), EMPTY_INSIGHTS);
+  return appInsightsMemory;
 }
 
 export function saveAppInsights(insights: AppInsights): void {
+  appInsightsMemory = insights;
   localStorage.setItem(APP_INSIGHTS_KEY, JSON.stringify(insights));
 }
 
@@ -85,20 +102,16 @@ export function recordSavedSummary(minutesSaved: number): AppInsights {
 }
 
 export function getProviderMetrics(): Record<Provider, ProviderMetrics> {
-  const fallback = {
-    gemini: createEmptyProviderMetrics('gemini'),
-    openrouter: createEmptyProviderMetrics('openrouter'),
-    mistral: createEmptyProviderMetrics('mistral'),
-    deepseek: createEmptyProviderMetrics('deepseek'),
-  };
-
-  return safeJsonParse<Record<Provider, ProviderMetrics>>(
+  if (providerMetricsMemory) return providerMetricsMemory;
+  providerMetricsMemory = safeJsonParse<Record<Provider, ProviderMetrics>>(
     localStorage.getItem(PROVIDER_METRICS_KEY),
-    fallback
+    EMPTY_PROVIDER_METRICS
   );
+  return providerMetricsMemory;
 }
 
 export function saveProviderMetrics(metrics: Record<Provider, ProviderMetrics>): void {
+  providerMetricsMemory = metrics;
   localStorage.setItem(PROVIDER_METRICS_KEY, JSON.stringify(metrics));
 }
 
@@ -106,31 +119,43 @@ export function recordProviderMetric(
   provider: Provider,
   outcome: 'attempt' | 'success' | 'fallback' | 'auth_failure' | 'transient_failure'
 ): Record<Provider, ProviderMetrics> {
-  const metrics = getProviderMetrics();
-  const current = metrics[provider] || createEmptyProviderMetrics(provider);
+  return recordProviderMetrics([[provider, outcome]]);
+}
 
-  current.lastUsedAt = Date.now();
+export function recordProviderMetrics(
+  operations: Array<[Provider, 'attempt' | 'success' | 'fallback' | 'auth_failure' | 'transient_failure']>
+): Record<Provider, ProviderMetrics> {
+  const metrics = {
+    ...getProviderMetrics(),
+  };
+  const now = Date.now();
 
-  switch (outcome) {
-    case 'attempt':
-      current.attempts += 1;
-      current.estimatedCostUnits += PROVIDER_COST_UNITS[provider];
-      break;
-    case 'success':
-      current.successes += 1;
-      break;
-    case 'fallback':
-      current.fallbacks += 1;
-      break;
-    case 'auth_failure':
-      current.authFailures += 1;
-      break;
-    case 'transient_failure':
-      current.transientFailures += 1;
-      break;
+  for (const [provider, outcome] of operations) {
+    const current = metrics[provider] || createEmptyProviderMetrics(provider);
+    current.lastUsedAt = now;
+
+    switch (outcome) {
+      case 'attempt':
+        current.attempts += 1;
+        current.estimatedCostUnits += PROVIDER_COST_UNITS[provider];
+        break;
+      case 'success':
+        current.successes += 1;
+        break;
+      case 'fallback':
+        current.fallbacks += 1;
+        break;
+      case 'auth_failure':
+        current.authFailures += 1;
+        break;
+      case 'transient_failure':
+        current.transientFailures += 1;
+        break;
+    }
+
+    metrics[provider] = current;
   }
 
-  metrics[provider] = current;
   saveProviderMetrics(metrics);
   return metrics;
 }

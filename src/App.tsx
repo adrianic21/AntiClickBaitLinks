@@ -28,7 +28,7 @@ export default function App() {
     resultsRef, t,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
-    showAuthModal, setShowAuthModal,
+    showAuthModal, setShowAuthModal, passwordResetToken, clearPasswordResetToken,
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
@@ -92,11 +92,17 @@ export default function App() {
               className="fixed top-1/2 left-1/2 z-[71] w-[90%] max-w-md -translate-x-1/2 -translate-y-1/2"
             >
               <AuthGate
+                uiLanguage={uiLanguage}
                 t={t} mode={authMode} loading={isAuthLoading} error={authError}
                 name={authName} email={authEmail} password={authPassword}
                 onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword}
                 onSubmit={submitAuth} onModeChange={setAuthMode} onOAuthStart={startOAuth}
-                onClose={() => setShowAuthModal(false)}
+                passwordResetToken={passwordResetToken}
+                onClearResetToken={clearPasswordResetToken}
+                onClose={() => {
+                  setShowAuthModal(false);
+                  clearPasswordResetToken();
+                }}
               />
             </motion.div>
           </>
@@ -119,6 +125,7 @@ export default function App() {
       <div className="w-full max-w-5xl h-[1.5px] rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-500/70 shadow-sm shadow-emerald-300/40 my-6" />
 
       <FeedModal
+        uiLanguage={uiLanguage}
         t={t} show={showFeed} onClose={() => openPopup('')}
         sources={feedSources} items={dailyFeedItems} isLoading={isFeedLoading} error={feedError}
         onAddSource={addFeedSource} onToggleSource={toggleFeedSource} onRemoveSource={removeFeedSource}
@@ -128,6 +135,7 @@ export default function App() {
 
       {currentUser && (
         <ProfilePanel
+          uiLanguage={uiLanguage}
           t={t} show={showProfile} onClose={() => openPopup('')} currentUser={currentUser}
           isPremium={isPremium} provider={provider} setProvider={setProvider}
           userApiKey={userApiKey} setUserApiKey={setUserApiKey} apiKeys={apiKeys}

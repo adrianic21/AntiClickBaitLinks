@@ -1,4 +1,4 @@
-const CACHE_NAME = 'anticlickbait-v3';
+const CACHE_NAME = 'anticlickbait-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -30,12 +30,13 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // ── Handle Web Share Target ───────────────────────────────────────────────
-  if (url.pathname === '/share-target' && event.request.method === 'GET') {
+  if (url.pathname === '/share-target' && event.request.method === 'POST') {
     event.respondWith(
       (async () => {
-        const sharedUrl = url.searchParams.get('url') || '';
-        const sharedText = url.searchParams.get('text') || '';
-        const sharedTitle = url.searchParams.get('title') || '';
+        const formData = await event.request.formData();
+        const sharedUrl = formData.get('url')?.toString() || '';
+        const sharedText = formData.get('text')?.toString() || '';
+        const sharedTitle = formData.get('title')?.toString() || '';
 
         const urlToSummarize = sharedUrl ||
           (sharedText.match(/https?:\/\/[^\s]+/)?.[0] ?? '') ||

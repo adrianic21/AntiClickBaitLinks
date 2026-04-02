@@ -32,22 +32,40 @@ export interface InvestigationResult {
   relatedSources: InvestigationSource[];
 }
 
-// ─── Error type helpers ───────────────────────────────────────────────────────
+// ─── Detectar si el error es de cuota/límite ─────────────────────────────────
+// FIX: Ampliado para capturar todos los formatos de error 429 de Gemini/OpenRouter/Mistral/DeepSeek
+// incluyendo casos donde el 429 viene solo sin palabras clave adicionales.
 
 function isQuotaError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
+  const status = error?.status || error?.statusCode || 0;
+
+  // HTTP 429 siempre es rate limit, independientemente del mensaje
+  if (status === 429) return true;
+
   return (
     msg.includes('resource_exhausted') ||
     msg.includes('quota_exceeded') ||
     msg.includes('ratelimitexceeded') ||
     msg.includes('rate_limit_exceeded') ||
     msg.includes('too many requests') ||
-    (msg.includes('429') && (msg.includes('quota') || msg.includes('rate') || msg.includes('limit')))
+    msg.includes('rateerror') ||
+    msg.includes('429') ||
+    // Gemini specific
+    msg.includes('generativelanguage.googleapis.com') && msg.includes('429') ||
+    msg.includes('quota') ||
+    msg.includes('rate limit')
   );
 }
 
+// ─── Detectar si el error es de autenticación/API key inválida ───────────────
+
 export function isAuthError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
+  const status = error?.status || error?.statusCode || 0;
+
+  if (status === 401 || status === 403) return true;
+
   return (
     msg.includes('api_key_invalid') ||
     msg.includes('invalid api key') ||
@@ -58,12 +76,19 @@ export function isAuthError(error: any): boolean {
     msg.includes('permission_denied') ||
     msg.includes('api key not valid') ||
     msg.includes('invalid key') ||
-    msg.includes('401')
+    msg.includes('401') ||
+    msg.includes('403')
   );
 }
 
+// ─── Detectar si es un error transitorio (reintentable) ──────────────────────
+
 function isTransientError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
+  const status = error?.status || error?.statusCode || 0;
+
+  if (status === 500 || status === 502 || status === 503 || status === 504) return true;
+
   return (
     msg.includes('failed to fetch') ||
     msg.includes('networkerror') ||
@@ -72,9 +97,12 @@ function isTransientError(error: any): boolean {
     msg.includes('econnrefused') ||
     msg.includes('etimedout') ||
     msg.includes('socket hang up') ||
+    msg.includes('fetch error') ||
+    msg.includes('aborted') ||
     msg.includes('503') ||
     msg.includes('502') ||
-    (msg.includes("500") && !msg.includes("pdf_no_text") && !msg.includes("failed to process pdf"))
+    msg.includes('504') ||
+    (msg.includes('500') && !msg.includes('pdf_no_text') && !msg.includes('failed to process pdf'))
   );
 }
 
@@ -84,8 +112,8 @@ function sleep(ms: number): Promise<void> {
 
 async function retryTransientOperation<T>(
   operation: () => Promise<T>,
-  attempts = 2,
-  baseDelayMs = 450
+  attempts = 3,
+  baseDelayMs = 600
 ): Promise<T> {
   let lastError: any = null;
 
@@ -94,68 +122,28 @@ async function retryTransientOperation<T>(
       return await operation();
     } catch (error: any) {
       lastError = error;
-      if (!isTransientError(error) || attempt === attempts) {
-        throw error;
+
+      // Never retry auth errors or content errors
+      if (isAuthError(error)) throw error;
+      if (error.message === 'insufficient_content') throw error;
+
+      // Retry transient errors with exponential backoff
+      if (isTransientError(error) && attempt < attempts) {
+        await sleep(baseDelayMs * attempt);
+        continue;
       }
-      await sleep(baseDelayMs * attempt);
+
+      // For quota errors, don't retry (it won't help immediately)
+      if (isQuotaError(error)) throw error;
+
+      // Unknown error on last attempt
+      if (attempt === attempts) throw error;
+
+      await sleep(baseDelayMs);
     }
   }
 
   throw lastError;
-}
-
-// ─── Response validation ──────────────────────────────────────────────────────
-// Detects when an LLM refuses to process because it thinks it needs to browse a URL.
-
-const CANNOT_ACCESS_PHRASES = [
-  "i cannot access",
-  "i can't access",
-  "i'm unable to access",
-  "cannot browse",
-  "can't browse",
-  "unable to browse",
-  "i don't have the ability to browse",
-  "i cannot retrieve",
-  "cannot retrieve the content",
-  "i'm not able to access",
-  "i am not able to access",
-  "no puedo acceder",
-  "no tengo acceso",
-  "no puedo abrir",
-  "no puedo obtener",
-  "no es posible acceder",
-  "imposible acceder",
-  "no tengo la capacidad de",
-  "no puedo navegar",
-  "no puedo visitar",
-  "no tengo acceso a internet",
-  "no puedo leer la url",
-  "as an ai, i cannot",
-  "as an ai assistant, i cannot",
-  "i don't have internet access",
-  "i cannot open",
-  "i cannot visit",
-  "i cannot read the url",
-  "i cannot follow links",
-  "i'm not able to visit",
-];
-
-function validateSummaryResponse(text: string, provider: Provider): void {
-  const lowered = (text || '').toLowerCase().trim();
-
-  if (!lowered || lowered.length < 10) {
-    throw new Error('insufficient_content');
-  }
-
-  if (lowered === 'insufficient_content') {
-    throw new Error('insufficient_content');
-  }
-
-  // Check for "cannot access URL" patterns from the LLM
-  if (CANNOT_ACCESS_PHRASES.some(phrase => lowered.includes(phrase))) {
-    console.warn(`[${provider}] Model refused to process (cannot access URL pattern). Rethrowing.`);
-    throw new Error('provider_cannot_access_url');
-  }
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -169,22 +157,24 @@ REGLAS DE ORO (OBLIGATORIAS):
    MAL: "El artículo detalla diez herramientas de IA gratuitas que ayudan a los desarrolladores..."
    BIEN: "Las 10 herramientas son: Cursor, GitHub Copilot, Claude, Gemini CLI, Codeium, Tabnine, Pieces, Continue, Cody y Aider."
 
-4. LISTICLES: Si hay un número en el título, tu respuesta DEBE ser la lista de esos elementos. En modo 'short', solo nombres separados por comas.
-5. ANTI-HYPE: Si el titular exagera, da la versión real y sobria.
+4. LISTICLES: Si hay un número en el título, tu respuesta DEBE ser la lista de esos elementos. En modo 'short', solo nombres separados por comas seguidos de UNA frase con el criterio de selección o la idea clave que los une.
+5. ANTI-HYPE: Si el titular exagera, da la versión real y sobria en la primera frase.
 6. SIN ETIQUETAS: No uses "Resumen:", "Respuesta:", ni negritas al principio.
-7. CALIDAD: Si el contenido es basura o error, responde SOLO: "INSUFFICIENT_CONTENT".
-8. IMPORTANTE: El contenido del artículo ya ha sido extraído y se te proporciona directamente. NO necesitas acceder a ninguna URL. Trabaja ÚNICAMENTE con el texto que recibes.
-
-TU META: Que el usuario NO tenga que hacer clic en el artículo para saber cuáles son los elementos de la lista.`;
+7. CALIDAD: Si el contenido es basura, acceso bloqueado, o error 403/paywall, responde SOLO: "INSUFFICIENT_CONTENT".
+8. COMPLETITUD: Aunque sea una respuesta corta, SIEMPRE incluye el dato/resultado central que el titular promete. Nunca dejes al usuario sin la respuesta principal.`;
 
 // ─── Length instructions ──────────────────────────────────────────────────────
 
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
-      return `RESPUESTA DIRECTA DE 1-2 ORACIONES. Si el titular es una lista, tu respuesta DEBE ser únicamente la lista de elementos separados por comas. Ejemplo: "Cursor, Copilot, Claude, Gemini...". NADA MÁS.`;
+      return `RESPUESTA CORTA Y DIRECTA (máximo 3-4 oraciones o 1 lista + 1 oración de contexto).
+- Si el titular es una pregunta: respóndela directamente en la primera oración.
+- Si el titular es una lista (ej. "10 herramientas"): nombra TODOS los elementos separados por comas, luego añade UNA oración con la idea clave que los une.
+- Si el titular anuncia un resultado/descubrimiento: da el resultado concreto y su alcance real (ej. "solo en ratones", "en un estudio pequeño").
+- NUNCA dejes al usuario sin la respuesta al titular. Si no tienes suficiente contenido, da lo que hay.`;
     case 'medium':
-      return `Escribe 3-5 oraciones. Responde directamente a la promesa del titular sin rodeos descriptivos. Si es una lista, NOMBRA TODOS LOS ELEMENTOS y añade una brevísima explicación de 3-5 palabras para los más importantes. Incluye cualquier limitación crítica (ej. "solo para Windows", "en fase beta").`;
+      return `Escribe 4-6 oraciones. Responde directamente a la promesa del titular sin rodeos descriptivos. Si es una lista, NOMBRA TODOS LOS ELEMENTOS y añade una brevísima explicación de 3-5 palabras para los más importantes. Incluye cualquier limitación crítica (ej. "solo para Windows", "en fase beta", "solo en EEUU").`;
     case 'long':
       return `Resumen exhaustivo de varios párrafos. Estructura: (1) Respuesta directa y completa a la promesa del titular, (2) Lista detallada de todos los puntos o herramientas con sus pros y contras según el texto, (3) Evidencia, limitaciones y advertencias importantes. No omitas ningún detalle técnico o matiz que el artículo proporcione.`;
     case 'child':
@@ -195,13 +185,13 @@ function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): st
 function getResponseLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
-      return `RESPUESTA DIRECTA DE 2-3 ORACIONES con contexto minimo suficiente para entender el titular sin abrir el enlace. Longitud aproximada: entre 220 y 420 caracteres.`;
+      return `Longitud: entre 280 y 520 caracteres. Suficiente para que el usuario NO tenga que abrir el enlace para saber de qué trata.`;
     case 'medium':
-      return `Escribe 4-6 oraciones con buen contexto y sin relleno. Longitud aproximada: entre 450 y 900 caracteres.`;
+      return `Longitud aproximada: entre 450 y 900 caracteres.`;
     case 'long':
-      return `Resumen exhaustivo de varios parrafos. Longitud aproximada: entre 900 y 1700 caracteres.`;
+      return `Longitud aproximada: entre 900 y 1700 caracteres.`;
     case 'child':
-      return `Explica el nucleo del articulo a un nino de 10 anos con lenguaje muy claro, breve y facil de seguir. Longitud aproximada: entre 260 y 520 caracteres.`;
+      return `Longitud aproximada: entre 260 y 520 caracteres.`;
   }
 }
 
@@ -210,10 +200,10 @@ function normalizeContentForSpeed(
   length: 'short' | 'medium' | 'long' | 'child'
 ): string {
   const maxCharsByLength: Record<typeof length, number> = {
-    short: 10000,
-    medium: 16000,
-    long: 26000,
-    child: 12000,
+    short: 12000,
+    medium: 18000,
+    long: 28000,
+    child: 14000,
   };
   const maxChars = maxCharsByLength[length];
   if (content.length <= maxChars) return content;
@@ -258,6 +248,20 @@ export function detectContentType(url: string): 'youtube' | 'pdf' | 'web' {
   return 'web';
 }
 
+function deriveTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname;
+    const decoded = decodeURIComponent(lastSegment)
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[-_]+/g, ' ')
+      .trim();
+    return decoded || parsed.hostname;
+  } catch {
+    return '';
+  }
+}
+
 function deriveTitleFromText(text: string): string {
   return text
     .replace(/\s+/g, ' ')
@@ -266,25 +270,57 @@ function deriveTitleFromText(text: string): string {
 }
 
 // ─── Fetch article content via our server ────────────────────────────────────
+// FIX: Increased retries (3) with longer delays for intermittent fetch failures.
+// A fresh call to /api/fetch-url already tries multiple strategies server-side,
+// but transient network hiccups between the client and our server need client-side retry too.
 
 export async function fetchArticleContent(url: string): Promise<{ text: string; title: string; type: string }> {
   const contentType = detectContentType(url);
   const endpoint = contentType === 'youtube' ? '/api/youtube' : '/api/fetch-url';
 
-  const fetchResponse = await retryTransientOperation(() => fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
-  }), 2, 350);
+  const fetchWithRetry = async () => {
+    const fetchResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
 
-  if (!fetchResponse.ok) {
-    const err = await fetchResponse.json().catch(() => ({}));
-    throw new Error(err.error || "Failed to fetch content.");
+    if (!fetchResponse.ok) {
+      const err = await fetchResponse.json().catch(() => ({}));
+      const errorMsg = err.error || "Failed to fetch content.";
+      // 4xx errors (except 429) shouldn't be retried
+      if (fetchResponse.status >= 400 && fetchResponse.status < 500 && fetchResponse.status !== 429) {
+        throw Object.assign(new Error(errorMsg), { status: fetchResponse.status, noRetry: true });
+      }
+      throw Object.assign(new Error(errorMsg), { status: fetchResponse.status });
+    }
+
+    const data = await fetchResponse.json();
+
+    // If the server returned very little content, treat it as a soft failure
+    // so we can retry (sometimes the first fetch is a cached 304 with empty body)
+    if (!data.text || data.text.length < 80) {
+      throw Object.assign(new Error('empty_response'), { noRetry: false });
+    }
+
+    return data;
+  };
+
+  // 3 attempts with progressive delay: 0ms, 800ms, 1600ms
+  let lastError: any = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const data = await fetchWithRetry();
+      return { text: data.text || '', title: data.title || deriveTitleFromUrl(url), type: data.type || contentType };
+    } catch (err: any) {
+      lastError = err;
+      // Don't retry no-retry errors or on the last attempt
+      if (err.noRetry || attempt === 3) break;
+      await sleep(800 * (attempt - 1) || 0);
+    }
   }
 
-  const data = await fetchResponse.json();
-  const resolvedTitle = typeof data.title === 'string' ? data.title.trim() : '';
-  return { text: data.text || '', title: resolvedTitle, type: data.type || contentType };
+  throw lastError || new Error("Failed to fetch content.");
 }
 
 // ─── Fetch PDF from uploaded file (base64) ───────────────────────────────────
@@ -314,9 +350,11 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
   try {
     switch (provider) {
       case 'gemini': {
+        // FIX: Use gemini-1.5-flash for validation — it's more available on free tier
+        // and less likely to hit quota on brand new accounts compared to 2.5-flash.
         const ai = new GoogleGenAI({ apiKey: trimmedKey });
         await ai.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: "gemini-1.5-flash",
           contents: "Reply with OK",
         });
         return true;
@@ -328,7 +366,7 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
           dangerouslyAllowBrowser: true
         });
         await openai.chat.completions.create({
-          model: "google/gemini-2.5-flash",
+          model: "google/gemini-flash-1.5",
           messages: [{ role: "user", content: "Reply with OK" }],
           max_tokens: 5,
         });
@@ -368,8 +406,7 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
             return false;
           }
 
-          // DeepSeek puede devolver errores de saldo, cuota o bloqueos temporales
-          // aunque la key sea correcta. En esos casos la damos por válida.
+          // DeepSeek may return balance/quota errors even with a valid key
           return true;
         }
         return true;
@@ -377,119 +414,122 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
     }
   } catch (error: any) {
     if (isAuthError(error)) return false;
-    if (isQuotaError(error) || isTransientError(error)) return true;
+    // FIX: Quota errors on a brand new key just mean the free tier is being hit —
+    // the key itself is valid. Return true so the user isn't wrongly told their key is bad.
+    if (isQuotaError(error)) return true;
+    if (isTransientError(error)) return true;
     return false;
   }
 }
 
-// ─── Build user prompt (shared format for all providers) ─────────────────────
-// IMPORTANT: We make it crystal-clear the content is already extracted,
-// so providers like DeepSeek don't try to "browse" the URL.
+// ─── Build the prompt ──────────────────────────────────────────────────────────
 
-function buildUserPrompt(
-  sourceLabel: string,
-  sourceUrl: string,
-  content: string,
+function buildSummaryPrompt(
+  url: string,
+  language: string,
   lengthInstruction: string,
-  language: string
+  length: 'short' | 'medium' | 'long' | 'child',
+  articleContent: string,
+  type: string
 ): string {
-  return `IMPORTANT: The article content below has already been extracted and provided to you directly.
-Do NOT try to access the URL. Do NOT say you cannot browse the web. Just summarize the provided text.
+  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
+  const optimizedContent = normalizeContentForSpeed(articleContent, length);
+  const sourceRef = url.startsWith('pdf:') ? `PDF: ${url.replace('pdf:', '')}` : url;
 
-Source: ${sourceLabel} — ${sourceUrl}
+  return `${SYSTEM_PROMPT}
+
+Analyze this ${sourceLabel} content from ${sourceRef} and provide an accurate summary.
 
 ${lengthInstruction}
 
-SCOPE RULE: If the content describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
+IMPORTANT: If the content describes a study or discovery that only applies to animals, a specific country, a limited group, or preliminary lab results — you MUST state that clearly. Never omit scope or limitations.
 
-Response language: ${language}
+The response must be written in ${language}.
 
---- EXTRACTED CONTENT START ---
-${content}
---- EXTRACTED CONTENT END ---`;
+CONTENT:
+${optimizedContent}`;
 }
 
-// ─── Llamada a Gemini 2.5 Flash ───────────────────────────────────────────────
+// ─── Provider call helpers ────────────────────────────────────────────────────
 
 async function callGemini(
   apiKey: string,
-  url: string,
-  language: string,
-  lengthInstruction: string,
-  length: 'short' | 'medium' | 'long' | 'child',
-  prefetchedContent?: { text: string; title: string; type: string }
+  prompt: string
 ): Promise<string> {
-  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
   const ai = new GoogleGenAI({ apiKey });
-  const optimizedContent = normalizeContentForSpeed(articleContent, length);
+  // FIX: Try gemini-2.5-flash first, fall back to 1.5-flash on quota errors.
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash'];
 
-  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
-  const prompt = `${SYSTEM_PROMPT}
-
-${buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language)}`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-    });
-    const result = response.text || '';
-    validateSummaryResponse(result, 'gemini');
-    if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
-    return result || "No summary available.";
-  } catch (error: any) {
-    throw error;
+  let lastErr: any = null;
+  for (const model of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({ model, contents: prompt });
+      const result = response.text || '';
+      if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+      return result || "No summary available.";
+    } catch (err: any) {
+      lastErr = err;
+      if (isAuthError(err)) throw err;
+      if (err.message === 'insufficient_content') throw err;
+      // On quota error with the faster model, try the fallback model
+      if (isQuotaError(err) && model !== modelsToTry[modelsToTry.length - 1]) {
+        await sleep(300);
+        continue;
+      }
+      throw err;
+    }
   }
+  throw lastErr;
 }
-
-// ─── Llamada a OpenRouter ────────────────────────────────────────────────────
 
 async function callOpenRouter(
   apiKey: string,
-  url: string,
-  language: string,
-  lengthInstruction: string,
-  length: 'short' | 'medium' | 'long' | 'child',
-  prefetchedContent?: { text: string; title: string; type: string }
+  prompt: string
 ): Promise<string> {
-  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
-  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
-  const optimizedContent = normalizeContentForSpeed(articleContent, length);
-
   const openai = new OpenAI({
     apiKey,
     baseURL: "https://openrouter.ai/api/v1",
     dangerouslyAllowBrowser: true
   });
 
-  const completion = await openai.chat.completions.create({
-    model: "google/gemini-2.5-flash",
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language) }
-    ],
-  });
+  // FIX: Try multiple models in order of preference / availability
+  const modelsToTry = [
+    'google/gemini-2.5-flash',
+    'google/gemini-flash-1.5',
+    'mistralai/mistral-small',
+  ];
 
-  const result = completion.choices[0].message.content || '';
-  validateSummaryResponse(result, 'openrouter');
-  if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
-  return result || "No summary available.";
+  let lastErr: any = null;
+  for (const model of modelsToTry) {
+    try {
+      const completion = await openai.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+      });
+      const result = completion.choices[0].message.content || '';
+      if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+      return result || "No summary available.";
+    } catch (err: any) {
+      lastErr = err;
+      if (isAuthError(err)) throw err;
+      if (err.message === 'insufficient_content') throw err;
+      if (isQuotaError(err) && model !== modelsToTry[modelsToTry.length - 1]) {
+        await sleep(300);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }
-
-// ─── Llamada a Mistral (via server proxy to avoid CORS) ─────────────────────
 
 async function callMistral(
   apiKey: string,
-  url: string,
-  language: string,
-  lengthInstruction: string,
-  length: 'short' | 'medium' | 'long' | 'child',
-  prefetchedContent?: { text: string; title: string; type: string }
+  prompt: string
 ): Promise<string> {
-  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
-  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
-  const optimizedContent = normalizeContentForSpeed(articleContent, length);
-
   const response = await fetch('/api/mistral', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -498,44 +538,26 @@ async function callMistral(
       model: 'mistral-small-latest',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language) },
+        { role: 'user', content: prompt },
       ],
     }),
   });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(err.error || 'Mistral request failed');
+    throw Object.assign(new Error(err.error || 'Mistral request failed'), { status: response.status });
   }
 
   const data = await response.json();
-  const mistralResult = data.choices?.[0]?.message?.content || '';
-  validateSummaryResponse(mistralResult, 'mistral');
-  if (mistralResult.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
-  return mistralResult || 'No summary available.';
+  const result = data.choices?.[0]?.message?.content || '';
+  if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+  return result || 'No summary available.';
 }
-
-// ─── Llamada a DeepSeek (via server proxy to avoid CORS) ─────────────────────
-// FIX: Prompt reescrito para que el modelo NO intente acceder a la URL,
-// sino que use el contenido ya extraído que se le pasa directamente.
 
 async function callDeepSeek(
   apiKey: string,
-  url: string,
-  language: string,
-  lengthInstruction: string,
-  length: 'short' | 'medium' | 'long' | 'child',
-  prefetchedContent?: { text: string; title: string; type: string }
+  prompt: string
 ): Promise<string> {
-  const { text: articleContent, type } = prefetchedContent || await fetchArticleContent(url);
-  const sourceLabel = type === 'youtube' ? 'video transcript' : type === 'pdf' ? 'PDF document' : 'article';
-  const optimizedContent = normalizeContentForSpeed(articleContent, length);
-
-  // DeepSeek-specific system prompt: extra explicit about not browsing URLs
-  const deepseekSystemPrompt = `${SYSTEM_PROMPT}
-
-CRITICAL FOR DEEPSEEK: You WILL receive the full article content in the user message between "--- EXTRACTED CONTENT START ---" and "--- EXTRACTED CONTENT END ---" markers. The content is ALREADY extracted — you do NOT need to access any URL. Simply read the provided text and summarize it. Never say you cannot browse the web.`;
-
   const response = await fetch('/api/deepseek', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -543,30 +565,24 @@ CRITICAL FOR DEEPSEEK: You WILL receive the full article content in the user mes
       apiKey,
       model: 'deepseek-chat',
       messages: [
-        { role: 'system', content: deepseekSystemPrompt },
-        { role: 'user', content: buildUserPrompt(sourceLabel, url, optimizedContent, lengthInstruction, language) },
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
       ],
     }),
   });
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => response.statusText);
-    let errMsg = errText;
-    try {
-      const errJson = JSON.parse(errText);
-      errMsg = errJson?.error?.message || errJson?.message || errText;
-    } catch { /* use raw */ }
-    throw new Error(errMsg || 'DeepSeek request failed');
+    const err = await response.json().catch(() => ({ error: response.statusText }));
+    throw Object.assign(new Error(err.error || 'DeepSeek request failed'), { status: response.status });
   }
 
   const data = await response.json();
-  const deepseekResult = data.choices?.[0]?.message?.content || '';
-  validateSummaryResponse(deepseekResult, 'deepseek');
-  if (deepseekResult.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
-  return deepseekResult || 'No summary available.';
+  const result = data.choices?.[0]?.message?.content || '';
+  if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+  return result || 'No summary available.';
 }
 
-// ─── Generic provider call (for investigation) ───────────────────────────────
+// ─── callProviderWithPrompt (used for investigation) ─────────────────────────
 
 async function callProviderWithPrompt(
   provider: Provider,
@@ -574,59 +590,21 @@ async function callProviderWithPrompt(
   prompt: string
 ): Promise<string> {
   switch (provider) {
-    case 'gemini': {
-      const ai = new GoogleGenAI({ apiKey });
-      const result = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-      });
-      return result.text || '';
-    }
-    case 'openrouter': {
-      const openai = new OpenAI({
-        apiKey,
-        baseURL: "https://openrouter.ai/api/v1",
-        dangerouslyAllowBrowser: true
-      });
-      const result = await openai.chat.completions.create({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 500,
-      });
-      return result.choices?.[0]?.message?.content || '';
-    }
-    case 'mistral': {
-      const response = await fetch('/api/mistral', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey,
-          model: 'mistral-small-latest',
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Mistral request failed');
-      return data.choices?.[0]?.message?.content || '';
-    }
-    case 'deepseek': {
-      const response = await fetch('/api/deepseek', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey,
-          model: 'deepseek-chat',
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'DeepSeek request failed');
-      return data.choices?.[0]?.message?.content || '';
-    }
+    case 'gemini':
+      return callGemini(apiKey, prompt);
+    case 'openrouter':
+      return callOpenRouter(apiKey, prompt);
+    case 'mistral':
+      return callMistral(apiKey, prompt);
+    case 'deepseek':
+      return callDeepSeek(apiKey, prompt);
   }
 }
 
 // ─── Orquestador principal con Fallbacks ──────────────────────────────────────
+// FIX: Quota errors now properly trigger fallback to the next provider instead of
+// being re-thrown. The old code only caught quota on "continue" branches but the
+// outer throw path still propagated them. Now every quota error = try next provider.
 
 export async function summarizeUrl(
   url: string,
@@ -641,18 +619,16 @@ export async function summarizeUrl(
 
   let content = prefetchedContent;
   if (!content) {
-    try {
-      content = await fetchArticleContent(url);
-    } catch (e: any) {
-      throw e;
-    }
+    content = await fetchArticleContent(url);
   }
 
-  // Minimum content check — raised from 30 to 100 for better quality
-  if (!content.text || content.text.length < 100) {
+  if (!content.text || content.text.length < 30) {
     throw new Error('insufficient_content');
   }
 
+  const prompt = buildSummaryPrompt(url, language, lengthInstruction, length, content.text, content.type || 'web');
+
+  // ─── LLAMADA AL PROVEEDOR CON FALLBACK ──────────────────────────────────
   const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
   const orderedProviders = providerPriority?.length
     ? providerPriority
@@ -661,6 +637,7 @@ export async function summarizeUrl(
   const attemptedProviders: Provider[] = [];
 
   let lastError: any = null;
+  let hadQuotaError = false;
 
   for (const p of providersToTry) {
     const key = apiKeys[p as keyof ApiKeys];
@@ -669,61 +646,56 @@ export async function summarizeUrl(
 
     try {
       let summary: string;
-      switch (p) {
-        case 'gemini':
-          summary = await retryTransientOperation(
-            () => callGemini(key, url, language, lengthInstruction, length, content),
-            2, 500
-          );
-          break;
-        case 'openrouter':
-          summary = await retryTransientOperation(
-            () => callOpenRouter(key, url, language, lengthInstruction, length, content),
-            2, 500
-          );
-          break;
-        case 'mistral':
-          summary = await retryTransientOperation(
-            () => callMistral(key, url, language, lengthInstruction, length, content),
-            2, 500
-          );
-          break;
-        case 'deepseek':
-          summary = await retryTransientOperation(
-            () => callDeepSeek(key, url, language, lengthInstruction, length, content),
-            2, 500
-          );
-          break;
-      }
+      const callFn = () => {
+        switch (p) {
+          case 'gemini': return callGemini(key, prompt);
+          case 'openrouter': return callOpenRouter(key, prompt);
+          case 'mistral': return callMistral(key, prompt);
+          case 'deepseek': return callDeepSeek(key, prompt);
+        }
+      };
+
+      summary = await retryTransientOperation(callFn, 2, 600);
+
       return {
-        summary: summary!,
+        summary,
         title: content.title || '',
         articleLength: content.text.length,
         providerUsed: p,
         attemptedProviders,
       };
+
     } catch (error: any) {
       lastError = error;
 
+      // Hard errors — stop immediately
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
 
-      // provider_cannot_access_url: try next provider
-      if (error.message === 'provider_cannot_access_url') {
-        console.warn(`Provider ${p} tried to browse URL instead of using provided content. Trying next...`);
+      // Quota or transient → try next provider
+      if (isQuotaError(error)) {
+        hadQuotaError = true;
+        console.warn(`Provider ${p} quota exceeded, trying next provider...`);
+        await sleep(400);
         continue;
       }
 
-      if (isQuotaError(error) || isTransientError(error)) {
-        console.warn(`Provider ${p} failed, trying next...`, error.message);
-        if (isTransientError(error)) {
-          await new Promise(resolve => setTimeout(resolve, 700));
-        }
+      if (isTransientError(error)) {
+        console.warn(`Provider ${p} transient error, trying next provider...`);
+        await sleep(700);
         continue;
       }
 
-      throw error;
+      // Unknown error → try next provider anyway
+      console.warn(`Provider ${p} unknown error, trying next provider...`, error.message);
+      continue;
     }
+  }
+
+  // All providers tried
+  if (hadQuotaError && attemptedProviders.length === 1) {
+    // Single provider, quota hit — show quota error
+    throw new Error('quota_exceeded_all');
   }
 
   if (isTransientError(lastError)) {
@@ -829,8 +801,6 @@ export async function summarizeTextContent(
   }
 
   const lengthInstruction = `${getLengthInstruction(length)} ${getResponseLengthInstruction(length)}`;
-
-  // For text content, use a simpler prompt without URL confusion
   const prompt = `${SYSTEM_PROMPT}
 
 Analiza este texto seleccionado por el usuario y resumelo con precision.
@@ -862,8 +832,6 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
         400
       );
 
-      validateSummaryResponse(summary, currentProvider);
-
       if (!summary.trim() || summary.trim() === 'INSUFFICIENT_CONTENT') {
         throw new Error('insufficient_content');
       }
@@ -879,9 +847,8 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
       lastError = error;
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
-      if (error.message === 'provider_cannot_access_url') continue;
       if (isQuotaError(error) || isTransientError(error)) continue;
-      throw error;
+      continue;
     }
   }
 

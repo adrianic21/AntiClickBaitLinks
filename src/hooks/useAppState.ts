@@ -22,11 +22,13 @@ import {
   type ProviderMetrics,
 } from '../lib/appInsights';
 import {
+  addFeedSource as persistFeedSource,
+  removeFeedSource as deleteFeedSource,
+  toggleFeedSource as persistFeedSourceToggle,
   type DailyFeedItem,
   type FeedSource,
   type FeedSourceType,
 } from '../lib/feedSources';
-import { useFeedState } from './useFeedState';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
 function getDeviceId(): string {
@@ -96,50 +98,18 @@ interface AccountResponse {
   };
 }
 
-interface CachedAccountData {
-  user: AuthUser;
-  account: {
-    preferences?: {
-      uiLanguage?: string;
-      summaryLanguage?: string;
-      preferredLength?: 'short' | 'medium' | 'long';
-      speechRate?: number;
-      provider?: Provider;
-      deepResearchEnabled?: boolean;
-      dontShowAgain?: boolean;
-    };
-    appInsights?: AppInsights;
-    feedSources?: FeedSource[];
-    premium?: {
-      isPremium: boolean;
-      token?: string;
-    };
-  };
-}
-
-const AUTH_CACHE_KEY = 'acbl_cached_user';
-
-function readCachedAccount(): CachedAccountData | null {
-  const raw = localStorage.getItem(AUTH_CACHE_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as CachedAccountData;
-  } catch {
-    localStorage.removeItem(AUTH_CACHE_KEY);
-    return null;
-  }
-}
-
-function writeCachedAccount(data: CachedAccountData): void {
-  localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(data));
-}
-
-function clearCachedAccount(): void {
-  localStorage.removeItem(AUTH_CACHE_KEY);
-}
-
 // Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
+
+// ─── Format countdown from ms remaining ──────────────────────────────────────
+function formatCountdown(resetAtMs: number): string {
+  const diff = resetAtMs - Date.now();
+  if (diff <= 0) return '';
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 export function useAppState() {
   // Core
@@ -157,22 +127,23 @@ export function useAppState() {
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
   const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0 });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
+  const [feedSources, setFeedSources] = useState<FeedSource[]>([]);
+  const [dailyFeedItems, setDailyFeedItems] = useState<DailyFeedItem[]>([]);
+  const [isFeedLoading, setIsFeedLoading] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
-  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
-  const clearPasswordResetToken = useCallback(() => setPasswordResetToken(null), []);
 
   // API
   const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
-  const [validatedApiKeysReady, setValidatedApiKeysReady] = useState(true);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
 
@@ -188,12 +159,10 @@ export function useAppState() {
 
   // Premium / limits
   const [isPremium, setIsPremium] = useState(false);
-  // FIX: Stable ref so async callbacks always read the latest isPremium value
-  const isPremiumRef = useRef(false);
   const [showLockModal, setShowLockModal] = useState(false);
-  // FIX: Use LIMITS_LOADING sentinel (-1) to avoid showing 10/10 before server responds
   const [serverRemaining, setServerRemaining] = useState<number>(LIMITS_LOADING);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
+  // FIX: timeLeft is now computed live from serverResetAt — see countdown effect below.
   const [timeLeft, setTimeLeft] = useState('');
   const [unlockPass, setUnlockPass] = useState('');
   const [lockError, setLockError] = useState(false);
@@ -212,7 +181,6 @@ export function useAppState() {
   const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
   const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
-  // FIX: Track multiple feed summaries to display them all together
   const [feedSummaryResults, setFeedSummaryResults] = useState<Array<{ url: string; title: string; summary: string }>>([]);
   const [isMultiFeedSummarizing, setIsMultiFeedSummarizing] = useState(false);
 
@@ -220,11 +188,6 @@ export function useAppState() {
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
   const lastAutoSummarizedUrlRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // FIX: Keep isPremiumRef in sync with isPremium state for stable async access
-  useEffect(() => {
-    isPremiumRef.current = isPremium;
-  }, [isPremium]);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
@@ -241,10 +204,9 @@ export function useAppState() {
     [uiLanguage]
   );
 
-  // FIX: Show loading state (null) until server responds, never default to 10
   const remainingSearches = useMemo(() => {
     if (isPremium) return Infinity;
-    if (serverRemaining === LIMITS_LOADING) return LIMITS_LOADING; // still loading
+    if (serverRemaining === LIMITS_LOADING) return LIMITS_LOADING;
     return serverRemaining;
   }, [isPremium, serverRemaining]);
 
@@ -312,7 +274,6 @@ export function useAppState() {
   }, [openPopup]);
 
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
-    setValidatedApiKeysReady(false);
     const entries = await Promise.all(
       (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
         const trimmedKey = keyValue?.trim();
@@ -329,14 +290,12 @@ export function useAppState() {
 
     setValidatedApiKeys(nextValidatedKeys);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-    setValidatedApiKeysReady(true);
     return nextValidatedKeys;
   }, []);
 
   const validatePremiumSession = useCallback(async (): Promise<boolean> => {
     const savedToken = localStorage.getItem('premium_token');
-    // FIX: Use isPremiumRef.current for stable async access instead of stale closure value
-    if (!savedToken) return isPremiumRef.current;
+    if (!savedToken) return isPremium;
 
     try {
       const res = await fetch('/api/validate-token', {
@@ -357,10 +316,9 @@ export function useAppState() {
       }
       return false;
     } catch {
-      // FIX: Use isPremiumRef.current for stable fallback in async error path
-      return isPremiumRef.current;
+      return true;
     }
-  }, []);
+  }, [isPremium]);
 
   const syncAccount = useCallback(async (payload: Record<string, unknown>) => {
     if (!currentUser) return;
@@ -371,26 +329,29 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
-  const feedState = useFeedState(syncAccount);
-  const {
-    feedSources,
-    dailyFeedItems,
-    isFeedLoading,
-    feedError,
-    addFeedSource,
-    removeFeedSource,
-    toggleFeedSource,
-    refreshDailyFeed,
-    updateFeedSourceItemsPerLoad,
-    setFeedSources,
-    setDailyFeedItems,
-  } = feedState;
+  // ─── Apply limit data helper (used in multiple places) ──────────────────────
+  // FIX: Centralized so every check-limit response updates remaining + resetAt atomically,
+  // and the countdown starts immediately when resetAt is received.
+  const applyLimitData = useCallback((data: { allowed: boolean; remaining: number | null; resetAt: number | null }) => {
+    if (typeof data.remaining === 'number') {
+      setServerRemaining(data.remaining);
+    }
+    if (data.resetAt) {
+      setServerResetAt(data.resetAt);
+      // Immediately compute and set timeLeft so it shows at once
+      const immediate = formatCountdown(data.resetAt);
+      if (immediate) setTimeLeft(immediate);
+    }
+    if (!data.allowed) {
+      // Open the lock modal as soon as limit is hit
+      openLockModal();
+    }
+  }, [openLockModal]);
 
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
     setIsPremium(premiumEnabled);
-    isPremiumRef.current = premiumEnabled;
     localStorage.setItem('is_premium', premiumEnabled ? 'true' : 'false');
     if (data.account?.premium?.token) {
       localStorage.setItem('premium_token', data.account.premium.token);
@@ -414,29 +375,18 @@ export function useAppState() {
 
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
-    writeCachedAccount({
-      user: data.user,
-      account: {
-        preferences: data.account?.preferences || {},
-        appInsights: data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 },
-        feedSources: data.account?.feedSources || [],
-        premium: data.account?.premium || { isPremium: false },
-      },
-    });
 
-    // FIX: Fetch limits right after account loads; set sentinel in the meantime
+    // FIX: Always fetch current limit state right after account loads.
+    // Using applyLimitData ensures countdown starts immediately if already at 0.
     fetch('/api/check-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
-      .then(limitData => {
-        setServerRemaining(limitData.remaining ?? 10);
-        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-      })
+      .then(limitData => applyLimitData(limitData))
       .catch(() => setServerRemaining(10));
-  }, [refreshValidatedApiKeys]);
+  }, [refreshValidatedApiKeys, applyLimitData]);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch('/api/account', { credentials: 'include' });
@@ -480,20 +430,11 @@ export function useAppState() {
     const currentUrl = new URL(window.location.href);
     const params = currentUrl.searchParams;
     const authErrorParam = params.get('authError') || '';
-    const resetTokenParam = params.get('resetToken')?.trim() || '';
     const sharedCandidate = params.get('shared')
       || params.get('url')
       || extractUrlFromText(params.get('text') || '')
       || (currentUrl.pathname === '/share-target' ? extractUrlFromText(params.get('title') || '') : '');
     const sharedTextCandidate = params.get('sharedText') || '';
-
-    if (resetTokenParam) {
-      setPasswordResetToken(resetTokenParam);
-      setShowAuthModal(true);
-      setAuthMode('login');
-      window.history.replaceState({}, '', currentUrl.pathname);
-      return;
-    }
 
     if (authErrorParam) {
       let message = 'We could not complete that sign-in. Please try again.';
@@ -545,30 +486,6 @@ export function useAppState() {
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
 
-    const cachedAccount = readCachedAccount();
-    if (cachedAccount) {
-      setCurrentUser(cachedAccount.user);
-      const premiumEnabled = Boolean(cachedAccount.account?.premium?.isPremium || cachedAccount.user.isPremium);
-      setIsPremium(premiumEnabled);
-      isPremiumRef.current = premiumEnabled;
-      localStorage.setItem('is_premium', premiumEnabled ? 'true' : 'false');
-      if (cachedAccount.account?.premium?.token) {
-        localStorage.setItem('premium_token', cachedAccount.account.premium.token);
-      } else if (!premiumEnabled) {
-        localStorage.removeItem('premium_token');
-      }
-      setAppInsights(cachedAccount.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
-      setFeedSources(cachedAccount.account?.feedSources || []);
-      if (cachedAccount.account?.preferences?.uiLanguage) setUiLanguage(cachedAccount.account.preferences.uiLanguage);
-      if (cachedAccount.account?.preferences?.summaryLanguage) setSummaryLanguageState(cachedAccount.account.preferences.summaryLanguage);
-      if (cachedAccount.account?.preferences?.preferredLength) setPreferredLengthState(cachedAccount.account.preferences.preferredLength);
-      if (typeof cachedAccount.account?.preferences?.speechRate === 'number') setSpeechRateState(cachedAccount.account.preferences.speechRate);
-      if (typeof cachedAccount.account?.preferences?.deepResearchEnabled === 'boolean') setDeepResearchEnabled(cachedAccount.account.preferences.deepResearchEnabled);
-      if (typeof cachedAccount.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(cachedAccount.account.preferences.dontShowAgain);
-    }
-
-    setIsAuthLoading(false);
-
     fetch('/api/auth/me', { credentials: 'include' })
       .then(r => r.json())
       .then(async (data) => {
@@ -577,18 +494,14 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
-          clearCachedAccount();
-          // FIX: Still fetch limits for anonymous users
+          // Also fetch limits for anonymous users
           fetch('/api/check-limit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
-            .then(limitData => {
-              setServerRemaining(limitData.remaining ?? 10);
-              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-            })
+            .then(limitData => applyLimitData(limitData))
             .catch(() => setServerRemaining(10));
         }
       })
@@ -600,26 +513,41 @@ export function useAppState() {
         setProviderMetrics(getProviderMetrics());
         setIsAuthLoading(false);
       });
-  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAccount, applyLimitData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer — runs whenever there's a resetAt, not just on lock modal ─
+  // ─── Countdown timer ─────────────────────────────────────────────────────────
+  // FIX: The timer now runs whenever serverResetAt is set, not just in the lock modal.
+  // This means TopBar, StatusPopover, ProfilePanel all get live countdown via `timeLeft`.
+  // We also call formatCountdown immediately on mount to avoid a 1-second blank.
   useEffect(() => {
-    if (!serverResetAt) return;
-    const update = () => {
-      const diff = serverResetAt - Date.now();
-      if (diff <= 0) {
+    if (!serverResetAt) {
+      setTimeLeft('');
+      return;
+    }
+
+    // Set immediately to avoid blank on first render
+    const immediate = formatCountdown(serverResetAt);
+    setTimeLeft(immediate);
+
+    if (!immediate) {
+      // Already expired
+      setServerResetAt(null);
+      setServerRemaining(10);
+      return;
+    }
+
+    const id = setInterval(() => {
+      const next = formatCountdown(serverResetAt);
+      if (!next) {
         setTimeLeft('');
         setServerResetAt(null);
         setServerRemaining(10);
-        return;
+        clearInterval(id);
+      } else {
+        setTimeLeft(next);
       }
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setTimeLeft(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
-    };
-    update();
-    const id = setInterval(update, 1000);
+    }, 1000);
+
     return () => clearInterval(id);
   }, [serverResetAt]);
 
@@ -692,18 +620,16 @@ export function useAppState() {
     setCurrentUser(null);
     setApiKeys({});
     setValidatedApiKeys({});
-    setValidatedApiKeysReady(true);
     setUserApiKey('');
-    clearCachedAccount();
     setSummary(null);
     setArticleTitle(null);
     setAppInsights({ savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources([]);
     setDailyFeedItems([]);
     setIsPremium(false);
-    isPremiumRef.current = false;
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
+    setTimeLeft('');
   }, [openPopup]);
 
   const saveApiKey = useCallback(async () => {
@@ -729,14 +655,17 @@ export function useAppState() {
     const newKeys = { ...apiKeys };
     if (trimmedKey) {
       newKeys[provider] = trimmedKey;
+      localStorage.setItem(`api_key_${provider}`, trimmedKey);
     } else {
       delete newKeys[provider];
+      localStorage.removeItem(`api_key_${provider}`);
     }
     setApiKeys(newKeys);
     const nextValidatedKeys = { ...validatedApiKeys };
     if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
     else delete nextValidatedKeys[provider];
     setValidatedApiKeys(nextValidatedKeys);
+    localStorage.setItem('api_provider', provider);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
     await syncAccount({ apiKeys: newKeys, preferences: { provider } });
     setError(null);
@@ -759,13 +688,12 @@ export function useAppState() {
 
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
-    // FIX: Only trigger lock when serverRemaining is exactly 0 (not LIMITS_LOADING sentinel)
-    if (serverRemaining === 0) {
-      openLockModal();
+    if (serverRemaining !== LIMITS_LOADING && serverRemaining <= 0) {
+      if (serverResetAt) openLockModal();
       return false;
     }
     return true;
-  }, [isPremium, serverRemaining, openLockModal]);
+  }, [isPremium, serverRemaining, serverResetAt, openLockModal]);
 
   const handleUnlock = useCallback(async () => {
     if (!unlockPass.trim()) return;
@@ -779,7 +707,6 @@ export function useAppState() {
       const data = await res.json();
       if (data.valid) {
         setIsPremium(true);
-        isPremiumRef.current = true;
         localStorage.setItem('is_premium', 'true');
         localStorage.setItem('premium_token', unlockPass.trim());
         syncAccount({ premium: { isPremium: true, token: unlockPass.trim() } }).catch(() => undefined);
@@ -839,6 +766,103 @@ export function useAppState() {
     syncAccount({ preferences: { speechRate: rate } }).catch(() => undefined);
   }, [syncAccount]);
 
+  const addFeedSource = useCallback((name: string, sourceUrl: string, type: FeedSourceType) => {
+    const trimmedUrl = sourceUrl.trim();
+    if (!trimmedUrl) return;
+    const nextSources = persistFeedSource({
+      name: name.trim() || trimmedUrl,
+      url: trimmedUrl,
+      type,
+      enabled: true,
+    });
+    setFeedSources(nextSources);
+    setFeedError(null);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
+
+  const removeFeedSource = useCallback((id: string) => {
+    const nextSources = deleteFeedSource(id);
+    setFeedSources(nextSources);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
+
+  const toggleFeedSource = useCallback((id: string) => {
+    const nextSources = persistFeedSourceToggle(id);
+    setFeedSources(nextSources);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
+
+  const refreshDailyFeed = useCallback(async () => {
+    const enabledSources = feedSources.filter((source) => source.enabled);
+    if (enabledSources.length === 0) {
+      setDailyFeedItems([]);
+      setFeedError(null);
+      return;
+    }
+
+    setIsFeedLoading(true);
+    setFeedError(null);
+
+    try {
+      const responses = await Promise.all(
+        enabledSources.map(async (source) => {
+          const response = await fetch('/api/rss-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: source.url }),
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.error || `Could not load ${source.name}`);
+          }
+
+          const data = await response.json() as RssPreviewResponse;
+          const perSourceLimit = Math.max(1, Math.min(25, Number(source.itemsPerLoad || 6)));
+          return data.items
+            .slice(0, perSourceLimit)
+            .map<DailyFeedItem>((item, index) => ({
+              id: `${source.id}-${index}-${item.url}`,
+              title: item.title,
+              url: item.url,
+              sourceName: source.name || data.title || source.url,
+              sourceType: source.type,
+              publishedAt: item.publishedAt || null,
+            }));
+        })
+      );
+
+      const deduped = new Map<string, DailyFeedItem>();
+      for (const items of responses.flat()) {
+        if (!deduped.has(items.url)) deduped.set(items.url, items);
+      }
+
+      const nextItems = Array.from(deduped.values())
+        .sort((a, b) => {
+          const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+          const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+          return timeB - timeA;
+        })
+        .slice(0, 60);
+
+      setDailyFeedItems(nextItems);
+    } catch (err: any) {
+      setFeedError(err?.message || 'Could not load the selected feed.');
+    } finally {
+      setIsFeedLoading(false);
+    }
+  }, [feedSources]);
+
+  const updateFeedSourceItemsPerLoad = useCallback((id: string, itemsPerLoad: number) => {
+    const safe = Math.max(1, Math.min(25, Math.round(itemsPerLoad)));
+    const nextSources = feedSources.map((source) =>
+      source.id === id ? { ...source, itemsPerLoad: safe } : source
+    );
+    setFeedSources(nextSources);
+    try { localStorage.setItem('custom_feed_sources_v1', JSON.stringify(nextSources)); } catch { /* ignore */ }
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [feedSources, syncAccount]);
+
   const useFeedItem = useCallback((feedUrl: string) => {
     setPdfFile(null);
     setError(null);
@@ -854,13 +878,10 @@ export function useAppState() {
     setShowSharedToast(true);
   }, []);
 
-  // FIX: summarizeManyFeedItems — generates individual summaries for each URL,
-  // collects them all, then navigates to the combined result and closes the feed popup.
   const summarizeManyFeedItems = useCallback(async (urls: string[]) => {
     const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
     if (unique.length === 0) return;
 
-    // Close feed popup and show loading state
     openPopup('');
     setIsMultiFeedSummarizing(true);
     setFeedSummaryResults([]);
@@ -902,7 +923,6 @@ export function useAppState() {
     setFeedSummaryResults(results);
 
     if (results.length > 0) {
-      // Combine all summaries into a single display
       const combined = results
         .map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`)
         .join('\n\n---\n\n');
@@ -913,7 +933,6 @@ export function useAppState() {
       setError(t.genericError);
     }
 
-    // Update usage counter
     if (!isPremium) {
       fetch('/api/check-limit', {
         method: 'POST',
@@ -921,14 +940,10 @@ export function useAppState() {
         body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
       })
         .then(r => r.json())
-        .then(data => {
-          setServerRemaining(data.remaining ?? null);
-          if (data.resetAt) setServerResetAt(data.resetAt);
-          if (!data.allowed) openLockModal();
-        })
+        .then(data => applyLimitData(data))
         .catch(() => undefined);
     }
-  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, t.genericError, applyLimitData]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -1077,8 +1092,8 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      // FIX: Record usage BEFORE investigation so it's always counted on success,
-      // even if investigateClaim throws afterwards.
+      // FIX: Record usage and apply limit data (including resetAt) right away so
+      // countdown and "0/10" counter update immediately without requiring a reload.
       if (!isPremium) {
         fetch('/api/check-limit', {
           method: 'POST',
@@ -1086,16 +1101,10 @@ export function useAppState() {
           body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
-          .then(data => {
-            setServerRemaining(data.remaining ?? null);
-            if (data.resetAt) setServerResetAt(data.resetAt);
-            if (!data.allowed) openLockModal();
-          })
+          .then(data => applyLimitData(data))
           .catch(() => undefined);
       }
 
-      // FIX: Wrap investigateClaim in its own try/catch so a failure here never
-      // overwrites a successful summary with genericError.
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         try {
           const investigation = await investigateClaim(finalUrl, resolvedTitle || finalUrl, summaryResult.summary, apiKeys, providerPriority);
@@ -1140,7 +1149,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -1223,7 +1232,7 @@ export function useAppState() {
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
@@ -1235,7 +1244,6 @@ export function useAppState() {
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     showAuthModal, setShowAuthModal,
-    passwordResetToken, clearPasswordResetToken,
     feedSummaryResults, isMultiFeedSummarizing,
     t,
     openPopup, togglePopup, openLockModal, closeInfo,

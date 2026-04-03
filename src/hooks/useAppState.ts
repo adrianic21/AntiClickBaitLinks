@@ -121,6 +121,7 @@ export function useAppState() {
   const [error, setError] = useState<string | null>(null);
   const [currentLength, setCurrentLength] = useState<'short' | 'medium' | 'long' | 'child'>('short');
   const [preferredLength, setPreferredLengthState] = useState<'short' | 'medium' | 'long'>('short');
+  // summaryLanguage kept internally but no longer exposed to UI
   const [summaryLanguage, setSummaryLanguageState] = useState('English');
   const [deepResearchEnabled, setDeepResearchEnabled] = useState(false);
   const [lieScore, setLieScore] = useState(0);
@@ -144,6 +145,8 @@ export function useAppState() {
   const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
+  // FIX: track whether key validation has completed so UI shows correct state
+  const [validatedApiKeysReady, setValidatedApiKeysReady] = useState(false);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
 
@@ -162,7 +165,6 @@ export function useAppState() {
   const [showLockModal, setShowLockModal] = useState(false);
   const [serverRemaining, setServerRemaining] = useState<number>(LIMITS_LOADING);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
-  // FIX: timeLeft is now computed live from serverResetAt — see countdown effect below.
   const [timeLeft, setTimeLeft] = useState('');
   const [unlockPass, setUnlockPass] = useState('');
   const [lockError, setLockError] = useState(false);
@@ -183,6 +185,8 @@ export function useAppState() {
   const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
   const [feedSummaryResults, setFeedSummaryResults] = useState<Array<{ url: string; title: string; summary: string }>>([]);
   const [isMultiFeedSummarizing, setIsMultiFeedSummarizing] = useState(false);
+  // FIX: track reset token from URL for password reset flow
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
@@ -274,6 +278,15 @@ export function useAppState() {
   }, [openPopup]);
 
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
+    // FIX: If no keys configured at all, mark ready immediately (nothing to validate)
+    const keyEntries = Object.entries(keys).filter(([, v]) => v && String(v).trim() && v !== 'undefined');
+    if (keyEntries.length === 0) {
+      setValidatedApiKeys({});
+      setIsKeySaved(false);
+      setValidatedApiKeysReady(true);
+      return {};
+    }
+
     const entries = await Promise.all(
       (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
         const trimmedKey = keyValue?.trim();
@@ -290,6 +303,8 @@ export function useAppState() {
 
     setValidatedApiKeys(nextValidatedKeys);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    // FIX: mark validation as complete
+    setValidatedApiKeysReady(true);
     return nextValidatedKeys;
   }, []);
 
@@ -329,21 +344,19 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
-  // ─── Apply limit data helper (used in multiple places) ──────────────────────
-  // FIX: Centralized so every check-limit response updates remaining + resetAt atomically,
-  // and the countdown starts immediately when resetAt is received.
+  // ─── Apply limit data helper ─────────────────────────────────────────────────
+  // FIX: Always update remaining when provided (even 0), always set resetAt when provided,
+  // and open lock modal when not allowed.
   const applyLimitData = useCallback((data: { allowed: boolean; remaining: number | null; resetAt: number | null }) => {
-    if (typeof data.remaining === 'number') {
+    if (typeof data.remaining === 'number' && data.remaining !== null) {
       setServerRemaining(data.remaining);
     }
-    if (data.resetAt) {
+    if (data.resetAt && data.resetAt > Date.now()) {
       setServerResetAt(data.resetAt);
-      // Immediately compute and set timeLeft so it shows at once
       const immediate = formatCountdown(data.resetAt);
       if (immediate) setTimeLeft(immediate);
     }
     if (!data.allowed) {
-      // Open the lock modal as soon as limit is hit
       openLockModal();
     }
   }, [openLockModal]);
@@ -364,7 +377,11 @@ export function useAppState() {
     const selectedProvider = (data.account?.preferences?.provider as Provider) || 'gemini';
     setProvider(selectedProvider);
     setUserApiKey(accountKeys[selectedProvider] || '');
-    refreshValidatedApiKeys(accountKeys).catch(() => undefined);
+    // FIX: mark not ready before re-validating
+    setValidatedApiKeysReady(false);
+    refreshValidatedApiKeys(accountKeys).catch(() => {
+      setValidatedApiKeysReady(true);
+    });
 
     if (data.account?.preferences?.uiLanguage) setUiLanguage(data.account.preferences.uiLanguage);
     if (data.account?.preferences?.summaryLanguage) setSummaryLanguageState(data.account.preferences.summaryLanguage);
@@ -376,8 +393,7 @@ export function useAppState() {
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
 
-    // FIX: Always fetch current limit state right after account loads.
-    // Using applyLimitData ensures countdown starts immediately if already at 0.
+    // Always fetch current limit state right after account loads
     fetch('/api/check-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -494,6 +510,8 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
+          // FIX: mark keys ready even for anonymous users (no keys to validate)
+          setValidatedApiKeysReady(true);
           // Also fetch limits for anonymous users
           fetch('/api/check-limit', {
             method: 'POST',
@@ -507,6 +525,7 @@ export function useAppState() {
       })
       .catch(() => {
         setCurrentUser(null);
+        setValidatedApiKeysReady(true);
         setServerRemaining(10);
       })
       .finally(() => {
@@ -516,21 +535,16 @@ export function useAppState() {
   }, [loadAccount, applyLimitData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Countdown timer ─────────────────────────────────────────────────────────
-  // FIX: The timer now runs whenever serverResetAt is set, not just in the lock modal.
-  // This means TopBar, StatusPopover, ProfilePanel all get live countdown via `timeLeft`.
-  // We also call formatCountdown immediately on mount to avoid a 1-second blank.
   useEffect(() => {
     if (!serverResetAt) {
       setTimeLeft('');
       return;
     }
 
-    // Set immediately to avoid blank on first render
     const immediate = formatCountdown(serverResetAt);
     setTimeLeft(immediate);
 
     if (!immediate) {
-      // Already expired
       setServerResetAt(null);
       setServerRemaining(10);
       return;
@@ -552,8 +566,10 @@ export function useAppState() {
   }, [serverResetAt]);
 
   // ─── Auto-summarize on URL paste ────────────────────────────────────────────
+  // FIX: Don't trigger while auth is still loading (prevents spurious login popup)
   useEffect(() => {
     if (!currentUser) return;
+    if (isAuthLoading) return;
     const timer = setTimeout(() => {
       if (url && !isLoading) {
         try {
@@ -573,7 +589,7 @@ export function useAppState() {
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [url, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [url, currentUser, isAuthLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Scroll to results ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -597,6 +613,7 @@ export function useAppState() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Authentication failed');
       setAuthPassword('');
+      setShowAuthModal(false);
       if (data.user && data.account) {
         applyAccountData(data as AccountResponse);
       } else {
@@ -620,6 +637,7 @@ export function useAppState() {
     setCurrentUser(null);
     setApiKeys({});
     setValidatedApiKeys({});
+    setValidatedApiKeysReady(true);
     setUserApiKey('');
     setSummary(null);
     setArticleTitle(null);
@@ -675,8 +693,10 @@ export function useAppState() {
 
   const changeUiLanguage = useCallback((lang: string) => {
     setUiLanguage(lang);
+    // FIX: summary language stays in sync with UI language
+    setSummaryLanguageState(lang);
     localStorage.setItem('ui_language', lang);
-    syncAccount({ preferences: { uiLanguage: lang } }).catch(() => undefined);
+    syncAccount({ preferences: { uiLanguage: lang, summaryLanguage: lang } }).catch(() => undefined);
     if (showOnboardingLang) {
       setShowOnboardingLang(false);
       setShowLangMenu(false);
@@ -1092,8 +1112,7 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      // FIX: Record usage and apply limit data (including resetAt) right away so
-      // countdown and "0/10" counter update immediately without requiring a reload.
+      // Record usage and apply limit data immediately
       if (!isPremium) {
         fetch('/api/check-limit', {
           method: 'POST',
@@ -1226,13 +1245,17 @@ export function useAppState() {
     syncAccount({ preferences: { dontShowAgain: true } }).catch(() => undefined);
   }, [syncAccount]);
 
+  const clearPasswordResetToken = useCallback(() => {
+    setPasswordResetToken(null);
+  }, []);
+
   return {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
@@ -1244,6 +1267,7 @@ export function useAppState() {
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     showAuthModal, setShowAuthModal,
+    passwordResetToken, clearPasswordResetToken,
     feedSummaryResults, isMultiFeedSummarizing,
     t,
     openPopup, togglePopup, openLockModal, closeInfo,

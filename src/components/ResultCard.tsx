@@ -34,10 +34,10 @@ function FormattedText({ text }: { text: string }) {
     <>
       {parts.map((part, i) => {
         if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+          return <strong key={i} className="font-bold text-zinc-900">{part.slice(2, -2)}</strong>;
         }
         if (part.startsWith('*') && part.endsWith('*')) {
-          return <strong key={i} className="font-semibold">{part.slice(1, -1)}</strong>;
+          return <strong key={i} className="font-semibold text-zinc-900">{part.slice(1, -1)}</strong>;
         }
         return <span key={i}>{part}</span>;
       })}
@@ -52,13 +52,13 @@ export function ResultCard({
 }: ResultCardProps) {
   const hasConfiguredKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
   const hasAnyKey = Object.values(validatedApiKeys).some(k => k && k !== 'undefined');
+  // FIX: only show "validating" spinner if keys are configured AND validation hasn't finished yet
   const isApiKeyValidationPending = !apiKeysValidated && hasConfiguredKey;
   const configuredProviders = Object.entries(validatedApiKeys)
     .filter(([, value]) => value && value !== 'undefined')
     .map(([key]) => key.charAt(0).toUpperCase() + key.slice(1));
   const hasMultipleKeys = configuredProviders.length > 1;
 
-  // No mostrar el link de fuente cuando es un PDF subido localmente.
   const isLocalPdf = url.startsWith('pdf:');
   const isYouTube = /(?:youtube\.com\/(?:watch|shorts|embed)|youtu\.be\/)/.test(url);
   const displayUrl = isLocalPdf ? url.replace('pdf:', '') : url;
@@ -124,7 +124,6 @@ export function ResultCard({
             <AlertCircle size={20} className="shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p className="font-medium">{error}</p>
-              {/* Extra hint for YouTube errors */}
               {isYouTube && (error.includes('subtitles') || error.includes('subtítulos') || error.includes('content') || error.includes('contenido')) && (
                 <p className="text-xs text-red-500">
                   {t.youtubeNoSubtitles || 'This video may not have subtitles enabled. Subtitles are required to generate a summary.'}
@@ -140,7 +139,7 @@ export function ResultCard({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="glass rounded-3xl p-8 space-y-4 text-zinc-900 dark:text-zinc-100"
+            className="glass rounded-3xl p-8 space-y-4"
           >
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">
@@ -181,12 +180,13 @@ export function ResultCard({
               </div>
             </div>
 
+            {/* FIX: Original title in black */}
             {articleTitle && (
               <div className="pb-3 border-b border-zinc-100 space-y-1">
                 <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                   {t.originalTitle}
                 </p>
-                <p className="text-base font-semibold text-zinc-700 dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
+                <p className="text-base font-semibold text-zinc-900 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 
@@ -206,13 +206,14 @@ export function ResultCard({
               <p className="text-xs text-zinc-500">{t.lieMeterHelp || 'Estimates how much the headline exaggerates or distorts the actual content.'}</p>
             </div>
 
+            {/* FIX: Summary text in solid black (zinc-900) */}
             <div className="relative">
               {isLoading && currentLength !== 'short' && (
                 <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
                   <Loader2 className="animate-spin text-emerald-600" size={32} />
                 </div>
               )}
-              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 dark:text-zinc-200 space-y-3">
+              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-900 space-y-3">
                 {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
                   <p key={i}><FormattedText text={paragraph} /></p>
                 ))}
@@ -319,7 +320,7 @@ export function ResultCard({
         {isApiKeyValidationPending ? (
           <div className="w-full flex items-center justify-center gap-2 text-center">
             <Loader2 size={14} className="animate-spin text-zinc-500 shrink-0" />
-            <span>Validando tu API Key...</span>
+            <span>Validating your API Key...</span>
           </div>
         ) : hasAnyKey ? (
           <div className="w-full flex items-center justify-center gap-2 text-center">
@@ -351,7 +352,6 @@ export function ResultCard({
         )}
       </div>
 
-      {/* YouTube subtitle reminder — shown whenever a YouTube URL is present */}
       {isYouTube && (
         <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-medium">
           <AlertCircle size={13} className="shrink-0" />

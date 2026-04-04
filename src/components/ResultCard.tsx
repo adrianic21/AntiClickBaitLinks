@@ -19,8 +19,8 @@ interface ResultCardProps {
   lieScore: number;
   investigationResult: InvestigationResult | null;
   apiKeys: ApiKeys;
-  validatedApiKeys: ApiKeys;
-  apiKeysValidated: boolean;
+  // FIX 1: new prop — true while async key validation is in progress
+  isValidatingKeys?: boolean;
   resultsRef: React.RefObject<HTMLDivElement>;
   onSpeak: () => void;
   onSpeechRateChange: (rate: number) => void;
@@ -34,10 +34,10 @@ function FormattedText({ text }: { text: string }) {
     <>
       {parts.map((part, i) => {
         if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={i} className="font-bold text-zinc-900">{part.slice(2, -2)}</strong>;
+          return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
         }
         if (part.startsWith('*') && part.endsWith('*')) {
-          return <strong key={i} className="font-semibold text-zinc-900">{part.slice(1, -1)}</strong>;
+          return <strong key={i} className="font-semibold">{part.slice(1, -1)}</strong>;
         }
         return <span key={i}>{part}</span>;
       })}
@@ -47,14 +47,11 @@ function FormattedText({ text }: { text: string }) {
 
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, loadingProgress, currentLength,
-  isSpeaking, speechRate, lieScore, investigationResult, apiKeys, validatedApiKeys, apiKeysValidated, resultsRef,
-  onSpeak, onSpeechRateChange, onExpand, onShare,
+  isSpeaking, speechRate, lieScore, investigationResult, apiKeys, isValidatingKeys = false,
+  resultsRef, onSpeak, onSpeechRateChange, onExpand, onShare,
 }: ResultCardProps) {
-  const hasConfiguredKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
-  const hasAnyKey = Object.values(validatedApiKeys).some(k => k && k !== 'undefined');
-  // FIX: only show "validating" spinner if keys are configured AND validation hasn't finished yet
-  const isApiKeyValidationPending = !apiKeysValidated && hasConfiguredKey;
-  const configuredProviders = Object.entries(validatedApiKeys)
+  const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
+  const configuredProviders = Object.entries(apiKeys)
     .filter(([, value]) => value && value !== 'undefined')
     .map(([key]) => key.charAt(0).toUpperCase() + key.slice(1));
   const hasMultipleKeys = configuredProviders.length > 1;
@@ -180,13 +177,12 @@ export function ResultCard({
               </div>
             </div>
 
-            {/* FIX: Original title in black */}
             {articleTitle && (
               <div className="pb-3 border-b border-zinc-100 space-y-1">
                 <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                   {t.originalTitle}
                 </p>
-                <p className="text-base font-semibold text-zinc-900 leading-snug break-words">{articleTitle}</p>
+                <p className="text-base font-semibold text-zinc-700 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 
@@ -206,14 +202,13 @@ export function ResultCard({
               <p className="text-xs text-zinc-500">{t.lieMeterHelp || 'Estimates how much the headline exaggerates or distorts the actual content.'}</p>
             </div>
 
-            {/* FIX: Summary text in solid black (zinc-900) */}
             <div className="relative">
               {isLoading && currentLength !== 'short' && (
                 <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
                   <Loader2 className="animate-spin text-emerald-600" size={32} />
                 </div>
               )}
-              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-900 space-y-3">
+              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 space-y-3">
                 {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
                   <p key={i}><FormattedText text={paragraph} /></p>
                 ))}
@@ -311,16 +306,24 @@ export function ResultCard({
         )}
       </AnimatePresence>
 
+      {/* API key status footer */}
+      {/* FIX 1: Show a stable "Checking..." message while keys are being validated
+          to prevent flickering between "no key" and "key configured" states. */}
       <div
         className={cn(
           'flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2 text-center',
-          isApiKeyValidationPending ? 'bg-zinc-100 text-zinc-600' : hasAnyKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+          isValidatingKeys
+            ? 'bg-zinc-50 text-zinc-400'
+            : hasAnyKey
+              ? 'bg-emerald-50 text-emerald-700'
+              : 'bg-amber-50 text-amber-700'
         )}
       >
-        {isApiKeyValidationPending ? (
-          <div className="w-full flex items-center justify-center gap-2 text-center">
-            <Loader2 size={14} className="animate-spin text-zinc-500 shrink-0" />
-            <span>Validating your API Key...</span>
+        {isValidatingKeys ? (
+          /* Stable "checking" state — no more flickering */
+          <div className="flex items-center gap-2">
+            <Loader2 size={13} className="animate-spin shrink-0" />
+            <span>Verificando API Keys...</span>
           </div>
         ) : hasAnyKey ? (
           <div className="w-full flex items-center justify-center gap-2 text-center">
@@ -352,6 +355,7 @@ export function ResultCard({
         )}
       </div>
 
+      {/* YouTube subtitle reminder */}
       {isYouTube && (
         <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-medium">
           <AlertCircle size={13} className="shrink-0" />

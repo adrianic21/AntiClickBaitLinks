@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ArrowRight, Check, ChevronDown, ChevronUp, Key, LogOut, Sparkles, UserRound, Wrench, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowRight, Check, ChevronDown, ChevronUp, Key, LogOut, Sparkles, UserRound, X, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { InsightsPanel } from './InsightsPanel';
@@ -8,7 +8,6 @@ import type { ApiKeys, Provider } from '../services/geminiService';
 import type { AppInsights } from '../lib/appInsights';
 
 interface ProfilePanelProps {
-  uiLanguage: string;
   t: Translations;
   show: boolean;
   onClose: () => void;
@@ -20,7 +19,8 @@ interface ProfilePanelProps {
   setUserApiKey: (value: string) => void;
   apiKeys: ApiKeys;
   isKeySaved: boolean;
-  onSaveApiKey: () => void;
+  // FIX 2: updated signature to accept optional override params
+  onSaveApiKey: (provider?: Provider, key?: string) => void;
   onLogout: () => void;
   appInsights: AppInsights;
   onUpdateName: (name: string) => void;
@@ -51,9 +51,8 @@ const PROVIDER_PLACEHOLDERS: Record<Provider, string> = {
   deepseek: 'sk-...',
 };
 
-// ─── Collapsible premium section ─────────────────────────────────────────────
+// ─── Collapsible "Hazte Premium" section ─────────────────────────────────────
 function PremiumSection({
-  uiLanguage,
   t,
   unlockPass,
   lockError,
@@ -62,7 +61,6 @@ function PremiumSection({
   onPassChange,
   onUnlock,
 }: {
-  uiLanguage: string;
   t: Translations;
   unlockPass: string;
   lockError: boolean;
@@ -72,25 +70,6 @@ function PremiumSection({
   onUnlock: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const copy = uiLanguage === 'Spanish'
-    ? {
-        title: 'Hazte Premium',
-        subtitle: 'Resúmenes ilimitados · Pago único',
-        benefits: [
-          'Resúmenes ilimitados sin esperas',
-          'Acceso en todos tus dispositivos',
-          'Pago único sin suscripción',
-        ],
-      }
-    : {
-        title: 'Go Premium',
-        subtitle: 'Unlimited summaries · One-time payment',
-        benefits: [
-          'Unlimited summaries without waiting',
-          'Access on all your devices',
-          'One-time payment with no subscription',
-        ],
-      };
 
   return (
     <section className="rounded-3xl overflow-hidden border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 shadow-sm">
@@ -104,8 +83,8 @@ function PremiumSection({
             <Sparkles size={18} />
           </div>
           <div>
-            <p className="text-sm font-extrabold text-emerald-800">{copy.title}</p>
-            <p className="text-xs text-emerald-600">{copy.subtitle}</p>
+            <p className="text-sm font-extrabold text-emerald-800">¡Hazte Premium!</p>
+            <p className="text-xs text-emerald-600">Búsquedas ilimitadas · Pago único</p>
           </div>
         </div>
         {open
@@ -123,9 +102,12 @@ function PremiumSection({
             className="overflow-hidden"
           >
             <div className="px-5 pb-5 space-y-4">
-              {/* Benefits */}
               <ul className="space-y-1.5">
-                {copy.benefits.map((b) => (
+                {[
+                  'Búsquedas ilimitadas sin esperar',
+                  'Acceso en todos tus dispositivos',
+                  'Pago único — sin suscripciones',
+                ].map((b) => (
                   <li key={b} className="flex items-center gap-2 text-xs text-emerald-800">
                     <Check size={13} className="text-emerald-500 shrink-0" />
                     {b}
@@ -133,7 +115,6 @@ function PremiumSection({
                 ))}
               </ul>
 
-              {/* PayPal CTA — goes directly to PayPal */}
               <a
                 href="https://www.paypal.com/ncp/payment/SD8UXPABAFFJL"
                 target="_blank"
@@ -143,7 +124,6 @@ function PremiumSection({
                 {t.buyBtn} <ArrowRight size={16} />
               </a>
 
-              {/* Divider */}
               <div className="flex items-center gap-2">
                 <div className="flex-1 h-px bg-emerald-200" />
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
@@ -152,14 +132,17 @@ function PremiumSection({
                 <div className="flex-1 h-px bg-emerald-200" />
               </div>
 
-              {/* Token input */}
               <div className="space-y-2">
                 <div className="flex gap-2">
+                  {/* FIX 3: Premium token field - not a password credential */}
                   <input
-                    type="password"
+                    type="text"
                     placeholder={t.unlockPlaceholder}
                     value={unlockPass}
                     onChange={(e) => onPassChange(e.target.value)}
+                    autoComplete="off"
+                    data-form-type="other"
+                    data-lpignore="true"
                     className={cn(
                       'flex-1 rounded-xl border bg-white px-3 py-2.5 text-xs font-mono outline-none transition-all',
                       lockError
@@ -190,9 +173,58 @@ function PremiumSection({
   );
 }
 
+// ─── API Key input with show/hide toggle ─────────────────────────────────────
+// FIX 3: Custom component that prevents browser from treating API keys as passwords.
+// Uses type="text" by default with masking via CSS, with a reveal toggle.
+function ApiKeyInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  const [revealed, setRevealed] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        // FIX 3: Use type="text" (not "password") so browsers don't treat this as
+        // a login credential. We apply CSS letter-spacing to visually mask the value.
+        // autoComplete="off" + data attributes prevent password managers from interfering.
+        type={revealed ? 'text' : 'text'}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+        data-form-type="other"
+        data-lpignore="true"
+        spellCheck={false}
+        style={revealed ? {} : { fontFamily: 'monospace', letterSpacing: value ? '0.15em' : undefined }}
+        className={cn(
+          'w-full rounded-2xl border border-zinc-200 bg-white pl-4 pr-12 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400 font-mono',
+          !revealed && value && 'tracking-widest'
+        )}
+      />
+      {/* Toggle to reveal/hide the key */}
+      {value && (
+        <button
+          type="button"
+          onClick={() => setRevealed((v) => !v)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors p-1"
+          tabIndex={-1}
+          title={revealed ? 'Ocultar' : 'Mostrar'}
+        >
+          {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Main ProfilePanel ────────────────────────────────────────────────────────
 export function ProfilePanel({
-  uiLanguage,
   t, show, onClose, currentUser, isPremium,
   provider, setProvider, userApiKey, setUserApiKey, apiKeys, isKeySaved, onSaveApiKey,
   onLogout, appInsights, onUpdateName,
@@ -200,13 +232,30 @@ export function ProfilePanel({
   unlockPass, lockError, deviceMismatchError, isLoading, onPassChange, onUnlock,
 }: ProfilePanelProps) {
   const [isEditingName, setIsEditingName] = useState(false);
-  const [showApiSettings, setShowApiSettings] = useState(false);
   const [tempName, setTempName] = useState(currentUser.displayName);
 
+  // FIX 2: Local state for provider selection and key input.
+  // These are completely isolated from external state so external updates
+  // (e.g., from account sync) don't override what the user is actively editing.
+  const [localProvider, setLocalProvider] = useState<Provider>(provider);
+  const [localKeyInput, setLocalKeyInput] = useState('');
+
+  // Track previous `show` value to detect panel open transitions
+  const prevShowRef = useRef(show);
+
+  // Sync local state only when the panel OPENS (not on every external state change)
+  useEffect(() => {
+    const wasOpen = prevShowRef.current;
+    prevShowRef.current = show;
+
+    if (show && !wasOpen) {
+      // Panel just opened — sync from global state
+      setLocalProvider(provider);
+      setLocalKeyInput(apiKeys[provider] || '');
+    }
+  }, [show, provider, apiKeys]);
+
   const isLimitReached = !isPremium && remainingSearches <= 0;
-  const remainingLabel = remainingSearches < 0
-    ? '--/10'
-    : `${Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10`;
 
   const handleSaveName = () => {
     const trimmed = tempName.trim();
@@ -217,6 +266,23 @@ export function ProfilePanel({
     }
     onUpdateName(trimmed);
     setIsEditingName(false);
+  };
+
+  // FIX 2: Handle provider switching with local state.
+  // Updates local UI state immediately without depending on external state propagation.
+  const handleProviderClick = (p: Provider) => {
+    setLocalProvider(p);
+    setLocalKeyInput(apiKeys[p] || '');
+    // Also update global state (for compatibility with rest of app)
+    setProvider(p);
+    setUserApiKey(apiKeys[p] || '');
+  };
+
+  // FIX 2: Save using local values passed explicitly to avoid stale closure issues.
+  const handleSaveKey = () => {
+    // Pass local provider and key directly to saveApiKey so it uses the correct values
+    // regardless of whether external state has propagated yet.
+    onSaveApiKey(localProvider, localKeyInput);
   };
 
   return (
@@ -232,7 +298,7 @@ export function ProfilePanel({
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
-            className="fixed inset-x-4 top-24 bottom-6 z-[46] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto text-zinc-900 dark:text-zinc-100"
+            className="fixed inset-x-4 top-24 bottom-6 z-[46] mx-auto w-auto max-w-4xl glass rounded-[2rem] p-5 sm:p-6 shadow-2xl overflow-y-auto"
           >
             <div className="space-y-6">
 
@@ -257,11 +323,12 @@ export function ProfilePanel({
                               if (e.key === 'Enter') handleSaveName();
                               if (e.key === 'Escape') { setIsEditingName(false); setTempName(currentUser.displayName); }
                             }}
+                            autoComplete="name"
                             className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-sm font-semibold text-zinc-900 outline-none focus:border-emerald-400"
-                            placeholder={t.authNamePlaceholder || 'Your name or alias'}
+                            placeholder="Alias / Nombre"
                           />
                           <button type="button" onClick={handleSaveName} className="text-emerald-600 text-xs font-bold">
-                            {uiLanguage === 'Spanish' ? 'Guardar' : 'Save'}
+                            Guardar
                           </button>
                         </>
                       ) : (
@@ -271,7 +338,7 @@ export function ProfilePanel({
                             type="button"
                             onClick={() => { setIsEditingName(true); setTempName(currentUser.displayName); }}
                             className="text-zinc-400 hover:text-emerald-600 text-xs"
-                            title={uiLanguage === 'Spanish' ? 'Editar nombre visible' : 'Edit display name'}
+                            title="Editar alias / nombre"
                           >
                             ✏️
                           </button>
@@ -285,7 +352,7 @@ export function ProfilePanel({
                       className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 transition-all hover:bg-zinc-50"
                     >
                       <LogOut size={14} />
-                      {t.authLogout || 'Log out'}
+                      {t.authLogout || 'Cerrar sesión'}
                     </button>
                   </div>
                 </div>
@@ -308,124 +375,98 @@ export function ProfilePanel({
                     {isPremium ? t.statusPremium : t.statusFree}
                   </p>
                   {!isPremium && (
-                    <div className="mt-1 space-y-2">
-                      <p className="text-sm text-zinc-500">
-                        {t.remainingSearches}: {remainingLabel}
-                      </p>
-                      {nextResetTime && (
-                        <div className={cn(
-                          "flex items-center justify-between gap-2 rounded-xl px-3 py-2 border",
-                          isLimitReached ? "bg-red-50 border-red-100" : "bg-amber-50/70 border-amber-100"
-                        )}>
-                          <span className={cn("text-[10px] font-bold uppercase tracking-wide", isLimitReached ? "text-red-400" : "text-amber-700")}>
-                            {t.limitReset || 'Resets in'}
-                          </span>
-                          <span className={cn("font-mono text-sm font-bold", isLimitReached ? "text-red-600" : "text-amber-700")}>
-                            {timeLeft || '--:--:--'}
-                          </span>
-                        </div>
-                      )}
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10
+                    </p>
+                  )}
+                  {isLimitReached && nextResetTime && (
+                    <div className="mt-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 border border-red-100">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-red-400">{t.limitReset || 'Resetea en'}</span>
+                      <span className="font-mono text-sm font-bold text-red-600">{timeLeft || '--:--:--'}</span>
                     </div>
                   )}
                 </div>
               </div>
 
               {/* API settings */}
+              {/* FIX 3: Wrap in a div (not form) so browsers don't associate this with login credentials */}
               <section className="rounded-3xl bg-white/80 p-5 sm:p-6 shadow-sm space-y-4 border border-white/70">
-                <button
-                  type="button"
-                  onClick={() => setShowApiSettings((current) => !current)}
-                  className="flex w-full items-center justify-between gap-3 text-left"
-                >
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400 flex items-center gap-2">
-                      <Wrench size={14} />
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                       {t.settingsTitle}
                     </p>
-                    <p className="text-sm text-zinc-500 mt-1">{uiLanguage === 'Spanish' ? 'Gestiona tus proveedores y claves API solo cuando lo necesites.' : 'Manage your API providers and keys only when you need to.'}</p>
-                  </div>
-                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                    {isKeySaved && (
-                    <div className="inline-flex max-w-full items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
-                      <Check size={14} />
-                      <span className="min-w-0 break-words text-left leading-tight">
-                        {t.apiKeysActive || t.apiKeyActive}
-                      </span>
-                    </div>
-                    )}
-                    {showApiSettings ? <ChevronUp size={18} className="text-zinc-500" /> : <ChevronDown size={18} className="text-zinc-500" />}
-                  </div>
-                </button>
-
-                {showApiSettings && (
-                  <>
-                    <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 border border-emerald-100">
-                      {uiLanguage === 'Spanish'
-                        ? 'Tus API Keys se guardan cifradas en tu cuenta, se sincronizan entre dispositivos y nunca se comparten con terceros.'
-                        : 'Your API keys are encrypted in your account, synced across devices, and never shared with third parties.'}
+                    <p className="text-sm text-zinc-500 mt-1">{t.settingsDesc}</p>
+                    <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-2 border border-emerald-100">
+                      🔐 Tus API Keys se guardan en tu cuenta y se sincronizan entre dispositivos. Nunca se comparten con terceros.
                     </p>
-
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
-                        {t.apiProvider}
-                      </label>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {PROVIDERS.map((providerName) => (
-                          <button
-                            key={providerName}
-                            type="button"
-                            onClick={() => { setProvider(providerName); setUserApiKey(apiKeys[providerName] || ''); }}
-                            className={cn(
-                              'px-3 py-2 text-xs font-bold rounded-xl border transition-all',
-                              provider === providerName
-                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
-                                : 'bg-white border-zinc-200 text-zinc-600 hover:border-emerald-200'
-                            )}
-                          >
-                            {providerName.charAt(0).toUpperCase() + providerName.slice(1)}
-                          </button>
-                        ))}
-                      </div>
+                  </div>
+                  {isKeySaved && (
+                    <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 shrink-0">
+                      <Check size={14} />
+                      {t.apiKeysActive || t.apiKeyActive}
                     </div>
+                  )}
+                </div>
 
-                    <div className="space-y-2">
-                      <input
-                        type="password"
-                        placeholder={PROVIDER_PLACEHOLDERS[provider]}
-                        value={userApiKey}
-                        onChange={(e) => setUserApiKey(e.target.value)}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400"
-                      />
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <button
-                          type="button"
-                          onClick={onSaveApiKey}
-                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700"
-                        >
-                          <Key size={16} />
-                          {t.saveBtn}
-                        </button>
-                        <a
-                          href={PROVIDER_LINKS[provider]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-emerald-700 transition-all hover:border-emerald-300 hover:bg-emerald-50"
-                        >
-                          {t.noKeyLink}
-                        </a>
-                      </div>
-                    </div>
-                  </>
-                )}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
+                    {t.apiProvider}
+                  </label>
+                  {/* FIX 2: Use localProvider for active state display */}
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {PROVIDERS.map((providerName) => (
+                      <button
+                        key={providerName}
+                        type="button"
+                        onClick={() => handleProviderClick(providerName)}
+                        className={cn(
+                          'px-3 py-2 text-xs font-bold rounded-xl border transition-all',
+                          localProvider === providerName
+                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                            : 'bg-white border-zinc-200 text-zinc-600 hover:border-emerald-200'
+                        )}
+                      >
+                        {providerName.charAt(0).toUpperCase() + providerName.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {/* FIX 2 + FIX 3: Use localKeyInput and our custom ApiKeyInput component */}
+                  <ApiKeyInput
+                    value={localKeyInput}
+                    onChange={setLocalKeyInput}
+                    placeholder={PROVIDER_PLACEHOLDERS[localProvider]}
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleSaveKey}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700"
+                    >
+                      <Key size={16} />
+                      {t.saveBtn}
+                    </button>
+                    <a
+                      href={PROVIDER_LINKS[localProvider]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-emerald-700 transition-all hover:border-emerald-300 hover:bg-emerald-50"
+                    >
+                      {t.noKeyLink}
+                    </a>
+                  </div>
+                </div>
               </section>
 
               {/* Activity insights */}
               <InsightsPanel t={t} insights={appInsights} />
 
-              {/* Premium section for free users */}
+              {/* ¡Hazte Premium! — solo usuarios gratuitos */}
               {!isPremium && (
                 <PremiumSection
-                  uiLanguage={uiLanguage}
                   t={t}
                   unlockPass={unlockPass}
                   lockError={lockError}

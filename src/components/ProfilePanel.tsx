@@ -19,7 +19,6 @@ interface ProfilePanelProps {
   setUserApiKey: (value: string) => void;
   apiKeys: ApiKeys;
   isKeySaved: boolean;
-  // FIX 2: updated signature to accept optional override params
   onSaveApiKey: (provider?: Provider, key?: string) => void;
   onLogout: () => void;
   appInsights: AppInsights;
@@ -134,7 +133,6 @@ function PremiumSection({
 
               <div className="space-y-2">
                 <div className="flex gap-2">
-                  {/* FIX 3: Premium token field - not a password credential */}
                   <input
                     type="text"
                     placeholder={t.unlockPlaceholder}
@@ -174,8 +172,9 @@ function PremiumSection({
 }
 
 // ─── API Key input with show/hide toggle ─────────────────────────────────────
-// FIX 3: Custom component that prevents browser from treating API keys as passwords.
-// Uses type="text" by default with masking via CSS, with a reveal toggle.
+// Uses type="password" by default so the value is properly hidden.
+// The eye button reveals/hides the key on demand.
+// autoComplete="off" + data attributes prevent password managers from interfering.
 function ApiKeyInput({
   value,
   onChange,
@@ -190,10 +189,7 @@ function ApiKeyInput({
   return (
     <div className="relative">
       <input
-        // FIX 3: Use type="text" (not "password") so browsers don't treat this as
-        // a login credential. We apply CSS letter-spacing to visually mask the value.
-        // autoComplete="off" + data attributes prevent password managers from interfering.
-        type={revealed ? 'text' : 'text'}
+        type={revealed ? 'text' : 'password'}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -201,20 +197,16 @@ function ApiKeyInput({
         data-form-type="other"
         data-lpignore="true"
         spellCheck={false}
-        style={revealed ? {} : { fontFamily: 'monospace', letterSpacing: value ? '0.15em' : undefined }}
-        className={cn(
-          'w-full rounded-2xl border border-zinc-200 bg-white pl-4 pr-12 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400 font-mono',
-          !revealed && value && 'tracking-widest'
-        )}
+        className="w-full rounded-2xl border border-zinc-200 bg-white pl-4 pr-12 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400 font-mono"
       />
-      {/* Toggle to reveal/hide the key */}
+      {/* Eye toggle — only shown when there is a value to show/hide */}
       {value && (
         <button
           type="button"
           onClick={() => setRevealed((v) => !v)}
           className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors p-1"
           tabIndex={-1}
-          title={revealed ? 'Ocultar' : 'Mostrar'}
+          title={revealed ? 'Ocultar clave' : 'Mostrar clave'}
         >
           {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
@@ -234,22 +226,16 @@ export function ProfilePanel({
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(currentUser.displayName);
 
-  // FIX 2: Local state for provider selection and key input.
-  // These are completely isolated from external state so external updates
-  // (e.g., from account sync) don't override what the user is actively editing.
   const [localProvider, setLocalProvider] = useState<Provider>(provider);
   const [localKeyInput, setLocalKeyInput] = useState('');
 
-  // Track previous `show` value to detect panel open transitions
   const prevShowRef = useRef(show);
 
-  // Sync local state only when the panel OPENS (not on every external state change)
   useEffect(() => {
     const wasOpen = prevShowRef.current;
     prevShowRef.current = show;
 
     if (show && !wasOpen) {
-      // Panel just opened — sync from global state
       setLocalProvider(provider);
       setLocalKeyInput(apiKeys[provider] || '');
     }
@@ -268,20 +254,14 @@ export function ProfilePanel({
     setIsEditingName(false);
   };
 
-  // FIX 2: Handle provider switching with local state.
-  // Updates local UI state immediately without depending on external state propagation.
   const handleProviderClick = (p: Provider) => {
     setLocalProvider(p);
     setLocalKeyInput(apiKeys[p] || '');
-    // Also update global state (for compatibility with rest of app)
     setProvider(p);
     setUserApiKey(apiKeys[p] || '');
   };
 
-  // FIX 2: Save using local values passed explicitly to avoid stale closure issues.
   const handleSaveKey = () => {
-    // Pass local provider and key directly to saveApiKey so it uses the correct values
-    // regardless of whether external state has propagated yet.
     onSaveApiKey(localProvider, localKeyInput);
   };
 
@@ -389,7 +369,6 @@ export function ProfilePanel({
               </div>
 
               {/* API settings */}
-              {/* FIX 3: Wrap in a div (not form) so browsers don't associate this with login credentials */}
               <section className="rounded-3xl bg-white/80 p-5 sm:p-6 shadow-sm space-y-4 border border-white/70">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -413,7 +392,6 @@ export function ProfilePanel({
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
                     {t.apiProvider}
                   </label>
-                  {/* FIX 2: Use localProvider for active state display */}
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {PROVIDERS.map((providerName) => (
                       <button
@@ -434,7 +412,6 @@ export function ProfilePanel({
                 </div>
 
                 <div className="space-y-2">
-                  {/* FIX 2 + FIX 3: Use localKeyInput and our custom ApiKeyInput component */}
                   <ApiKeyInput
                     value={localKeyInput}
                     onChange={setLocalKeyInput}

@@ -19,7 +19,6 @@ interface ResultCardProps {
   lieScore: number;
   investigationResult: InvestigationResult | null;
   apiKeys: ApiKeys;
-  // FIX 1: new prop — true while async key validation is in progress
   isValidatingKeys?: boolean;
   resultsRef: React.RefObject<HTMLDivElement>;
   onSpeak: () => void;
@@ -307,8 +306,6 @@ export function ResultCard({
       </AnimatePresence>
 
       {/* API key status footer */}
-      {/* FIX 1: Show a stable "Checking..." message while keys are being validated
-          to prevent flickering between "no key" and "key configured" states. */}
       <div
         className={cn(
           'flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2 text-center',
@@ -320,10 +317,9 @@ export function ResultCard({
         )}
       >
         {isValidatingKeys ? (
-          /* Stable "checking" state — no more flickering */
           <div className="flex items-center gap-2">
             <Loader2 size={13} className="animate-spin shrink-0" />
-            <span>Verificando API Keys...</span>
+            <span>Checking API keys...</span>
           </div>
         ) : hasAnyKey ? (
           <div className="w-full flex items-center justify-center gap-2 text-center">
@@ -336,20 +332,20 @@ export function ResultCard({
           <div className="w-full max-w-2xl space-y-2 text-center">
             <div className="flex items-center justify-center gap-2">
               <AlertCircle size={14} className="shrink-0" />
-              <span>{t.apiKeyMissing}</span>
+              <span>No API Key configured — open your profile (👤 icon, top right) to add one</span>
             </div>
             <div className="mx-auto max-w-xl text-[10px] text-amber-600 space-y-1">
               <p>
-                1. {t.apiKeyGuide1}{' '}
+                1. Get your FREE key from{' '}
                 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a>
-                {' '}{t.apiKeyOr}{' '}
+                {' '}or{' '}
                 <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a>
-                {' '}{t.apiKeyOr}{' '}
+                {' '}or{' '}
                 <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Mistral</a>
-                {' '}{t.apiKeyOr}{' '}
+                {' '}or{' '}
                 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">DeepSeek</a>
               </p>
-              <p>2. {t.apiKeyGuide2}</p>
+              <p>2. Then paste it in your profile (👤 icon, top right)</p>
             </div>
           </div>
         )}

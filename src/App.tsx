@@ -253,20 +253,31 @@ export default function App() {
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-2xl space-y-6 sm:space-y-8"
       >
-        {/* Logo + title */}
-        <div className="text-center space-y-2 sm:space-y-4">
+        {/* Logo + title — increased spacing between icon and text */}
+        <div className="text-center flex flex-col items-center gap-5 sm:gap-6">
           <button
             type="button"
             onClick={handleLogoClick}
             className={cn(
-              "inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-200 transition-all duration-500 cursor-pointer hover:bg-emerald-700 hover:scale-105",
+              "inline-flex items-center justify-center w-18 h-18 w-[4.5rem] h-[4.5rem] rounded-3xl bg-emerald-600 text-white shadow-xl shadow-emerald-200/60 transition-all duration-500 cursor-pointer hover:bg-emerald-700 hover:scale-105",
               isLoading && "animate-pulse scale-110 shadow-emerald-400"
             )}
             title="Ir a inicio"
           >
-            <ShieldCheck size={32} />
+            <ShieldCheck size={34} />
           </button>
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-zinc-900">{t.title}</h1>
+        </div>
+
+        {/* Green separator bar */}
+        <div className="flex items-center gap-3 px-1">
+          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-emerald-300 to-emerald-500" />
+          <div className="flex gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+          </div>
+          <div className="flex-1 h-px bg-gradient-to-l from-transparent via-emerald-300 to-emerald-500" />
         </div>
 
         {/* Input form */}
@@ -389,7 +400,6 @@ export default function App() {
         </div>
 
         {/* Results */}
-        {/* FIX 1: Pass isValidatingKeys so ResultCard shows stable "checking" state */}
         <ResultCard
           t={t}
           summary={summary}

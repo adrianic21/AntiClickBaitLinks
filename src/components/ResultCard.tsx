@@ -1,4 +1,4 @@
-import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2 } from 'lucide-react';
+import { Search, Volume2, VolumeX, Loader2, AlertCircle, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations } from '../translations';
@@ -46,32 +46,19 @@ function FormattedText({ text }: { text: string }) {
 
 export function ResultCard({
   t, summary, articleTitle, url, error, isLoading, loadingMessage, loadingProgress, currentLength,
-  isSpeaking, speechRate, lieScore, investigationResult, apiKeys, isValidatingKeys = false,
+  isSpeaking, speechRate, lieScore, investigationResult,
   resultsRef, onSpeak, onSpeechRateChange, onExpand, onShare,
 }: ResultCardProps) {
-  const hasAnyKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
-  const configuredProviders = Object.entries(apiKeys)
-    .filter(([, value]) => value && value !== 'undefined')
-    .map(([key]) => key.charAt(0).toUpperCase() + key.slice(1));
-  const hasMultipleKeys = configuredProviders.length > 1;
-
   const isLocalPdf = url.startsWith('pdf:');
   const isYouTube = /(?:youtube\.com\/(?:watch|shorts|embed)|youtu\.be\/)/.test(url);
   const displayUrl = isLocalPdf ? url.replace('pdf:', '') : url;
+
   const lieMeterColor = lieScore < 26
     ? 'from-emerald-500 to-lime-400'
-    : lieScore < 51
-      ? 'from-yellow-400 to-amber-500'
-      : lieScore < 76
-        ? 'from-orange-500 to-red-500'
-        : 'from-red-600 to-red-800';
-  const lieMeterLabel = lieScore < 26
-    ? 'Low'
-    : lieScore < 51
-      ? 'Medium'
-      : lieScore < 76
-        ? 'High'
-        : 'Very high';
+    : lieScore < 51 ? 'from-yellow-400 to-amber-500'
+    : lieScore < 76 ? 'from-orange-500 to-red-500'
+    : 'from-red-600 to-red-800';
+  const lieMeterLabel = lieScore < 26 ? 'Bajo' : lieScore < 51 ? 'Medio' : lieScore < 76 ? 'Alto' : 'Muy alto';
 
   return (
     <div ref={resultsRef}>
@@ -82,23 +69,23 @@ export function ResultCard({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="glass rounded-3xl p-8 flex flex-col items-center gap-4"
+            className="rounded-2xl border border-zinc-200 bg-white p-8 flex flex-col items-center gap-4"
           >
-            <Loader2 className="animate-spin text-emerald-600" size={36} />
+            <Loader2 className="animate-spin text-emerald-600" size={32} />
             <AnimatePresence mode="wait">
               <motion.p
                 key={loadingMessage}
-                initial={{ opacity: 0, y: 6 }}
+                initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.3 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25 }}
                 className="text-sm font-medium text-zinc-500"
               >
                 {loadingMessage}
               </motion.p>
             </AnimatePresence>
-            <div className="w-full max-w-md space-y-1">
-              <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
+            <div className="w-full max-w-sm space-y-1">
+              <div className="h-1.5 rounded-full bg-zinc-100 overflow-hidden">
                 <div
                   className="h-full bg-emerald-500 transition-all duration-300"
                   style={{ width: `${Math.max(4, Math.min(100, loadingProgress))}%` }}
@@ -112,18 +99,16 @@ export function ResultCard({
         {!isLoading && error && (
           <motion.div
             key="error"
-            initial={{ opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
+            exit={{ opacity: 0, scale: 0.97 }}
             className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3"
           >
-            <AlertCircle size={20} className="shrink-0 mt-0.5" />
+            <AlertCircle size={18} className="shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-medium">{error}</p>
+              <p className="font-medium text-sm">{error}</p>
               {isYouTube && (error.includes('subtitles') || error.includes('subtítulos') || error.includes('content') || error.includes('contenido')) && (
-                <p className="text-xs text-red-500">
-                  {t.youtubeNoSubtitles || 'This video may not have subtitles enabled. Subtitles are required to generate a summary.'}
-                </p>
+                <p className="text-xs text-red-500">{t.youtubeNoSubtitles}</p>
               )}
             </div>
           </motion.div>
@@ -132,42 +117,42 @@ export function ResultCard({
         {summary && (
           <motion.div
             key="summary"
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="glass rounded-3xl p-8 space-y-4"
+            exit={{ opacity: 0, y: -8 }}
+            className="rounded-2xl border border-zinc-200 bg-white p-6 space-y-5"
           >
+            {/* Action bar */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">
+              <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
                 {t.realSummary}
               </span>
               <button
                 onClick={onSpeak}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all',
-                  isSpeaking ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                  'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border',
+                  isSpeaking
+                    ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'
+                    : 'bg-zinc-50 text-zinc-600 border-zinc-200 hover:bg-zinc-100'
                 )}
               >
-                {isSpeaking ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                {isSpeaking ? <VolumeX size={13} /> : <Volume2 size={13} />}
                 {isSpeaking ? t.stop : t.listen}
               </button>
               <button
                 onClick={() => onShare(summary, url)}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border bg-zinc-50 text-zinc-600 border-zinc-200 hover:bg-zinc-100"
               >
-                <Share2 size={14} />
-                {t.share}
+                <Share2 size={13} />{t.share}
               </button>
-              <div className="flex items-center gap-1 rounded-full bg-zinc-100 p-1">
+              <div className="flex items-center gap-0.5 rounded-full bg-zinc-100 p-0.5 border border-zinc-200">
                 {[0.85, 1, 1.2].map(rate => (
                   <button
                     key={rate}
                     onClick={() => onSpeechRateChange(rate)}
                     className={cn(
                       'px-2 py-0.5 rounded-full text-[11px] font-bold transition-colors',
-                      speechRate === rate
-                        ? 'bg-white text-emerald-700 shadow-sm'
-                        : 'text-zinc-500 hover:text-zinc-700'
+                      speechRate === rate ? 'bg-white text-emerald-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
                     )}
                   >
                     {rate}x
@@ -176,35 +161,34 @@ export function ResultCard({
               </div>
             </div>
 
+            {/* Original title */}
             {articleTitle && (
-              <div className="pb-3 border-b border-zinc-100 space-y-1">
-                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
-                  {t.originalTitle}
-                </p>
+              <div className="pb-4 border-b border-zinc-100 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t.originalTitle}</p>
                 <p className="text-base font-semibold text-zinc-700 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 
-            <div className="rounded-2xl border border-zinc-100 bg-white/80 p-4 space-y-2">
+            {/* Lie meter */}
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
-                  {t.lieMeterTitle || 'Lie meter'}
-                </p>
-                <span className="text-sm font-bold text-zinc-700">{lieScore}/100 · {lieMeterLabel}</span>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t.lieMeterTitle || 'Medidor clickbait'}</p>
+                <span className="text-xs font-bold text-zinc-600">{lieScore}/100 · {lieMeterLabel}</span>
               </div>
-              <div className="h-3 rounded-full bg-zinc-100 overflow-hidden">
+              <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
                 <div
                   className={`h-full bg-gradient-to-r ${lieMeterColor} transition-all duration-500`}
                   style={{ width: `${lieScore}%` }}
                 />
               </div>
-              <p className="text-xs text-zinc-500">{t.lieMeterHelp || 'Estimates how much the headline exaggerates or distorts the actual content.'}</p>
+              <p className="text-[11px] text-zinc-500">{t.lieMeterHelp}</p>
             </div>
 
+            {/* Summary text */}
             <div className="relative">
               {isLoading && currentLength !== 'short' && (
-                <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
-                  <Loader2 className="animate-spin text-emerald-600" size={32} />
+                <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
+                  <Loader2 className="animate-spin text-emerald-600" size={28} />
                 </div>
               )}
               <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 space-y-3">
@@ -214,12 +198,13 @@ export function ResultCard({
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 pt-2">
+            {/* Expand buttons */}
+            <div className="flex flex-wrap gap-2 pt-1">
               {currentLength !== 'medium' && (
                 <button
                   onClick={() => onExpand('medium')}
                   disabled={isLoading}
-                  className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                  className="px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50 border border-emerald-100"
                 >
                   {t.expandMedium}
                 </button>
@@ -228,7 +213,7 @@ export function ResultCard({
                 <button
                   onClick={() => onExpand('long')}
                   disabled={isLoading}
-                  className="px-4 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-bold hover:bg-blue-100 transition-colors disabled:opacity-50"
+                  className="px-3 py-2 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors disabled:opacity-50 border border-blue-100"
                 >
                   {t.expandLong}
                 </button>
@@ -237,64 +222,57 @@ export function ResultCard({
                 <button
                   onClick={() => onExpand('child')}
                   disabled={isLoading}
-                  className="px-4 py-2 bg-purple-50 text-purple-700 rounded-xl text-sm font-bold hover:bg-purple-100 transition-colors disabled:opacity-50"
+                  className="px-3 py-2 bg-purple-50 text-purple-700 rounded-xl text-xs font-bold hover:bg-purple-100 transition-colors disabled:opacity-50 border border-purple-100"
                 >
                   {t.explainChild}
                 </button>
               )}
             </div>
 
-            <div className="pt-4 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-sm min-w-0">
-              <Search size={14} />
+            {/* Source link */}
+            <div className="pt-3 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-xs min-w-0">
+              <Search size={12} />
               {isLocalPdf ? (
-                <span className="truncate max-w-[250px] sm:max-w-md text-zinc-400 min-w-0">
-                  {displayUrl}
-                </span>
+                <span className="truncate max-w-[280px] sm:max-w-md min-w-0">{displayUrl}</span>
               ) : (
                 <a
                   href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="truncate max-w-[250px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors min-w-0"
+                  target="_blank" rel="noopener noreferrer"
+                  className="truncate max-w-[280px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors min-w-0"
                 >
                   {displayUrl}
                 </a>
               )}
             </div>
 
+            {/* Investigation result */}
             {investigationResult && (
-              <div className="rounded-2xl border border-zinc-100 bg-white/80 p-4 space-y-3">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
-                    {t.deepResearchTitle || 'Deep research'}
-                  </p>
-                  <span className="text-xs font-bold px-2 py-1 rounded-full bg-zinc-100 text-zinc-700">
-                    {(t.confidenceLabel || 'Confidence')} {investigationResult.confidence}
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t.deepResearchTitle || 'Investigación'}</p>
+                  <span className="text-xs font-bold px-2 py-1 rounded-full bg-white text-zinc-700 border border-zinc-200">
+                    {t.confidenceLabel} {investigationResult.confidence}
                   </span>
                 </div>
-                <p className="text-base font-semibold text-zinc-800">{investigationResult.verdict}</p>
+                <p className="text-sm font-semibold text-zinc-800">{investigationResult.verdict}</p>
                 {investigationResult.findings.length > 0 && (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {investigationResult.findings.map((finding, index) => (
-                      <p key={`${finding}-${index}`} className="text-sm text-zinc-600">
-                        {finding}
-                      </p>
+                      <p key={`${finding}-${index}`} className="text-xs text-zinc-600">{finding}</p>
                     ))}
                   </div>
                 )}
                 {investigationResult.relatedSources.length > 0 && (
-                  <div className="space-y-2 pt-2 border-t border-zinc-100">
+                  <div className="space-y-2 pt-2 border-t border-zinc-200">
                     {investigationResult.relatedSources.map((source) => (
                       <a
-                        key={source.url}
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block rounded-xl bg-zinc-50 px-3 py-3 hover:bg-zinc-100 transition-colors"
+                        key={source.url} href={source.url}
+                        target="_blank" rel="noopener noreferrer"
+                        className="block rounded-xl bg-white px-3 py-2.5 border border-zinc-200 hover:border-emerald-300 transition-colors"
                       >
-                        <p className="text-sm font-semibold text-zinc-800">{source.source}</p>
-                        <p className="text-sm text-zinc-700">{source.title}</p>
-                        <p className="text-xs text-zinc-500 mt-1">{source.snippet}</p>
+                        <p className="text-xs font-semibold text-zinc-700">{source.source}</p>
+                        <p className="text-xs text-zinc-600">{source.title}</p>
+                        <p className="text-[11px] text-zinc-400 mt-1 line-clamp-2">{source.snippet}</p>
                       </a>
                     ))}
                   </div>
@@ -305,57 +283,11 @@ export function ResultCard({
         )}
       </AnimatePresence>
 
-      {/* API key status footer */}
-      <div
-        className={cn(
-          'flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2 text-center',
-          isValidatingKeys
-            ? 'bg-zinc-50 text-zinc-400'
-            : hasAnyKey
-              ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-amber-50 text-amber-700'
-        )}
-      >
-        {isValidatingKeys ? (
-          <div className="flex items-center gap-2">
-            <Loader2 size={13} className="animate-spin shrink-0" />
-            <span>Checking API keys...</span>
-          </div>
-        ) : hasAnyKey ? (
-          <div className="w-full flex items-center justify-center gap-2 text-center">
-            <Check size={14} className="shrink-0" />
-            <span>
-              {configuredProviders.join(' · ')} — {hasMultipleKeys ? (t.apiKeysActive || t.apiKeyActive) : t.apiKeyActive}
-            </span>
-          </div>
-        ) : (
-          <div className="w-full max-w-2xl space-y-2 text-center">
-            <div className="flex items-center justify-center gap-2">
-              <AlertCircle size={14} className="shrink-0" />
-              <span>No API Key configured — open your profile (👤 icon, top right) to add one</span>
-            </div>
-            <div className="mx-auto max-w-xl text-[10px] text-amber-600 space-y-1">
-              <p>
-                1. Get your FREE key from{' '}
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a>
-                {' '}or{' '}
-                <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a>
-                {' '}or{' '}
-                <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Mistral</a>
-                {' '}or{' '}
-                <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">DeepSeek</a>
-              </p>
-              <p>2. Then paste it in your profile (👤 icon, top right)</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* YouTube subtitle reminder */}
-      {isYouTube && (
-        <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-medium">
-          <AlertCircle size={13} className="shrink-0" />
-          <span>{t.youtubeNoSubtitles || 'YouTube videos require subtitles to be enabled for summarization.'}</span>
+      {/* YouTube reminder */}
+      {isYouTube && !summary && !error && (
+        <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-600 text-xs border border-blue-100">
+          <AlertCircle size={12} className="shrink-0" />
+          <span>{t.youtubeNoSubtitles}</span>
         </div>
       )}
     </div>

@@ -27,8 +27,8 @@ interface TopBarProps {
   } | null;
 }
 
-const BACKDROP = "fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]";
-const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
+const BACKDROP = "fixed inset-0 bg-black/30 backdrop-blur-sm z-[45]";
+const MODAL = "fixed top-14 right-4 z-[46]";
 
 export function TopBar({
   t, isPremium, remainingSearches,
@@ -40,151 +40,139 @@ export function TopBar({
   const isLimitReached = !isPremium && remainingSearches <= 0;
   const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
   const guestLabel = uiLanguage === 'Spanish' ? 'Invitado' : 'Guest';
-  const remainingLabel = !isPremium && remainingSearches < 0 ? '--/10' : `${Math.max(0, remainingSearches)}/10`;
+  const remaining = !isPremium && remainingSearches < 0 ? '--/10' : `${Math.max(0, remainingSearches)}/10`;
 
   return (
     <>
-      {/* Button bar */}
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-center gap-2 px-3 py-3">
-        {/* Account status */}
+      {/* Compact nav buttons */}
+      <div className="flex items-center gap-1">
+        {/* Status chip */}
         <button
           onClick={() => togglePopup('status')}
           className={cn(
-            "px-4 py-3 rounded-2xl transition-all shadow-lg flex items-center gap-2 font-bold text-xs uppercase tracking-wider",
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all",
             isPremium
-              ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+              ? "bg-emerald-600 text-white hover:bg-emerald-700"
               : isLimitReached
-                ? "bg-red-50 text-red-600 border border-red-200"
-                : "bg-white text-zinc-600 hover:bg-zinc-50 border border-zinc-100"
+                ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 border border-zinc-200"
           )}
         >
           {isPremium ? (
-            <>
-              <ShieldCheck size={16} />
-              <span className="hidden sm:inline">{t.statusPremium}</span>
-            </>
+            <><ShieldCheck size={13} /><span className="hidden sm:inline">{t.statusPremium}</span></>
           ) : (
             <>
-              <div className={cn("w-2 h-2 rounded-full animate-pulse", isLimitReached ? "bg-red-500" : "bg-amber-400")} />
+              <span className={cn("w-1.5 h-1.5 rounded-full", isLimitReached ? "bg-red-500" : "bg-amber-400")} />
               <span className="hidden sm:inline">{t.statusFree}</span>
-              <span className="bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded-md text-[10px]">
-                {remainingLabel}
-              </span>
+              <span className="text-[10px] font-bold opacity-70">{remaining}</span>
             </>
           )}
         </button>
 
+        {/* Countdown pill */}
         {isLimitReached && shouldShowCountdown && (
           <button
-            type="button"
-            onClick={openLockModal}
-            className="px-3 py-3 rounded-2xl border border-red-200 bg-red-50 text-red-600 shadow-lg font-mono text-xs font-bold"
-            title={t.limitReset}
+            type="button" onClick={openLockModal}
+            className="px-2.5 py-1.5 rounded-xl border border-red-200 bg-red-50 text-red-600 font-mono text-[10px] font-bold"
           >
             {timeLeft || '--:--:--'}
           </button>
         )}
 
+        {/* Divider */}
+        <div className="w-px h-5 bg-zinc-200 mx-1" />
+
         {/* Language */}
         <button
           onClick={() => togglePopup('lang')}
           className={cn(
-            "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
-            showLangMenu ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            "p-2 rounded-xl text-sm transition-all",
+            showLangMenu ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"
           )}
         >
-          <Languages size={20} />
-          <span className="text-sm font-bold hidden sm:inline">
-            {LANGUAGES.find(l => l.code === uiLanguage)?.flag}
-          </span>
+          <Languages size={16} />
         </button>
 
         {/* Info */}
         <button
           onClick={() => togglePopup('info')}
           className={cn(
-            "p-3 rounded-2xl transition-all shadow-lg",
-            showInfo ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            "p-2 rounded-xl transition-all",
+            showInfo ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"
           )}
         >
-          <Info size={20} />
+          <Info size={16} />
         </button>
 
         {/* Feed */}
         <button
           onClick={() => togglePopup('feed')}
           className={cn(
-            "p-3 rounded-2xl transition-all shadow-lg",
-            showFeed ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            "p-2 rounded-xl transition-all",
+            showFeed ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"
           )}
           title={t.feedTitle}
         >
-          <Rss size={20} />
+          <Rss size={16} />
         </button>
 
         {/* Profile */}
         <button
           onClick={() => togglePopup('profile')}
           className={cn(
-            "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
-            showProfile ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+            "p-2 rounded-xl transition-all",
+            showProfile ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"
           )}
         >
-          <UserRound size={20} />
+          <UserRound size={16} />
         </button>
       </div>
 
-      {/* Status popover */}
+      {/* ── Status popover ── */}
       <AnimatePresence>
         {showStatusPopover && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className={BACKDROP} onClick={() => setShowStatusPopover(false)} />
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className={cn(MODAL, "w-[90%] max-w-xs glass rounded-2xl p-4 shadow-2xl space-y-3")}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -4 }} transition={{ duration: 0.15 }}
+              className={cn(MODAL, "w-72 rounded-2xl border border-zinc-200 bg-white shadow-xl p-4 space-y-3")}
             >
               <div className="flex items-center justify-between">
-                <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
                   {isPremium ? t.statusPremium : t.statusFree}
-                </h4>
-                <button onClick={() => setShowStatusPopover(false)} className="text-zinc-400 hover:text-zinc-600">
-                  <X size={14} />
+                </p>
+                <button onClick={() => setShowStatusPopover(false)} className="text-zinc-400 hover:text-zinc-600 p-1">
+                  <X size={13} />
                 </button>
               </div>
               <div className="space-y-2">
-                <div className="bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.accountLabel}</div>
-                  <div className="text-sm font-semibold text-zinc-900">
-                    {currentUser?.displayName || guestLabel}
-                  </div>
-                  {currentUser?.email && (
-                    <div className="text-xs text-zinc-500 break-all">{currentUser.email}</div>
-                  )}
+                <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-0.5">{t.accountLabel}</p>
+                  <p className="text-sm font-semibold text-zinc-900">{currentUser?.displayName || guestLabel}</p>
+                  {currentUser?.email && <p className="text-xs text-zinc-500 break-all">{currentUser.email}</p>}
                 </div>
-                <div className="flex justify-between items-center bg-zinc-50/50 p-2 rounded-xl border border-zinc-100">
+                <div className="flex justify-between items-center rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2.5">
                   <span className="text-xs text-zinc-500">{t.remainingSearches}</span>
-                  <span className="text-sm font-bold text-zinc-900">
-                    {isPremium ? t.unlimited : remainingLabel}
-                  </span>
+                  <span className="text-sm font-bold text-zinc-900">{isPremium ? t.unlimited : remaining}</span>
                 </div>
                 {!isPremium && nextResetTime && (
                   <div className={cn(
-                    "flex justify-between items-center p-2 rounded-xl border",
-                    isLimitReached ? "bg-red-50/50 border-red-100" : "bg-amber-50/60 border-amber-100"
+                    "flex justify-between items-center px-3 py-2.5 rounded-xl border",
+                    isLimitReached ? "bg-red-50 border-red-100" : "bg-amber-50/60 border-amber-100"
                   )}>
                     <span className={cn("text-xs", isLimitReached ? "text-red-500" : "text-amber-700")}>{t.limitReset}</span>
-                    <span className={cn("text-sm font-bold font-mono", isLimitReached ? "text-red-600" : "text-amber-700")}>{timeLeft || '--:--:--'}</span>
+                    <span className={cn("text-xs font-bold font-mono", isLimitReached ? "text-red-600" : "text-amber-700")}>{timeLeft || '--:--:--'}</span>
                   </div>
                 )}
               </div>
               {!isPremium && (
                 <a
                   href="https://www.paypal.com/ncp/payment/SD8UXPABAFFJL"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  target="_blank" rel="noopener noreferrer"
                   onClick={() => setShowStatusPopover(false)}
-                  className="w-full py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
+                  className="w-full py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center justify-center"
                 >
                   {t.buyBtn}
                 </a>
@@ -194,21 +182,22 @@ export function TopBar({
         )}
       </AnimatePresence>
 
-      {/* Language menu */}
+      {/* ── Language menu ── */}
       <AnimatePresence>
         {showLangMenu && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className={BACKDROP} onClick={() => setShowLangMenu(false)} />
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className={cn(MODAL, "w-[90%] max-w-xs glass rounded-2xl p-4 shadow-2xl space-y-1")}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -4 }} transition={{ duration: 0.15 }}
+              className={cn(MODAL, "w-52 rounded-2xl border border-zinc-200 bg-white shadow-xl p-2")}
             >
-              <p className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t.uiLang}</p>
+              <p className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t.uiLang}</p>
               {LANGUAGES.map(lang => (
                 <button key={lang.code} onClick={() => changeUiLanguage(lang.code)}
                   className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors",
+                    "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-colors",
                     uiLanguage === lang.code ? "bg-emerald-50 text-emerald-700 font-bold" : "text-zinc-600 hover:bg-zinc-50"
                   )}
                 >

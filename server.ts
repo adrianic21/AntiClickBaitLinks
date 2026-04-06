@@ -132,12 +132,11 @@ const TRUSTED_NEWS_DOMAINS = [
   'washingtonpost.com',
 ];
 
-// ─── CAMBIO 1: User-Agent pool expandido ──────────────────────────────────────
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
-  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
   'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
 ];
@@ -576,9 +575,11 @@ async function revokeTokensByEmail(email: string): Promise<void> {
 }
 
 // ─── IP-based usage tracking (free tier limit) ───────────────────────────────
+// FREE_LIMIT: máximo de búsquedas gratuitas cada 24 horas
 
-const FREE_LIMIT = 10;
-const USAGE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const FREE_LIMIT = 5;
+const USAGE_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 horas exactas
+const USAGE_TTL_SECONDS = Math.floor(USAGE_WINDOW_MS / 1000); // 86400s
 
 function getClientIp(req: express.Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -602,47 +603,75 @@ async function getUsageIdForRequest(req: express.Request): Promise<string> {
   return getUsageId(req);
 }
 
-async function getUsageCount(ip: string): Promise<number> {
-  const count = await redisGet<number>(`usage_count:${ip}`);
-  return typeof count === 'number' && Number.isFinite(count) ? count : 0;
+/**
+ * Returns the current usage count for a given identifier.
+ * Returns 0 if the window has expired or doesn't exist.
+ */
+async function getUsageCount(usageId: string): Promise<number> {
+  const data = await redisGet<UsageData>(`usage_window:${usageId}`);
+  if (!data) return 0;
+
+  // Check if the 24h window has actually expired
+  if (Date.now() >= data.windowStart + USAGE_WINDOW_MS) {
+    // Window expired — clean up
+    await redisDelete(`usage_window:${usageId}`);
+    return 0;
+  }
+
+  return typeof data.count === 'number' && Number.isFinite(data.count) ? data.count : 0;
 }
 
-async function incrementUsage(ip: string): Promise<number> {
+/**
+ * Increments usage and returns the new count.
+ * Uses a single Redis key (`usage_window:${usageId}`) that stores both
+ * the count and the window start time, with a TTL set to the remaining
+ * seconds in the current window. This guarantees the key expires at exactly
+ * windowStart + 24h regardless of when the first call was made.
+ */
+async function incrementUsage(usageId: string): Promise<number> {
+  const windowKey = `usage_window:${usageId}`;
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!redisUrl || !redisToken) return 1;
 
-  const key = `usage_count:${ip}`;
-  const windowKey = `usage_window:${ip}`;
+  const existing = await redisGet<UsageData>(windowKey);
+  const now = Date.now();
 
-  const incrRes = await fetch(`${redisUrl}/incr/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${redisToken}` },
-  });
-  const incrData = await incrRes.json() as { result: number };
-  const newCount = incrData.result;
+  if (!existing || now >= existing.windowStart + USAGE_WINDOW_MS) {
+    // Start a fresh 24h window
+    const newData: UsageData = { count: 1, windowStart: now };
+    await redisSet<UsageData>(windowKey, newData, USAGE_TTL_SECONDS);
 
-  if (newCount === 1) {
-    const ttl = Math.floor(USAGE_WINDOW_MS / 1000);
-    await fetch(`${redisUrl}/expire/${encodeURIComponent(key)}/${ttl}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${redisToken}` },
-    });
-    await redisSet<UsageData>(windowKey, { count: newCount, windowStart: Date.now() });
-    await fetch(`${redisUrl}/expire/${encodeURIComponent(windowKey)}/${ttl}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${redisToken}` },
-    });
+    // Also set via explicit expire if Redis is available (belt-and-suspenders)
+    if (redisUrl && redisToken) {
+      try {
+        await fetch(`${redisUrl}/expire/${encodeURIComponent(windowKey)}/${USAGE_TTL_SECONDS}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${redisToken}` },
+        });
+      } catch { /* ignore, TTL already embedded in SET */ }
+    }
+    return 1;
   }
+
+  // Window still active — increment
+  const newCount = existing.count + 1;
+  const elapsed = now - existing.windowStart;
+  const remainingTtl = Math.max(1, Math.floor((USAGE_WINDOW_MS - elapsed) / 1000));
+  const updatedData: UsageData = { count: newCount, windowStart: existing.windowStart };
+  await redisSet<UsageData>(windowKey, updatedData, remainingTtl);
 
   return newCount;
 }
 
-async function getUsageResetTime(ip: string): Promise<number | null> {
-  const data = await redisGet<UsageData>(`usage_window:${ip}`);
+/**
+ * Returns the Unix timestamp (ms) when the current window resets, or null
+ * if there's no active window.
+ */
+async function getUsageResetTime(usageId: string): Promise<number | null> {
+  const data = await redisGet<UsageData>(`usage_window:${usageId}`);
   if (!data?.windowStart) return null;
   const resetAt = data.windowStart + USAGE_WINDOW_MS;
-  if (Date.now() > resetAt) return null;
+  if (Date.now() >= resetAt) return null;
   return resetAt;
 }
 
@@ -1325,8 +1354,6 @@ async function startServer() {
     };
   }
 
-  // ── Jina Reader strategy (kept for last-resort fallback) ─────────────────
-
   async function fetchViaJina(url: string): Promise<{ text: string; title: string }> {
     const jinaUrl = `https://r.jina.ai/${url}`;
     const response = await fetch(jinaUrl, {
@@ -1403,7 +1430,6 @@ async function startServer() {
       } catch { /* fall through */ }
     }
 
-    // Build candidate URLs: original + AMP variants
     const candidateUrls = Array.from(new Set([
       url,
       url.includes('?') ? `${url}&output=amp` : `${url}?output=amp`,
@@ -1439,7 +1465,6 @@ async function startServer() {
       }
     }
 
-    // Last resort: Jina Reader
     try {
       const { text, title } = await fetchViaJina(url);
       const entry = setCachedArticle(url, { text, title, type: 'web' });
@@ -1451,8 +1476,6 @@ async function startServer() {
     throw new Error('All fetch strategies exhausted — insufficient content');
   }
 
-  // ── CAMBIO 2: Fetch URL endpoint (rewritten) ──────────────────────────────
-
   app.post("/api/fetch-url", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
@@ -1461,7 +1484,6 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid or disallowed URL" });
     }
 
-    // In-memory cache check
     const cachedArticle = getCachedArticle(url);
     if (cachedArticle) {
       return res.json({
@@ -1472,7 +1494,6 @@ async function startServer() {
       });
     }
 
-    // PDF by URL
     if (url.toLowerCase().endsWith('.pdf')) {
       try {
         const pdfRes = await fetch(url, {
@@ -1483,7 +1504,6 @@ async function startServer() {
           const buffer = Buffer.from(await pdfRes.arrayBuffer());
           const { text, title: pdfTitle } = await extractPdfText(buffer);
           if (text.length > 100) {
-            console.log(`✅ Fetched PDF via URL (${text.length} chars)`);
             const cachedPdf = setCachedArticle(url, { text: text.substring(0, 20000), title: pdfTitle, type: 'pdf' });
             return res.json({ text: cachedPdf.text, title: cachedPdf.title, type: 'pdf' });
           }
@@ -1493,14 +1513,12 @@ async function startServer() {
       }
     }
 
-    // Build candidate URLs: original + AMP variants
     const candidateUrls = Array.from(new Set([
       url,
       url.includes('?') ? `${url}&output=amp` : `${url}?output=amp`,
       url.endsWith('/') ? `${url}amp` : `${url}/amp`,
     ]));
 
-    // Try each candidate × each user-agent
     for (const candidateUrl of candidateUrls) {
       for (const userAgent of USER_AGENTS) {
         try {
@@ -1523,7 +1541,6 @@ async function startServer() {
           const { text, title } = extractFromHtml(html);
 
           if (scoreReadableCandidate(text) > 150) {
-            console.log(`✅ Fetched via Cheerio [${userAgent.slice(0, 30)}...] (${text.length} chars)`);
             const cachedHtml = setCachedArticle(url, { text: text.substring(0, 20000), title, type: 'web' });
             return res.json({ text: cachedHtml.text, title: cachedHtml.title, type: 'web' });
           }
@@ -1533,11 +1550,8 @@ async function startServer() {
       }
     }
 
-    // Last resort: Jina Reader
     try {
-      console.log(`🔄 All direct strategies failed, trying Jina Reader for: ${url}`);
       const { text, title } = await fetchViaJina(url);
-      console.log(`✅ Fetched via Jina (${text.length} chars)`);
       const cachedJina = setCachedArticle(url, { text, title, type: 'web' });
       return res.json({ text: cachedJina.text, title: cachedJina.title, type: 'web' });
     } catch (jinaError: any) {
@@ -1804,10 +1818,10 @@ async function startServer() {
     res.status(200).json({ valid: true, email: tokenData.email });
   });
 
-  // ── CAMBIO 3: Check / record usage limit (IP-based) ─────────────────────
-  // FIX: Ahora siempre devuelve resetAt cuando remaining <= 0, incluyendo en
-  // el momento exacto en que se agota el último uso. Así el countdown arranca
-  // inmediatamente en el cliente sin necesidad de recargar la página.
+  // ── Check / record usage limit ─────────────────────────────────────────────
+  // Límite: FREE_LIMIT (5) búsquedas cada 24 horas reales por usuario/dispositivo/IP.
+  // La ventana de 24h se ancla al momento de la primera búsqueda del día y expira
+  // exactamente 24h después, independientemente de cuándo se hagan las siguientes.
 
   app.post("/api/check-limit", async (req, res) => {
     const { record, isPremium } = req.body;
@@ -1818,15 +1832,14 @@ async function startServer() {
 
     if (record) {
       if (count >= FREE_LIMIT) {
-        // Already at limit — return resetAt so countdown is visible immediately
+        // Ya en el límite — devolver resetAt para que el countdown arranque inmediatamente
         const resetAt = await getUsageResetTime(usageId);
         return res.json({ allowed: false, remaining: 0, resetAt });
       }
       const newCount = await incrementUsage(usageId);
       const remaining = FREE_LIMIT - newCount;
 
-      // FIX: If this was the last allowed search, include resetAt right away
-      // so the countdown appears immediately in the UI without a reload.
+      // Si se agotó en este llamado, incluir resetAt para que el countdown aparezca ya
       let resetAt: number | null = null;
       if (remaining <= 0) {
         resetAt = await getUsageResetTime(usageId);

@@ -101,6 +101,16 @@ interface AccountResponse {
 // Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
 
+// ─── Format countdown from ms remaining ──────────────────────────────────────
+function formatCountdown(resetAtMs: number): string {
+  const diff = resetAtMs - Date.now();
+  if (diff <= 0) return '';
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 export function useAppState() {
   // Core
   const [url, setUrl] = useState('');
@@ -177,8 +187,9 @@ export function useAppState() {
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
   const lastAutoSummarizedUrlRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
-  // FIX: Track whether user explicitly dismissed the lock modal this session.
-  // Once dismissed, we don't reopen it automatically — only when they try a new summarize.
+
+  // FIX: Track whether the user has manually dismissed the lock modal this session.
+  // When true, applyLimitData will NOT reopen the modal automatically.
   const lockModalDismissedRef = useRef(false);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
@@ -262,15 +273,9 @@ export function useAppState() {
 
   const openLockModal = useCallback(() => {
     openPopup('');
+    lockModalDismissedRef.current = false; // reset dismissed flag when explicitly opened
     setShowLockModal(true);
   }, [openPopup]);
-
-  // FIX: When user explicitly closes the lock modal, mark it dismissed so it
-  // doesn't reopen automatically after showing the last summary.
-  const handleDismissLockModal = useCallback(() => {
-    lockModalDismissedRef.current = true;
-    setShowLockModal(false);
-  }, []);
 
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
     const entries = await Promise.all(
@@ -328,6 +333,32 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
+  // ─── Apply limit data helper ──────────────────────────────────────────────
+  // FIX: Only open the lock modal automatically when a summarize action is
+  // directly blocked (!data.allowed after record:true). Background polling
+  // (record:false) updates the counters/countdown but NEVER forces the modal
+  // open — and if the user already dismissed it, it stays closed.
+  const applyLimitData = useCallback((
+    data: { allowed: boolean; remaining: number | null; resetAt: number | null },
+    triggeredByAction = false
+  ) => {
+    if (typeof data.remaining === 'number') {
+      setServerRemaining(data.remaining);
+    }
+    if (data.resetAt) {
+      setServerResetAt(data.resetAt);
+      const immediate = formatCountdown(data.resetAt);
+      if (immediate) setTimeLeft(immediate);
+    }
+    // Only pop the modal open when:
+    // 1. The action was directly blocked (!data.allowed AND triggeredByAction), OR
+    // 2. It was explicitly requested by the caller
+    // Never reopen it if the user dismissed it (lockModalDismissedRef.current).
+    if (!data.allowed && triggeredByAction && !lockModalDismissedRef.current) {
+      openLockModal();
+    }
+  }, [openLockModal]);
+
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
@@ -356,18 +387,16 @@ export function useAppState() {
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
 
+    // Background poll — never triggers the modal
     fetch('/api/check-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
-      .then(limitData => {
-        setServerRemaining(limitData.remaining ?? 10);
-        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-      })
+      .then(limitData => applyLimitData(limitData, false))
       .catch(() => setServerRemaining(10));
-  }, [refreshValidatedApiKeys]);
+  }, [refreshValidatedApiKeys, applyLimitData]);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch('/api/account', { credentials: 'include' });
@@ -475,16 +504,14 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
+          // Background poll — never triggers modal
           fetch('/api/check-limit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
-            .then(limitData => {
-              setServerRemaining(limitData.remaining ?? 10);
-              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-            })
+            .then(limitData => applyLimitData(limitData, false))
             .catch(() => setServerRemaining(10));
         }
       })
@@ -496,29 +523,38 @@ export function useAppState() {
         setProviderMetrics(getProviderMetrics());
         setIsAuthLoading(false);
       });
-  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAccount, applyLimitData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer ────────────────────────────────────────────────────────
+  // ─── Countdown timer ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!serverResetAt) return;
-    const update = () => {
-      const diff = serverResetAt - Date.now();
-      if (diff <= 0) {
+    if (!serverResetAt) {
+      setTimeLeft('');
+      return;
+    }
+
+    const immediate = formatCountdown(serverResetAt);
+    setTimeLeft(immediate);
+
+    if (!immediate) {
+      setServerResetAt(null);
+      setServerRemaining(10);
+      return;
+    }
+
+    const id = setInterval(() => {
+      const next = formatCountdown(serverResetAt);
+      if (!next) {
         setTimeLeft('');
         setServerResetAt(null);
         setServerRemaining(10);
-        // FIX: Reset the dismissed flag when the limit resets so the modal
-        // can appear again for the next day's cycle if they hit the limit again.
+        // Reset dismissed flag when the limit refreshes
         lockModalDismissedRef.current = false;
-        return;
+        clearInterval(id);
+      } else {
+        setTimeLeft(next);
       }
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setTimeLeft(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
-    };
-    update();
-    const id = setInterval(update, 1000);
+    }, 1000);
+
     return () => clearInterval(id);
   }, [serverResetAt]);
 
@@ -600,6 +636,7 @@ export function useAppState() {
     setIsPremium(false);
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
+    setTimeLeft('');
   }, [openPopup]);
 
   const saveApiKey = useCallback(async () => {
@@ -656,15 +693,12 @@ export function useAppState() {
     }
   }, [showOnboardingLang, syncAccount]);
 
-  // FIX: checkUsageLimit now respects the dismissed flag.
-  // If user already dismissed the modal this session, we block the action
-  // silently (return false) but don't reopen the modal on them.
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
     if (serverRemaining !== LIMITS_LOADING && serverRemaining <= 0) {
-      // Only open the lock modal if user hasn't dismissed it already this session
-      if (!lockModalDismissedRef.current && serverResetAt) {
-        openLockModal();
+      // Only open the modal if the user hasn't dismissed it already
+      if (!lockModalDismissedRef.current) {
+        if (serverResetAt) openLockModal();
       }
       return false;
     }
@@ -917,15 +951,10 @@ export function useAppState() {
         body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
       })
         .then(r => r.json())
-        .then(data => {
-          setServerRemaining(data.remaining ?? null);
-          if (data.resetAt) setServerResetAt(data.resetAt);
-          // FIX: Only open modal if user hasn't dismissed it already
-          if (!data.allowed && !lockModalDismissedRef.current) openLockModal();
-        })
+        .then(data => applyLimitData(data, true))
         .catch(() => undefined);
     }
-  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, t.genericError, applyLimitData]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -951,9 +980,6 @@ export function useAppState() {
     setFeedSummaryResults([]);
     lastAutoSummarizedUrlRef.current = '';
     summaryCacheRef.current.clear();
-    // FIX: Reset the dismissed flag when user clears and starts fresh,
-    // so the modal can appear again if they hit the limit on a new URL.
-    lockModalDismissedRef.current = false;
   }, []);
 
   const handleSummarize = useCallback(async (
@@ -1077,8 +1103,7 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      // FIX: Record usage and only open lock modal if user hasn't dismissed it.
-      // This ensures the summary stays visible and the modal appears at most once.
+      // Record usage — triggered by a real action, so modal CAN open if limit hit
       if (!isPremium) {
         fetch('/api/check-limit', {
           method: 'POST',
@@ -1086,12 +1111,7 @@ export function useAppState() {
           body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
-          .then(data => {
-            setServerRemaining(data.remaining ?? null);
-            if (data.resetAt) setServerResetAt(data.resetAt);
-            // Only open the modal if user hasn't already dismissed it this session
-            if (!data.allowed && !lockModalDismissedRef.current) openLockModal();
-          })
+          .then(data => applyLimitData(data, true))
           .catch(() => undefined);
       }
 
@@ -1139,7 +1159,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -1216,6 +1236,12 @@ export function useAppState() {
     syncAccount({ preferences: { dontShowAgain: true } }).catch(() => undefined);
   }, [syncAccount]);
 
+  // Wrap setShowLockModal so dismissal is tracked
+  const handleCloseLockModal = useCallback(() => {
+    setShowLockModal(false);
+    lockModalDismissedRef.current = true; // user explicitly closed it — don't reopen automatically
+  }, []);
+
   return {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
@@ -1226,7 +1252,10 @@ export function useAppState() {
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
-    showLockModal, setShowLockModal, timeLeft,
+    showLockModal,
+    // Use handleCloseLockModal instead of raw setShowLockModal so the dismissed flag is set
+    setShowLockModal: handleCloseLockModal,
+    timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
@@ -1237,12 +1266,15 @@ export function useAppState() {
     feedSummaryResults, isMultiFeedSummarizing,
     t,
     openPopup, togglePopup, openLockModal, closeInfo,
-    handleDismissLockModal,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem, summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
+    // Also need validatedApiKeysReady for ResultCard
+    validatedApiKeysReady: Object.keys(validatedApiKeys).length > 0 || !Object.values(apiKeys).some(k => k && k !== 'undefined'),
+    passwordResetToken: null as string | null,
+    clearPasswordResetToken: () => {},
     updateDisplayName: (name: string) => {
       setCurrentUser((prev) => (prev ? { ...prev, displayName: name } : prev));
       fetch('/api/account', {

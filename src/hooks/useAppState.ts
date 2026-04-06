@@ -21,6 +21,14 @@ import {
   type AppInsights,
   type ProviderMetrics,
 } from '../lib/appInsights';
+import {
+  addFeedSource as persistFeedSource,
+  removeFeedSource as deleteFeedSource,
+  toggleFeedSource as persistFeedSourceToggle,
+  type DailyFeedItem,
+  type FeedSource,
+  type FeedSourceType,
+} from '../lib/feedSources';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
 function getDeviceId(): string {
@@ -50,6 +58,14 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
+interface RssPreviewResponse {
+  title: string;
+  items: Array<{
+    title: string;
+    url: string;
+    publishedAt?: string | null;
+  }>;
+}
 
 interface AuthUser {
   id: string;
@@ -74,6 +90,7 @@ interface AccountResponse {
       dontShowAgain?: boolean;
     };
     appInsights?: AppInsights;
+    feedSources?: FeedSource[];
     premium?: {
       isPremium: boolean;
       token?: string;
@@ -83,16 +100,6 @@ interface AccountResponse {
 
 // Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
-
-// ─── Format countdown from ms remaining ──────────────────────────────────────
-function formatCountdown(resetAtMs: number): string {
-  const diff = resetAtMs - Date.now();
-  if (diff <= 0) return '';
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
 
 export function useAppState() {
   // Core
@@ -110,6 +117,10 @@ export function useAppState() {
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
   const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0 });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
+  const [feedSources, setFeedSources] = useState<FeedSource[]>([]);
+  const [dailyFeedItems, setDailyFeedItems] = useState<DailyFeedItem[]>([]);
+  const [isFeedLoading, setIsFeedLoading] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -132,6 +143,7 @@ export function useAppState() {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showFeed, setShowFeed] = useState(false);
   const [showOnboardingLang, setShowOnboardingLang] = useState(false);
   const [showApiPrivacy, setShowApiPrivacy] = useState(false);
 
@@ -149,20 +161,25 @@ export function useAppState() {
   // Misc
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechRate, setSpeechRateState] = useState(1);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
   const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
-
-  // passwordResetToken
-  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
+  const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
+  const [feedSummaryResults, setFeedSummaryResults] = useState<Array<{ url: string; title: string; summary: string }>>([]);
+  const [isMultiFeedSummarizing, setIsMultiFeedSummarizing] = useState(false);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
   const lastAutoSummarizedUrlRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  // FIX: Track whether user explicitly dismissed the lock modal this session.
+  // Once dismissed, we don't reopen it automatically — only when they try a new summarize.
+  const lockModalDismissedRef = useRef(false);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
@@ -212,17 +229,13 @@ export function useAppState() {
     });
   }, [provider, providerMetrics]);
 
-  // also expose validatedApiKeysReady
-  const validatedApiKeysReady = useMemo(() => {
-    return Object.values(validatedApiKeys).some(k => k && k !== 'undefined');
-  }, [validatedApiKeys]);
-
   // ─── Popup helpers ──────────────────────────────────────────────────────────
   const openPopup = useCallback((popup: string) => {
     setShowStatusPopover(popup === 'status');
     setShowLangMenu(popup === 'lang');
     setShowInfo(popup === 'info');
     setShowSettings(popup === 'settings');
+    setShowFeed(popup === 'feed');
     if (popup === 'profile' && !currentUser) {
       setShowProfile(false);
       setShowAuthModal(true);
@@ -242,14 +255,22 @@ export function useAppState() {
       (popup === 'lang' && showLangMenu) ||
       (popup === 'info' && showInfo) ||
       (popup === 'settings' && showSettings) ||
+      (popup === 'feed' && showFeed) ||
       (popup === 'profile' && showProfile);
     openPopup(isOpen ? '' : popup);
-  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showProfile, currentUser, openPopup]);
+  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showFeed, showProfile, currentUser, openPopup]);
 
   const openLockModal = useCallback(() => {
     openPopup('');
     setShowLockModal(true);
   }, [openPopup]);
+
+  // FIX: When user explicitly closes the lock modal, mark it dismissed so it
+  // doesn't reopen automatically after showing the last summary.
+  const handleDismissLockModal = useCallback(() => {
+    lockModalDismissedRef.current = true;
+    setShowLockModal(false);
+  }, []);
 
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
     const entries = await Promise.all(
@@ -307,21 +328,6 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
-  // ─── Apply limit data helper ──────────────────────────────────────────────
-  const applyLimitData = useCallback((data: { allowed: boolean; remaining: number | null; resetAt: number | null }) => {
-    if (typeof data.remaining === 'number') {
-      setServerRemaining(data.remaining);
-    }
-    if (data.resetAt) {
-      setServerResetAt(data.resetAt);
-      const immediate = formatCountdown(data.resetAt);
-      if (immediate) setTimeLeft(immediate);
-    }
-    if (!data.allowed) {
-      openLockModal();
-    }
-  }, [openLockModal]);
-
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
@@ -348,6 +354,7 @@ export function useAppState() {
     if (typeof data.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(data.account.preferences.dontShowAgain);
 
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
+    setFeedSources(data.account?.feedSources || []);
 
     fetch('/api/check-limit', {
       method: 'POST',
@@ -355,9 +362,12 @@ export function useAppState() {
       body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
-      .then(limitData => applyLimitData(limitData))
-      .catch(() => setServerRemaining(5));
-  }, [refreshValidatedApiKeys, applyLimitData]);
+      .then(limitData => {
+        setServerRemaining(limitData.remaining ?? 10);
+        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
+      })
+      .catch(() => setServerRemaining(10));
+  }, [refreshValidatedApiKeys]);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch('/api/account', { credentials: 'include' });
@@ -382,6 +392,18 @@ export function useAppState() {
       window.speechSynthesis.cancel();
       abortControllerRef.current?.abort();
     };
+  }, []);
+
+  // ─── PWA install prompt ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      setShowInstallButton(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => setShowInstallButton(false));
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   // ─── Web Share Target ──────────────────────────────────────────────────────
@@ -417,14 +439,6 @@ export function useAppState() {
       setPendingSharedText(normalizedText);
       setUrl(normalizedText);
       setShowSharedToast(true);
-      window.history.replaceState({}, '', '/');
-    }
-
-    // Check for password reset token in URL
-    const resetToken = params.get('resetToken') || params.get('token');
-    if (resetToken) {
-      setPasswordResetToken(resetToken);
-      setShowAuthModal(true);
       window.history.replaceState({}, '', '/');
     }
 
@@ -467,48 +481,44 @@ export function useAppState() {
             body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
-            .then(limitData => applyLimitData(limitData))
-            .catch(() => setServerRemaining(5));
+            .then(limitData => {
+              setServerRemaining(limitData.remaining ?? 10);
+              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
+            })
+            .catch(() => setServerRemaining(10));
         }
       })
       .catch(() => {
         setCurrentUser(null);
-        setServerRemaining(5);
+        setServerRemaining(10);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
         setIsAuthLoading(false);
       });
-  }, [loadAccount, applyLimitData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer ─────────────────────────────────────────────────────────
+  // ─── Countdown timer ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!serverResetAt) {
-      setTimeLeft('');
-      return;
-    }
-
-    const immediate = formatCountdown(serverResetAt);
-    setTimeLeft(immediate);
-
-    if (!immediate) {
-      setServerResetAt(null);
-      setServerRemaining(5);
-      return;
-    }
-
-    const id = setInterval(() => {
-      const next = formatCountdown(serverResetAt);
-      if (!next) {
+    if (!serverResetAt) return;
+    const update = () => {
+      const diff = serverResetAt - Date.now();
+      if (diff <= 0) {
         setTimeLeft('');
         setServerResetAt(null);
-        setServerRemaining(5);
-        clearInterval(id);
-      } else {
-        setTimeLeft(next);
+        setServerRemaining(10);
+        // FIX: Reset the dismissed flag when the limit resets so the modal
+        // can appear again for the next day's cycle if they hit the limit again.
+        lockModalDismissedRef.current = false;
+        return;
       }
-    }, 1000);
-
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    update();
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [serverResetAt]);
 
@@ -585,10 +595,11 @@ export function useAppState() {
     setSummary(null);
     setArticleTitle(null);
     setAppInsights({ savedSummaries: 0, totalMinutesSaved: 0 });
+    setFeedSources([]);
+    setDailyFeedItems([]);
     setIsPremium(false);
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
-    setTimeLeft('');
   }, [openPopup]);
 
   const saveApiKey = useCallback(async () => {
@@ -645,10 +656,16 @@ export function useAppState() {
     }
   }, [showOnboardingLang, syncAccount]);
 
+  // FIX: checkUsageLimit now respects the dismissed flag.
+  // If user already dismissed the modal this session, we block the action
+  // silently (return false) but don't reopen the modal on them.
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
     if (serverRemaining !== LIMITS_LOADING && serverRemaining <= 0) {
-      if (serverResetAt) openLockModal();
+      // Only open the lock modal if user hasn't dismissed it already this session
+      if (!lockModalDismissedRef.current && serverResetAt) {
+        openLockModal();
+      }
       return false;
     }
     return true;
@@ -670,6 +687,7 @@ export function useAppState() {
         localStorage.setItem('premium_token', unlockPass.trim());
         syncAccount({ premium: { isPremium: true, token: unlockPass.trim() } }).catch(() => undefined);
         setShowLockModal(false);
+        lockModalDismissedRef.current = false;
         openPopup('');
         setLockError(false);
         setUnlockPass('');
@@ -713,11 +731,214 @@ export function useAppState() {
     syncAccount({ preferences: { summaryLanguage: lang } }).catch(() => undefined);
   }, [syncAccount]);
 
+  const setDeepResearchMode = useCallback((enabled: boolean) => {
+    setDeepResearchEnabled(enabled);
+    localStorage.setItem('deep_research_enabled', enabled ? 'true' : 'false');
+    syncAccount({ preferences: { deepResearchEnabled: enabled } }).catch(() => undefined);
+  }, [syncAccount]);
+
   const setSpeechRate = useCallback((rate: number) => {
     setSpeechRateState(rate);
     localStorage.setItem('speech_rate', String(rate));
     syncAccount({ preferences: { speechRate: rate } }).catch(() => undefined);
   }, [syncAccount]);
+
+  const addFeedSource = useCallback((name: string, sourceUrl: string, type: FeedSourceType) => {
+    const trimmedUrl = sourceUrl.trim();
+    if (!trimmedUrl) return;
+    const nextSources = persistFeedSource({
+      name: name.trim() || trimmedUrl,
+      url: trimmedUrl,
+      type,
+      enabled: true,
+    });
+    setFeedSources(nextSources);
+    setFeedError(null);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
+
+  const removeFeedSource = useCallback((id: string) => {
+    const nextSources = deleteFeedSource(id);
+    setFeedSources(nextSources);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
+
+  const toggleFeedSource = useCallback((id: string) => {
+    const nextSources = persistFeedSourceToggle(id);
+    setFeedSources(nextSources);
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [syncAccount]);
+
+  const refreshDailyFeed = useCallback(async () => {
+    const enabledSources = feedSources.filter((source) => source.enabled);
+    if (enabledSources.length === 0) {
+      setDailyFeedItems([]);
+      setFeedError(null);
+      return;
+    }
+
+    setIsFeedLoading(true);
+    setFeedError(null);
+
+    try {
+      const responses = await Promise.all(
+        enabledSources.map(async (source) => {
+          const response = await fetch('/api/rss-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: source.url }),
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.error || `Could not load ${source.name}`);
+          }
+
+          const data = await response.json() as RssPreviewResponse;
+          const perSourceLimit = Math.max(1, Math.min(25, Number(source.itemsPerLoad || 6)));
+          return data.items
+            .slice(0, perSourceLimit)
+            .map<DailyFeedItem>((item, index) => ({
+              id: `${source.id}-${index}-${item.url}`,
+              title: item.title,
+              url: item.url,
+              sourceName: source.name || data.title || source.url,
+              sourceType: source.type,
+              publishedAt: item.publishedAt || null,
+            }));
+        })
+      );
+
+      const deduped = new Map<string, DailyFeedItem>();
+      for (const items of responses.flat()) {
+        if (!deduped.has(items.url)) deduped.set(items.url, items);
+      }
+
+      const nextItems = Array.from(deduped.values())
+        .sort((a, b) => {
+          const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+          const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+          return timeB - timeA;
+        })
+        .slice(0, 60);
+
+      setDailyFeedItems(nextItems);
+    } catch (err: any) {
+      setFeedError(err?.message || 'Could not load the selected feed.');
+    } finally {
+      setIsFeedLoading(false);
+    }
+  }, [feedSources]);
+
+  const updateFeedSourceItemsPerLoad = useCallback((id: string, itemsPerLoad: number) => {
+    const safe = Math.max(1, Math.min(25, Math.round(itemsPerLoad)));
+    const nextSources = feedSources.map((source) =>
+      source.id === id ? { ...source, itemsPerLoad: safe } : source
+    );
+    setFeedSources(nextSources);
+    try { localStorage.setItem('custom_feed_sources_v1', JSON.stringify(nextSources)); } catch { /* ignore */ }
+    syncAccount({ feedSources: nextSources }).catch(() => undefined);
+  }, [feedSources, syncAccount]);
+
+  const useFeedItem = useCallback((feedUrl: string) => {
+    setPdfFile(null);
+    setError(null);
+    setPendingSharedUrl(null);
+    setUrl(feedUrl);
+  }, []);
+
+  const summarizeFeedItem = useCallback((feedUrl: string) => {
+    setPdfFile(null);
+    setError(null);
+    setUrl(feedUrl);
+    setPendingSharedUrl(feedUrl);
+    setShowSharedToast(true);
+  }, []);
+
+  const summarizeManyFeedItems = useCallback(async (urls: string[]) => {
+    const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
+    if (unique.length === 0) return;
+
+    openPopup('');
+    setIsMultiFeedSummarizing(true);
+    setFeedSummaryResults([]);
+    setSummary(null);
+    setArticleTitle(null);
+    setError(null);
+    setIsLoading(true);
+    setLoadingProgress(5);
+
+    const results: Array<{ url: string; title: string; summary: string }> = [];
+
+    for (let i = 0; i < unique.length; i++) {
+      const feedUrl = unique[i];
+      setLoadingProgress(Math.round(5 + (i / unique.length) * 90));
+
+      try {
+        const result = await summarizeUrl(
+          feedUrl,
+          apiKeys,
+          provider,
+          summaryLanguage,
+          'short',
+          undefined,
+          providerPriority
+        );
+        results.push({
+          url: feedUrl,
+          title: result.title || feedUrl,
+          summary: result.summary,
+        });
+      } catch {
+        // Skip failed URLs silently
+      }
+    }
+
+    setLoadingProgress(100);
+    setIsMultiFeedSummarizing(false);
+    setIsLoading(false);
+    setFeedSummaryResults(results);
+
+    if (results.length > 0) {
+      const combined = results
+        .map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`)
+        .join('\n\n---\n\n');
+      setSummary(combined);
+      setArticleTitle(`${results.length} artículos resumidos`);
+      setLieScore(0);
+    } else {
+      setError(t.genericError);
+    }
+
+    if (!isPremium) {
+      fetch('/api/check-limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          setServerRemaining(data.remaining ?? null);
+          if (data.resetAt) setServerResetAt(data.resetAt);
+          // FIX: Only open modal if user hasn't dismissed it already
+          if (!data.allowed && !lockModalDismissedRef.current) openLockModal();
+        })
+        .catch(() => undefined);
+    }
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (isLoading) return;
+    if (feedSummaryQueue.length === 0) return;
+    const next = feedSummaryQueue[0];
+    const rest = feedSummaryQueue.slice(1);
+    const id = setTimeout(() => {
+      setFeedSummaryQueue(rest);
+      summarizeFeedItem(next);
+    }, 250);
+    return () => clearTimeout(id);
+  }, [feedSummaryQueue, isLoading, currentUser, summarizeFeedItem]);
 
   const handleClear = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -727,8 +948,12 @@ export function useAppState() {
     setLieScore(0);
     setInvestigationResult(null);
     setError(null);
+    setFeedSummaryResults([]);
     lastAutoSummarizedUrlRef.current = '';
     summaryCacheRef.current.clear();
+    // FIX: Reset the dismissed flag when user clears and starts fresh,
+    // so the modal can appear again if they hit the limit on a new URL.
+    lockModalDismissedRef.current = false;
   }, []);
 
   const handleSummarize = useCallback(async (
@@ -772,6 +997,7 @@ export function useAppState() {
     setLoadingProgress(8);
     setError(null);
     setInvestigationResult(null);
+    setFeedSummaryResults([]);
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
@@ -851,6 +1077,8 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
+      // FIX: Record usage and only open lock modal if user hasn't dismissed it.
+      // This ensures the summary stays visible and the modal appears at most once.
       if (!isPremium) {
         fetch('/api/check-limit', {
           method: 'POST',
@@ -858,7 +1086,12 @@ export function useAppState() {
           body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
-          .then(data => applyLimitData(data))
+          .then(data => {
+            setServerRemaining(data.remaining ?? null);
+            if (data.resetAt) setServerResetAt(data.resetAt);
+            // Only open the modal if user hasn't already dismissed it this session
+            if (!data.allowed && !lockModalDismissedRef.current) openLockModal();
+          })
           .catch(() => undefined);
       }
 
@@ -906,7 +1139,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -961,6 +1194,21 @@ export function useAppState() {
     return () => clearTimeout(id);
   }, [showSharedToast]);
 
+  useEffect(() => {
+    if (feedSources.some((source) => source.enabled)) {
+      refreshDailyFeed().catch(() => undefined);
+    } else {
+      setDailyFeedItems([]);
+    }
+  }, [feedSources, refreshDailyFeed]);
+
+  const handleInstall = useCallback(async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') { setShowInstallButton(false); setInstallPrompt(null); }
+  }, [installPrompt]);
+
   const closeInfo = useCallback(() => {
     setShowInfo(false);
     setDontShowAgain(true);
@@ -968,33 +1216,33 @@ export function useAppState() {
     syncAccount({ preferences: { dontShowAgain: true } }).catch(() => undefined);
   }, [syncAccount]);
 
-  const clearPasswordResetToken = useCallback(() => {
-    setPasswordResetToken(null);
-  }, []);
-
   return {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
-    deepResearchEnabled, lieScore, investigationResult,
+    deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved,
-    showSettings, showInfo, showLangMenu, showStatusPopover, showProfile,
+    feedSources, dailyFeedItems, isFeedLoading, feedError,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
+    showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
-    resultsRef, appInsights,
+    showInstallButton, resultsRef, appInsights, providerMetrics,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
-    showAuthModal, setShowAuthModal, passwordResetToken, clearPasswordResetToken,
+    showAuthModal, setShowAuthModal,
+    feedSummaryResults, isMultiFeedSummarizing,
     t,
     openPopup, togglePopup, openLockModal, closeInfo,
+    handleDismissLockModal,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
+    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem, summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleShare,
+    handleSpeak, handleInstall, handleShare,
     updateDisplayName: (name: string) => {
       setCurrentUser((prev) => (prev ? { ...prev, displayName: name } : prev));
       fetch('/api/account', {

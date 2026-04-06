@@ -40,7 +40,8 @@ export function TopBar({
   const isLimitReached = !isPremium && remainingSearches <= 0;
   const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
   const guestLabel = uiLanguage === 'Spanish' ? 'Invitado' : 'Guest';
-  const remaining = !isPremium && remainingSearches < 0 ? '--/10' : `${Math.max(0, remainingSearches)}/10`;
+  // Límite gratuito: 5 búsquedas cada 24h
+  const remaining = !isPremium && remainingSearches < 0 ? '--/5' : `${Math.max(0, remainingSearches)}/5`;
 
   return (
     <>

@@ -51,6 +51,9 @@ const PROVIDER_PLACEHOLDERS: Record<Provider, string> = {
   deepseek: 'sk-...',
 };
 
+// Límite gratuito: 5 búsquedas cada 24h
+const FREE_LIMIT = 5;
+
 function PremiumSection({
   t, unlockPass, lockError, deviceMismatchError, isLoading, onPassChange, onUnlock,
 }: {
@@ -179,7 +182,6 @@ export function ProfilePanel({
   const [localProvider, setLocalProvider] = useState<Provider>(provider);
   const [localKeyInput, setLocalKeyInput] = useState('');
 
-  // Local save state — decoupled from parent
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [saveKeyError, setSaveKeyError] = useState<string | null>(null);
   const [saveKeySuccess, setSaveKeySuccess] = useState(false);
@@ -197,7 +199,6 @@ export function ProfilePanel({
     }
   }, [show, provider, apiKeys]);
 
-  // Clear success message after 3s
   useEffect(() => {
     if (!saveKeySuccess) return;
     const id = setTimeout(() => setSaveKeySuccess(false), 3000);
@@ -205,6 +206,8 @@ export function ProfilePanel({
   }, [saveKeySuccess]);
 
   const isLimitReached = !isPremium && remainingSearches <= 0;
+  // Clamp displayed value to FREE_LIMIT (5)
+  const displayRemaining = Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, FREE_LIMIT));
 
   const handleSaveName = () => {
     const trimmed = tempName.trim();
@@ -231,7 +234,6 @@ export function ProfilePanel({
     try {
       const trimmedKey = localKeyInput.trim();
 
-      // If no key, just clear it
       if (!trimmedKey) {
         onSaveApiKey(localProvider, '');
         setSaveKeySuccess(true);
@@ -239,12 +241,10 @@ export function ProfilePanel({
         return;
       }
 
-      // Validate locally before calling parent
       let isValid = false;
       try {
         isValid = await validateApiKey(localProvider, trimmedKey);
       } catch {
-        // Network error during validation — allow saving anyway (assume valid)
         isValid = true;
       }
 
@@ -254,7 +254,6 @@ export function ProfilePanel({
         return;
       }
 
-      // Update global state
       setUserApiKey(trimmedKey);
       onSaveApiKey(localProvider, trimmedKey);
       setSaveKeySuccess(true);
@@ -341,7 +340,9 @@ export function ProfilePanel({
                     <div>
                       <p className="text-sm font-semibold text-zinc-900">{isPremium ? t.statusPremium : t.statusFree}</p>
                       {!isPremium && (
-                        <p className="text-xs text-zinc-500 mt-0.5">{t.remainingSearches}: {Math.max(0, Math.min(typeof remainingSearches === 'number' ? remainingSearches : 0, 10))}/10</p>
+                        <p className="text-xs text-zinc-500 mt-0.5">
+                          {t.remainingSearches}: {displayRemaining}/{FREE_LIMIT}
+                        </p>
                       )}
                     </div>
                     {isPremium && <span className="text-emerald-500"><Check size={18} /></span>}
@@ -404,7 +405,6 @@ export function ProfilePanel({
                     placeholder={PROVIDER_PLACEHOLDERS[localProvider]}
                   />
 
-                  {/* Error / Success feedback */}
                   <AnimatePresence mode="wait">
                     {saveKeyError && (
                       <motion.div

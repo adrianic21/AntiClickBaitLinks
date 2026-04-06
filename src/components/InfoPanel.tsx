@@ -72,7 +72,7 @@ const INFO_FAQ = {
     },
     {
       q: 'How does the free limit work?',
-      a: 'Free accounts get a daily summary allowance. The app shows both the remaining searches and the live countdown until the next reset.',
+      a: 'Free accounts get 5 summaries per day. The app shows both the remaining searches and the live countdown until the next reset.',
     },
   ],
 } as const;

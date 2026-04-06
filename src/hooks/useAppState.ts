@@ -21,14 +21,6 @@ import {
   type AppInsights,
   type ProviderMetrics,
 } from '../lib/appInsights';
-import {
-  addFeedSource as persistFeedSource,
-  removeFeedSource as deleteFeedSource,
-  toggleFeedSource as persistFeedSourceToggle,
-  type DailyFeedItem,
-  type FeedSource,
-  type FeedSourceType,
-} from '../lib/feedSources';
 
 // ─── Device fingerprint (stable per browser) ─────────────────────────────────
 function getDeviceId(): string {
@@ -58,14 +50,6 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
-interface RssPreviewResponse {
-  title: string;
-  items: Array<{
-    title: string;
-    url: string;
-    publishedAt?: string | null;
-  }>;
-}
 
 interface AuthUser {
   id: string;
@@ -90,7 +74,6 @@ interface AccountResponse {
       dontShowAgain?: boolean;
     };
     appInsights?: AppInsights;
-    feedSources?: FeedSource[];
     premium?: {
       isPremium: boolean;
       token?: string;
@@ -100,6 +83,16 @@ interface AccountResponse {
 
 // Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
+
+// ─── Format countdown from ms remaining ──────────────────────────────────────
+function formatCountdown(resetAtMs: number): string {
+  const diff = resetAtMs - Date.now();
+  if (diff <= 0) return '';
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 export function useAppState() {
   // Core
@@ -117,10 +110,6 @@ export function useAppState() {
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
   const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0 });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
-  const [feedSources, setFeedSources] = useState<FeedSource[]>([]);
-  const [dailyFeedItems, setDailyFeedItems] = useState<DailyFeedItem[]>([]);
-  const [isFeedLoading, setIsFeedLoading] = useState(false);
-  const [feedError, setFeedError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -134,8 +123,6 @@ export function useAppState() {
   const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
-  // FIX 1: Track async key validation to prevent flickering
-  const [isValidatingKeys, setIsValidatingKeys] = useState(false);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
 
@@ -145,7 +132,6 @@ export function useAppState() {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showStatusPopover, setShowStatusPopover] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [showFeed, setShowFeed] = useState(false);
   const [showOnboardingLang, setShowOnboardingLang] = useState(false);
   const [showApiPrivacy, setShowApiPrivacy] = useState(false);
 
@@ -163,17 +149,15 @@ export function useAppState() {
   // Misc
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechRate, setSpeechRateState] = useState(1);
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [showInstallButton, setShowInstallButton] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pendingSharedUrl, setPendingSharedUrl] = useState<string | null>(null);
   const [pendingSharedText, setPendingSharedText] = useState<string | null>(null);
   const [showSharedToast, setShowSharedToast] = useState(false);
-  const [feedSummaryQueue, setFeedSummaryQueue] = useState<string[]>([]);
-  const [feedSummaryResults, setFeedSummaryResults] = useState<Array<{ url: string; title: string; summary: string }>>([]);
-  const [isMultiFeedSummarizing, setIsMultiFeedSummarizing] = useState(false);
+
+  // passwordResetToken
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
@@ -228,13 +212,17 @@ export function useAppState() {
     });
   }, [provider, providerMetrics]);
 
+  // also expose validatedApiKeysReady
+  const validatedApiKeysReady = useMemo(() => {
+    return Object.values(validatedApiKeys).some(k => k && k !== 'undefined');
+  }, [validatedApiKeys]);
+
   // ─── Popup helpers ──────────────────────────────────────────────────────────
   const openPopup = useCallback((popup: string) => {
     setShowStatusPopover(popup === 'status');
     setShowLangMenu(popup === 'lang');
     setShowInfo(popup === 'info');
     setShowSettings(popup === 'settings');
-    setShowFeed(popup === 'feed');
     if (popup === 'profile' && !currentUser) {
       setShowProfile(false);
       setShowAuthModal(true);
@@ -254,40 +242,33 @@ export function useAppState() {
       (popup === 'lang' && showLangMenu) ||
       (popup === 'info' && showInfo) ||
       (popup === 'settings' && showSettings) ||
-      (popup === 'feed' && showFeed) ||
       (popup === 'profile' && showProfile);
     openPopup(isOpen ? '' : popup);
-  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showFeed, showProfile, currentUser, openPopup]);
+  }, [showStatusPopover, showLangMenu, showInfo, showSettings, showProfile, currentUser, openPopup]);
 
   const openLockModal = useCallback(() => {
     openPopup('');
     setShowLockModal(true);
   }, [openPopup]);
 
-  // FIX 1: Wrap refreshValidatedApiKeys with isValidatingKeys flag
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
-    setIsValidatingKeys(true);
-    try {
-      const entries = await Promise.all(
-        (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
-          const trimmedKey = keyValue?.trim();
-          if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
-          const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
-          return [providerName, isValid ? trimmedKey : undefined] as const;
-        })
-      );
+    const entries = await Promise.all(
+      (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
+        const trimmedKey = keyValue?.trim();
+        if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
+        const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
+        return [providerName, isValid ? trimmedKey : undefined] as const;
+      })
+    );
 
-      const nextValidatedKeys = entries.reduce<ApiKeys>((acc, [providerName, keyValue]) => {
-        if (keyValue) acc[providerName] = keyValue;
-        return acc;
-      }, {});
+    const nextValidatedKeys = entries.reduce<ApiKeys>((acc, [providerName, keyValue]) => {
+      if (keyValue) acc[providerName] = keyValue;
+      return acc;
+    }, {});
 
-      setValidatedApiKeys(nextValidatedKeys);
-      setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-      return nextValidatedKeys;
-    } finally {
-      setIsValidatingKeys(false);
-    }
+    setValidatedApiKeys(nextValidatedKeys);
+    setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    return nextValidatedKeys;
   }, []);
 
   const validatePremiumSession = useCallback(async (): Promise<boolean> => {
@@ -326,6 +307,21 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
+  // ─── Apply limit data helper ──────────────────────────────────────────────
+  const applyLimitData = useCallback((data: { allowed: boolean; remaining: number | null; resetAt: number | null }) => {
+    if (typeof data.remaining === 'number') {
+      setServerRemaining(data.remaining);
+    }
+    if (data.resetAt) {
+      setServerResetAt(data.resetAt);
+      const immediate = formatCountdown(data.resetAt);
+      if (immediate) setTimeLeft(immediate);
+    }
+    if (!data.allowed) {
+      openLockModal();
+    }
+  }, [openLockModal]);
+
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
@@ -352,7 +348,6 @@ export function useAppState() {
     if (typeof data.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(data.account.preferences.dontShowAgain);
 
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
-    setFeedSources(data.account?.feedSources || []);
 
     fetch('/api/check-limit', {
       method: 'POST',
@@ -360,12 +355,9 @@ export function useAppState() {
       body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
-      .then(limitData => {
-        setServerRemaining(limitData.remaining ?? 10);
-        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-      })
-      .catch(() => setServerRemaining(10));
-  }, [refreshValidatedApiKeys]);
+      .then(limitData => applyLimitData(limitData))
+      .catch(() => setServerRemaining(5));
+  }, [refreshValidatedApiKeys, applyLimitData]);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch('/api/account', { credentials: 'include' });
@@ -390,18 +382,6 @@ export function useAppState() {
       window.speechSynthesis.cancel();
       abortControllerRef.current?.abort();
     };
-  }, []);
-
-  // ─── PWA install prompt ─────────────────────────────────────────────────────
-  useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-      setShowInstallButton(true);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', () => setShowInstallButton(false));
-    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   // ─── Web Share Target ──────────────────────────────────────────────────────
@@ -437,6 +417,14 @@ export function useAppState() {
       setPendingSharedText(normalizedText);
       setUrl(normalizedText);
       setShowSharedToast(true);
+      window.history.replaceState({}, '', '/');
+    }
+
+    // Check for password reset token in URL
+    const resetToken = params.get('resetToken') || params.get('token');
+    if (resetToken) {
+      setPasswordResetToken(resetToken);
+      setShowAuthModal(true);
       window.history.replaceState({}, '', '/');
     }
 
@@ -479,41 +467,48 @@ export function useAppState() {
             body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
-            .then(limitData => {
-              setServerRemaining(limitData.remaining ?? 10);
-              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-            })
-            .catch(() => setServerRemaining(10));
+            .then(limitData => applyLimitData(limitData))
+            .catch(() => setServerRemaining(5));
         }
       })
       .catch(() => {
         setCurrentUser(null);
-        setServerRemaining(10);
+        setServerRemaining(5);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
         setIsAuthLoading(false);
       });
-  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAccount, applyLimitData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer ────────────────────────────────────────────────────────
+  // ─── Countdown timer ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!serverResetAt) return;
-    const update = () => {
-      const diff = serverResetAt - Date.now();
-      if (diff <= 0) {
+    if (!serverResetAt) {
+      setTimeLeft('');
+      return;
+    }
+
+    const immediate = formatCountdown(serverResetAt);
+    setTimeLeft(immediate);
+
+    if (!immediate) {
+      setServerResetAt(null);
+      setServerRemaining(5);
+      return;
+    }
+
+    const id = setInterval(() => {
+      const next = formatCountdown(serverResetAt);
+      if (!next) {
         setTimeLeft('');
         setServerResetAt(null);
-        setServerRemaining(10);
-        return;
+        setServerRemaining(5);
+        clearInterval(id);
+      } else {
+        setTimeLeft(next);
       }
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setTimeLeft(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
-    };
-    update();
-    const id = setInterval(update, 1000);
+    }, 1000);
+
     return () => clearInterval(id);
   }, [serverResetAt]);
 
@@ -590,35 +585,26 @@ export function useAppState() {
     setSummary(null);
     setArticleTitle(null);
     setAppInsights({ savedSummaries: 0, totalMinutesSaved: 0 });
-    setFeedSources([]);
-    setDailyFeedItems([]);
     setIsPremium(false);
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
+    setTimeLeft('');
   }, [openPopup]);
 
-  // FIX 2: saveApiKey accepts optional override params so ProfilePanel's local
-  // state can be passed in directly without relying on potentially stale closure values.
-  const saveApiKey = useCallback(async (overrideProvider?: Provider, overrideKey?: string) => {
+  const saveApiKey = useCallback(async () => {
     if (!currentUser) {
       setAuthError('Please sign in to manage your API keys.');
       setShowAuthModal(true);
       return;
     }
+    const trimmedKey = userApiKey.trim();
 
-    const effectiveProvider: Provider = overrideProvider ?? provider;
-    const effectiveKey = (overrideKey !== undefined ? overrideKey : userApiKey).trim();
-
-    // Sync global state to match what we're about to save
-    if (overrideProvider && overrideProvider !== provider) setProvider(overrideProvider);
-    if (overrideKey !== undefined && overrideKey !== userApiKey) setUserApiKey(overrideKey);
-
-    if (effectiveKey) {
-      const isValid = await validateApiKey(effectiveProvider, effectiveKey).catch(() => false);
+    if (trimmedKey) {
+      const isValid = await validateApiKey(provider, trimmedKey).catch(() => false);
       if (!isValid) {
         setError(t.apiKeyInvalidError);
         const nextValidatedKeys = { ...validatedApiKeys };
-        delete nextValidatedKeys[effectiveProvider];
+        delete nextValidatedKeys[provider];
         setValidatedApiKeys(nextValidatedKeys);
         setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
         return;
@@ -626,21 +612,21 @@ export function useAppState() {
     }
 
     const newKeys = { ...apiKeys };
-    if (effectiveKey) {
-      newKeys[effectiveProvider] = effectiveKey;
-      localStorage.setItem(`api_key_${effectiveProvider}`, effectiveKey);
+    if (trimmedKey) {
+      newKeys[provider] = trimmedKey;
+      localStorage.setItem(`api_key_${provider}`, trimmedKey);
     } else {
-      delete newKeys[effectiveProvider];
-      localStorage.removeItem(`api_key_${effectiveProvider}`);
+      delete newKeys[provider];
+      localStorage.removeItem(`api_key_${provider}`);
     }
     setApiKeys(newKeys);
     const nextValidatedKeys = { ...validatedApiKeys };
-    if (effectiveKey) nextValidatedKeys[effectiveProvider] = effectiveKey;
-    else delete nextValidatedKeys[effectiveProvider];
+    if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
+    else delete nextValidatedKeys[provider];
     setValidatedApiKeys(nextValidatedKeys);
-    localStorage.setItem('api_provider', effectiveProvider);
+    localStorage.setItem('api_provider', provider);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-    await syncAccount({ apiKeys: newKeys, preferences: { provider: effectiveProvider } });
+    await syncAccount({ apiKeys: newKeys, preferences: { provider } });
     setError(null);
     setShowSettings(false);
     setShowProfile(false);
@@ -727,213 +713,11 @@ export function useAppState() {
     syncAccount({ preferences: { summaryLanguage: lang } }).catch(() => undefined);
   }, [syncAccount]);
 
-  const setDeepResearchMode = useCallback((enabled: boolean) => {
-    setDeepResearchEnabled(enabled);
-    localStorage.setItem('deep_research_enabled', enabled ? 'true' : 'false');
-    syncAccount({ preferences: { deepResearchEnabled: enabled } }).catch(() => undefined);
-  }, [syncAccount]);
-
   const setSpeechRate = useCallback((rate: number) => {
     setSpeechRateState(rate);
     localStorage.setItem('speech_rate', String(rate));
     syncAccount({ preferences: { speechRate: rate } }).catch(() => undefined);
   }, [syncAccount]);
-
-  const addFeedSource = useCallback((name: string, sourceUrl: string, type: FeedSourceType) => {
-    const trimmedUrl = sourceUrl.trim();
-    if (!trimmedUrl) return;
-    const nextSources = persistFeedSource({
-      name: name.trim() || trimmedUrl,
-      url: trimmedUrl,
-      type,
-      enabled: true,
-    });
-    setFeedSources(nextSources);
-    setFeedError(null);
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [syncAccount]);
-
-  const removeFeedSource = useCallback((id: string) => {
-    const nextSources = deleteFeedSource(id);
-    setFeedSources(nextSources);
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [syncAccount]);
-
-  const toggleFeedSource = useCallback((id: string) => {
-    const nextSources = persistFeedSourceToggle(id);
-    setFeedSources(nextSources);
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [syncAccount]);
-
-  const refreshDailyFeed = useCallback(async () => {
-    const enabledSources = feedSources.filter((source) => source.enabled);
-    if (enabledSources.length === 0) {
-      setDailyFeedItems([]);
-      setFeedError(null);
-      return;
-    }
-
-    setIsFeedLoading(true);
-    setFeedError(null);
-
-    try {
-      const responses = await Promise.all(
-        enabledSources.map(async (source) => {
-          const response = await fetch('/api/rss-preview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: source.url }),
-          });
-
-          if (!response.ok) {
-            const errorBody = await response.json().catch(() => ({}));
-            throw new Error(errorBody.error || `Could not load ${source.name}`);
-          }
-
-          const data = await response.json() as RssPreviewResponse;
-          const perSourceLimit = Math.max(1, Math.min(25, Number(source.itemsPerLoad || 6)));
-          return data.items
-            .slice(0, perSourceLimit)
-            .map<DailyFeedItem>((item, index) => ({
-              id: `${source.id}-${index}-${item.url}`,
-              title: item.title,
-              url: item.url,
-              sourceName: source.name || data.title || source.url,
-              sourceType: source.type,
-              publishedAt: item.publishedAt || null,
-            }));
-        })
-      );
-
-      const deduped = new Map<string, DailyFeedItem>();
-      for (const items of responses.flat()) {
-        if (!deduped.has(items.url)) deduped.set(items.url, items);
-      }
-
-      const nextItems = Array.from(deduped.values())
-        .sort((a, b) => {
-          const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
-          const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
-          return timeB - timeA;
-        })
-        .slice(0, 60);
-
-      setDailyFeedItems(nextItems);
-    } catch (err: any) {
-      setFeedError(err?.message || 'Could not load the selected feed.');
-    } finally {
-      setIsFeedLoading(false);
-    }
-  }, [feedSources]);
-
-  const updateFeedSourceItemsPerLoad = useCallback((id: string, itemsPerLoad: number) => {
-    const safe = Math.max(1, Math.min(25, Math.round(itemsPerLoad)));
-    const nextSources = feedSources.map((source) =>
-      source.id === id ? { ...source, itemsPerLoad: safe } : source
-    );
-    setFeedSources(nextSources);
-    try { localStorage.setItem('custom_feed_sources_v1', JSON.stringify(nextSources)); } catch { /* ignore */ }
-    syncAccount({ feedSources: nextSources }).catch(() => undefined);
-  }, [feedSources, syncAccount]);
-
-  const useFeedItem = useCallback((feedUrl: string) => {
-    setPdfFile(null);
-    setError(null);
-    setPendingSharedUrl(null);
-    setUrl(feedUrl);
-  }, []);
-
-  const summarizeFeedItem = useCallback((feedUrl: string) => {
-    setPdfFile(null);
-    setError(null);
-    setUrl(feedUrl);
-    setPendingSharedUrl(feedUrl);
-    setShowSharedToast(true);
-  }, []);
-
-  const summarizeManyFeedItems = useCallback(async (urls: string[]) => {
-    const unique = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)));
-    if (unique.length === 0) return;
-
-    openPopup('');
-    setIsMultiFeedSummarizing(true);
-    setFeedSummaryResults([]);
-    setSummary(null);
-    setArticleTitle(null);
-    setError(null);
-    setIsLoading(true);
-    setLoadingProgress(5);
-
-    const results: Array<{ url: string; title: string; summary: string }> = [];
-
-    for (let i = 0; i < unique.length; i++) {
-      const feedUrl = unique[i];
-      setLoadingProgress(Math.round(5 + (i / unique.length) * 90));
-
-      try {
-        const result = await summarizeUrl(
-          feedUrl,
-          apiKeys,
-          provider,
-          summaryLanguage,
-          'short',
-          undefined,
-          providerPriority
-        );
-        results.push({
-          url: feedUrl,
-          title: result.title || feedUrl,
-          summary: result.summary,
-        });
-      } catch {
-        // Skip failed URLs silently
-      }
-    }
-
-    setLoadingProgress(100);
-    setIsMultiFeedSummarizing(false);
-    setIsLoading(false);
-    setFeedSummaryResults(results);
-
-    if (results.length > 0) {
-      const combined = results
-        .map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`)
-        .join('\n\n---\n\n');
-      setSummary(combined);
-      setArticleTitle(`${results.length} artículos resumidos`);
-      setLieScore(0);
-    } else {
-      setError(t.genericError);
-    }
-
-    if (!isPremium) {
-      fetch('/api/check-limit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          setServerRemaining(data.remaining ?? null);
-          if (data.resetAt) setServerResetAt(data.resetAt);
-          if (!data.allowed) openLockModal();
-        })
-        .catch(() => undefined);
-    }
-  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    if (isLoading) return;
-    if (feedSummaryQueue.length === 0) return;
-    const next = feedSummaryQueue[0];
-    const rest = feedSummaryQueue.slice(1);
-    const id = setTimeout(() => {
-      setFeedSummaryQueue(rest);
-      summarizeFeedItem(next);
-    }, 250);
-    return () => clearTimeout(id);
-  }, [feedSummaryQueue, isLoading, currentUser, summarizeFeedItem]);
 
   const handleClear = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -943,7 +727,6 @@ export function useAppState() {
     setLieScore(0);
     setInvestigationResult(null);
     setError(null);
-    setFeedSummaryResults([]);
     lastAutoSummarizedUrlRef.current = '';
     summaryCacheRef.current.clear();
   }, []);
@@ -954,17 +737,11 @@ export function useAppState() {
   ) => {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
-
-    // FIX 4: Don't show auth modal while auth is still being checked.
-    // This prevents the modal from appearing briefly when the app is opened
-    // via share target before the session check completes.
     if (!currentUser) {
-      if (isAuthLoading) return; // Wait — we don't know yet if user is logged in
       setAuthError('Please sign in or create an account to generate summaries.');
       setShowAuthModal(true);
       return;
     }
-
     if (!url && !pdfFile || isLoading) return;
     if (isPremium) {
       const stillValidPremium = await validatePremiumSession();
@@ -995,7 +772,6 @@ export function useAppState() {
     setLoadingProgress(8);
     setError(null);
     setInvestigationResult(null);
-    setFeedSummaryResults([]);
     setCurrentLength(resolvedLength);
     if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
 
@@ -1082,11 +858,7 @@ export function useAppState() {
           body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
-          .then(data => {
-            setServerRemaining(data.remaining ?? null);
-            if (data.resetAt) setServerResetAt(data.resetAt);
-            if (!data.allowed) openLockModal();
-          })
+          .then(data => applyLimitData(data))
           .catch(() => undefined);
       }
 
@@ -1134,7 +906,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, isAuthLoading]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -1170,11 +942,10 @@ export function useAppState() {
     try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
   }, []);
 
-  // FIX 4: Guard pendingSharedUrl effect — don't process while auth is still loading
+  // ─── Auto-summarize on shared URLs ─────────────────────────────────────────
   useEffect(() => {
     if (!pendingSharedUrl || isLoading) return;
     if (pendingSharedUrl !== url) return;
-    if (isAuthLoading) return; // Wait until auth check completes
     setSummary(null);
     setArticleTitle(null);
     setError(null);
@@ -1182,28 +953,13 @@ export function useAppState() {
       handleSummarize();
       setPendingSharedUrl(null);
     }, 50);
-  }, [pendingSharedUrl, url, isLoading, isAuthLoading, handleSummarize]);
+  }, [pendingSharedUrl, url, isLoading, handleSummarize]);
 
   useEffect(() => {
     if (!showSharedToast) return;
     const id = setTimeout(() => setShowSharedToast(false), 2500);
     return () => clearTimeout(id);
   }, [showSharedToast]);
-
-  useEffect(() => {
-    if (feedSources.some((source) => source.enabled)) {
-      refreshDailyFeed().catch(() => undefined);
-    } else {
-      setDailyFeedItems([]);
-    }
-  }, [feedSources, refreshDailyFeed]);
-
-  const handleInstall = useCallback(async () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') { setShowInstallButton(false); setInstallPrompt(null); }
-  }, [installPrompt]);
 
   const closeInfo = useCallback(() => {
     setShowInfo(false);
@@ -1212,32 +968,33 @@ export function useAppState() {
     syncAccount({ preferences: { dontShowAgain: true } }).catch(() => undefined);
   }, [syncAccount]);
 
+  const clearPasswordResetToken = useCallback(() => {
+    setPasswordResetToken(null);
+  }, []);
+
   return {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
-    deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
+    deepResearchEnabled, lieScore, investigationResult,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
-    feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, isValidatingKeys, provider, setProvider, isKeySaved,
-    showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved,
+    showSettings, showInfo, showLangMenu, showStatusPopover, showProfile,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
-    showInstallButton, resultsRef, appInsights, providerMetrics,
+    resultsRef, appInsights,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
-    showAuthModal, setShowAuthModal,
-    feedSummaryResults, isMultiFeedSummarizing,
+    showAuthModal, setShowAuthModal, passwordResetToken, clearPasswordResetToken,
     t,
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
-    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem, summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     handleUnlock, handlePaste, handleClear, handleSummarize,
-    handleSpeak, handleInstall, handleShare,
+    handleSpeak, handleShare,
     updateDisplayName: (name: string) => {
       setCurrentUser((prev) => (prev ? { ...prev, displayName: name } : prev));
       fetch('/api/account', {

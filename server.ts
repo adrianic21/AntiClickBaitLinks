@@ -607,71 +607,50 @@ async function getUsageIdForRequest(req: express.Request): Promise<string> {
  * Returns the current usage count for a given identifier.
  * Returns 0 if the window has expired or doesn't exist.
  */
-async function getUsageCount(usageId: string): Promise<number> {
-  const data = await redisGet<UsageData>(`usage_window:${usageId}`);
+async function getUsageCount(ip: string): Promise<number> {
+  const data = await redisGet<UsageData>(`usage_window:${ip}`);
   if (!data) return 0;
-
-  // Check if the 24h window has actually expired
-  if (Date.now() >= data.windowStart + USAGE_WINDOW_MS) {
-    // Window expired — clean up
-    await redisDelete(`usage_window:${usageId}`);
-    return 0;
-  }
-
-  return typeof data.count === 'number' && Number.isFinite(data.count) ? data.count : 0;
+  // If the 24h window has expired, treat as fresh start
+  if (Date.now() - data.windowStart >= USAGE_WINDOW_MS) return 0;
+  return typeof data.count === 'number' ? data.count : 0;
 }
 
 /**
- * Increments usage and returns the new count.
- * Uses a single Redis key (`usage_window:${usageId}`) that stores both
- * the count and the window start time, with a TTL set to the remaining
- * seconds in the current window. This guarantees the key expires at exactly
- * windowStart + 24h regardless of when the first call was made.
+ * Increments usage and returns the new count and window start.
+ * Uses a rolling 24h window tied to each user's first request.
  */
-async function incrementUsage(usageId: string): Promise<number> {
-  const windowKey = `usage_window:${usageId}`;
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  const existing = await redisGet<UsageData>(windowKey);
+async function incrementUsage(ip: string): Promise<{ count: number; windowStart: number }> {
+  const key = `usage_window:${ip}`;
+  const existing = await redisGet<UsageData>(key);
   const now = Date.now();
 
-  if (!existing || now >= existing.windowStart + USAGE_WINDOW_MS) {
-    // Start a fresh 24h window
-    const newData: UsageData = { count: 1, windowStart: now };
-    await redisSet<UsageData>(windowKey, newData, USAGE_TTL_SECONDS);
+  let windowStart: number;
+  let count: number;
 
-    // Also set via explicit expire if Redis is available (belt-and-suspenders)
-    if (redisUrl && redisToken) {
-      try {
-        await fetch(`${redisUrl}/expire/${encodeURIComponent(windowKey)}/${USAGE_TTL_SECONDS}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${redisToken}` },
-        });
-      } catch { /* ignore, TTL already embedded in SET */ }
-    }
-    return 1;
+  if (!existing || now - existing.windowStart >= USAGE_WINDOW_MS) {
+    // Start a fresh 24h window from NOW
+    windowStart = now;
+    count = 1;
+  } else {
+    // Continue existing window
+    windowStart = existing.windowStart;
+    count = (existing.count || 0) + 1;
   }
 
-  // Window still active — increment
-  const newCount = existing.count + 1;
-  const elapsed = now - existing.windowStart;
-  const remainingTtl = Math.max(1, Math.floor((USAGE_WINDOW_MS - elapsed) / 1000));
-  const updatedData: UsageData = { count: newCount, windowStart: existing.windowStart };
-  await redisSet<UsageData>(windowKey, updatedData, remainingTtl);
-
-  return newCount;
+  const ttl = Math.ceil(USAGE_WINDOW_MS / 1000); // 86400 seconds
+  await redisSet(key, { count, windowStart }, ttl);
+  return { count, windowStart };
 }
 
 /**
  * Returns the Unix timestamp (ms) when the current window resets, or null
  * if there's no active window.
  */
-async function getUsageResetTime(usageId: string): Promise<number | null> {
-  const data = await redisGet<UsageData>(`usage_window:${usageId}`);
+async function getUsageResetTime(ip: string): Promise<number | null> {
+  const data = await redisGet<UsageData>(`usage_window:${ip}`);
   if (!data?.windowStart) return null;
   const resetAt = data.windowStart + USAGE_WINDOW_MS;
-  if (Date.now() >= resetAt) return null;
+  if (Date.now() > resetAt) return null;
   return resetAt;
 }
 
@@ -1832,19 +1811,12 @@ async function startServer() {
 
     if (record) {
       if (count >= FREE_LIMIT) {
-        // Ya en el límite — devolver resetAt para que el countdown arranque inmediatamente
         const resetAt = await getUsageResetTime(usageId);
         return res.json({ allowed: false, remaining: 0, resetAt });
       }
-      const newCount = await incrementUsage(usageId);
+      const { count: newCount, windowStart } = await incrementUsage(usageId);
       const remaining = FREE_LIMIT - newCount;
-
-      // Si se agotó en este llamado, incluir resetAt para que el countdown aparezca ya
-      let resetAt: number | null = null;
-      if (remaining <= 0) {
-        resetAt = await getUsageResetTime(usageId);
-      }
-
+      const resetAt = remaining <= 0 ? windowStart + USAGE_WINDOW_MS : null;
       return res.json({ allowed: true, remaining: Math.max(0, remaining), resetAt });
     } else {
       const remaining = Math.max(0, FREE_LIMIT - count);

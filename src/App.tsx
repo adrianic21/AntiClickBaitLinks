@@ -20,7 +20,7 @@ export default function App() {
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail,
     authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved, apiKeySaveError,
     showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
@@ -142,9 +142,9 @@ export default function App() {
           t={t} show={showProfile} onClose={() => openPopup('')} currentUser={currentUser}
           isPremium={isPremium} provider={provider} setProvider={setProvider}
           userApiKey={userApiKey} setUserApiKey={setUserApiKey} apiKeys={apiKeys}
-          isKeySaved={isKeySaved} onSaveApiKey={saveApiKey} onLogout={logout}
+          isKeySaved={isKeySaved} apiKeySaveError={apiKeySaveError} onSaveApiKey={saveApiKey} onLogout={logout}
           appInsights={appInsights} onUpdateName={updateDisplayName}
-        remainingSearches={remainingSearches === -1 ? 5 : remainingSearches}
+          remainingSearches={remainingSearches === -1 ? 5 : remainingSearches}
           nextResetTime={nextResetTime} timeLeft={timeLeft}
           unlockPass={unlockPass} lockError={lockError} deviceMismatchError={deviceMismatchError}
           isLoading={isLoading} onPassChange={setUnlockPass} onUnlock={handleUnlock}

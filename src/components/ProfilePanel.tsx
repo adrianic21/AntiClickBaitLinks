@@ -20,6 +20,7 @@ interface ProfilePanelProps {
   setUserApiKey: (value: string) => void;
   apiKeys: ApiKeys;
   isKeySaved: boolean;
+  apiKeySaveError: string | null;
   onSaveApiKey: () => void;
   onLogout: () => void;
   appInsights: AppInsights;
@@ -188,7 +189,7 @@ function PremiumSection({
 export function ProfilePanel({
   uiLanguage,
   t, show, onClose, currentUser, isPremium,
-  provider, setProvider, userApiKey, setUserApiKey, apiKeys, isKeySaved, onSaveApiKey,
+  provider, setProvider, userApiKey, setUserApiKey, apiKeys, isKeySaved, apiKeySaveError, onSaveApiKey,
   onLogout, appInsights, onUpdateName,
   remainingSearches, nextResetTime, timeLeft,
   unlockPass, lockError, deviceMismatchError, isLoading, onPassChange, onUnlock,
@@ -412,6 +413,11 @@ export function ProfilePanel({
                           {t.noKeyLink}
                         </a>
                       </div>
+                      {apiKeySaveError && (
+                        <p className="text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5 border border-red-100">
+                          {apiKeySaveError}
+                        </p>
+                      )}
                     </div>
                   </>
                 )}

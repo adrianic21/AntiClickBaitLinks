@@ -34,7 +34,7 @@ const BACKDROP = "fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]";
 const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
 
 // The server-side free limit — must match server.ts FREE_LIMIT
-const FREE_LIMIT = 10;
+const FREE_LIMIT = 5;
 
 export function TopBar({
   t, isPremium, remainingSearches, isLimitsLoading,
@@ -50,7 +50,7 @@ export function TopBar({
   // FIX Bug 3: While limits are loading, show a neutral placeholder instead of a
   // stale/incorrect value. Once loaded, show the real remaining/total.
   const remainingLabel = isLimitsLoading
-    ? '—/10'
+    ? '—/5'
     : `${Math.max(0, remainingSearches)}/${FREE_LIMIT}`;
 
   return (

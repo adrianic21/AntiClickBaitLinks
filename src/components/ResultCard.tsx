@@ -245,7 +245,7 @@ export function ResultCard({
                   <Loader2 className="animate-spin text-emerald-600" size={32} />
                 </div>
               )}
-              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 dark:text-zinc-200 space-y-3">
+              <div className="text-lg sm:text-xl font-normal leading-relaxed text-black space-y-3">
                 {displayText!.split('\n').filter(p => p.trim()).map((paragraph, i, arr) => (
                   <p key={i}>
                     <FormattedText text={paragraph} />
@@ -364,27 +364,7 @@ export function ResultCard({
               {configuredProviders.join(' · ')} — {hasMultipleKeys ? (t.apiKeysActive || t.apiKeyActive) : t.apiKeyActive}
             </span>
           </div>
-        ) : (
-          <div className="w-full max-w-2xl space-y-2 text-center">
-            <div className="flex items-center justify-center gap-2">
-              <AlertCircle size={14} className="shrink-0" />
-              <span>{t.apiKeyMissing}</span>
-            </div>
-            <div className="mx-auto max-w-xl text-[10px] text-amber-600 space-y-1">
-              <p>
-                1. {t.apiKeyGuide1}{' '}
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a>
-                {' '}{t.apiKeyOr}{' '}
-                <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a>
-                {' '}{t.apiKeyOr}{' '}
-                <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Mistral</a>
-                {' '}{t.apiKeyOr}{' '}
-                <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">DeepSeek</a>
-              </p>
-              <p>2. {t.apiKeyGuide2}</p>
-            </div>
-          </div>
-        )}
+        ) : null}
       </div>
 
       {isYouTube && (

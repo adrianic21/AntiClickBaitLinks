@@ -36,9 +36,7 @@ export interface InvestigationResult {
 function isQuotaError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
   const status = error?.status || error?.statusCode || 0;
-
   if (status === 429) return true;
-
   return (
     msg.includes('resource_exhausted') ||
     msg.includes('quota_exceeded') ||
@@ -47,19 +45,15 @@ function isQuotaError(error: any): boolean {
     msg.includes('too many requests') ||
     msg.includes('rateerror') ||
     msg.includes('429') ||
-    msg.includes('generativelanguage.googleapis.com') && msg.includes('429') ||
     msg.includes('quota') ||
     msg.includes('rate limit')
   );
 }
 
-// ─── Detectar si el error es de autenticación/API key inválida ───────────────
 export function isAuthError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
   const status = error?.status || error?.statusCode || 0;
-
   if (status === 401 || status === 403) return true;
-
   return (
     msg.includes('api_key_invalid') ||
     msg.includes('invalid api key') ||
@@ -75,13 +69,10 @@ export function isAuthError(error: any): boolean {
   );
 }
 
-// ─── Detectar si es un error transitorio (reintentable) ──────────────────────
 function isTransientError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
   const status = error?.status || error?.statusCode || 0;
-
   if (status === 500 || status === 502 || status === 503 || status === 504) return true;
-
   return (
     msg.includes('failed to fetch') ||
     msg.includes('networkerror') ||
@@ -109,29 +100,22 @@ async function retryTransientOperation<T>(
   baseDelayMs = 600
 ): Promise<T> {
   let lastError: any = null;
-
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       return await operation();
     } catch (error: any) {
       lastError = error;
-
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
-
       if (isTransientError(error) && attempt < attempts) {
         await sleep(baseDelayMs * attempt);
         continue;
       }
-
       if (isQuotaError(error)) throw error;
-
       if (attempt === attempts) throw error;
-
       await sleep(baseDelayMs);
     }
   }
-
   throw lastError;
 }
 
@@ -151,7 +135,6 @@ REGLAS DE ORO (OBLIGATORIAS):
 7. CALIDAD: Si el contenido es basura, acceso bloqueado, o error 403/paywall, responde SOLO: "INSUFFICIENT_CONTENT".
 8. COMPLETITUD: Aunque sea una respuesta corta, SIEMPRE incluye el dato/resultado central que el titular promete. Nunca dejes al usuario sin la respuesta principal.`;
 
-// ─── Length instructions ──────────────────────────────────────────────────────
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
@@ -208,12 +191,10 @@ function normalizeTitleForScoring(title: string): string[] {
 
 export function estimateLieScore(title: string, content: string): number {
   if (!title || !content) return 0;
-
   const titleWords = normalizeTitleForScoring(title);
   const contentLower = content.toLowerCase();
   const matchedWords = titleWords.filter(word => contentLower.includes(word));
   const mismatchRatio = titleWords.length > 0 ? 1 - (matchedWords.length / titleWords.length) : 0;
-
   const hypePatterns = [
     /shock|shocking|brutal|bombshell|increible|incredible|unbelievable|viral|secret|nadie te cuenta|nadie vio|ultima hora/i,
     /you won['']t believe|te dejara|te dejará|explota|destroza|humilla|arrasa|caos/i,
@@ -222,75 +203,25 @@ export function estimateLieScore(title: string, content: string): number {
   const punctuationBoost = (title.match(/[!?]/g) || []).length * 6;
   const capsBoost = (title.match(/\b[A-ZÁÉÍÓÚÜÑ]{4,}\b/g) || []).length * 7;
   const hypeBoost = hypePatterns.reduce((acc, pattern) => acc + (pattern.test(title) ? 16 : 0), 0);
-
   const rawScore = (mismatchRatio * 62) + punctuationBoost + capsBoost + hypeBoost;
   return Math.max(0, Math.min(100, Math.round(rawScore)));
 }
 
-// ─── Detect content type from URL ────────────────────────────────────────────
 export function detectContentType(url: string): 'youtube' | 'pdf' | 'web' {
   if (/(?:youtube\.com\/(?:watch|shorts|embed)|youtu\.be\/)/.test(url)) return 'youtube';
   if (url.toLowerCase().endsWith('.pdf')) return 'pdf';
   return 'web';
 }
 
-// ─── FIX: deriveTitleFromUrl — filter out ID-like segments ───────────────────
-// YouTube video IDs, random hashes, encoded paths etc. look like "UGPa8lXnUvkutRgG8".
-// A human-readable title segment contains mostly letters/words with spaces when decoded.
-function looksLikeId(segment: string): boolean {
-  if (!segment || segment.length < 4) return false;
-  // More than 40% uppercase mixed with lowercase + digits with no spaces → likely an ID
-  const hasDigits = /\d/.test(segment);
-  const hasUpperAndLower = /[A-Z]/.test(segment) && /[a-z]/.test(segment);
-  const noSpaces = !segment.includes(' ') && !segment.includes('-') && !segment.includes('_');
-  const longEnough = segment.length >= 8;
-
-  // Pure alphanumeric with mixed case and digits and no separators → ID
-  if (hasDigits && hasUpperAndLower && noSpaces && longEnough && /^[A-Za-z0-9]+$/.test(segment)) {
-    return true;
-  }
-
-  // All hex-like (common for hashes)
-  if (/^[0-9a-f]{8,}$/i.test(segment)) return true;
-
-  // Very short segments that are likely path params
-  if (segment.length <= 3 && /^[A-Za-z0-9]+$/.test(segment)) return true;
-
-  return false;
-}
-
-export function deriveTitleFromUrl(url: string): string {
+function deriveTitleFromUrl(url: string): string {
   try {
     const parsed = new URL(url);
-
-    // For YouTube, return empty string — title will come from page extraction
-    if (/(?:youtube\.com|youtu\.be)/.test(parsed.hostname)) return '';
-
-    const segments = parsed.pathname.split('/').filter(Boolean);
-
-    // Try each segment from last to first, pick the first that looks like a readable title
-    for (let i = segments.length - 1; i >= 0; i--) {
-      const raw = segments[i];
-      // Strip common file extensions
-      const withoutExt = raw.replace(/\.[a-z0-9]{1,5}$/i, '');
-      const decoded = decodeURIComponent(withoutExt).trim();
-
-      if (!decoded || looksLikeId(decoded)) continue;
-
-      // Replace separators with spaces and check word count
-      const humanized = decoded.replace(/[-_+]+/g, ' ').trim();
-      const words = humanized.split(/\s+/).filter(w => w.length > 1);
-
-      // Must have at least 2 words or be a clearly meaningful single word (length > 5, no digits)
-      if (words.length >= 2 || (words.length === 1 && words[0].length > 5 && !/\d/.test(words[0]))) {
-        return humanized;
-      }
-    }
-
-    // Fall back to domain name without TLD
-    const hostname = parsed.hostname.replace(/^www\./, '');
-    const domainName = hostname.split('.')[0] || '';
-    return domainName.length > 2 ? domainName : '';
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname;
+    const decoded = decodeURIComponent(lastSegment)
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[-_]+/g, ' ')
+      .trim();
+    return decoded || parsed.hostname;
   } catch {
     return '';
   }
@@ -303,7 +234,6 @@ function deriveTitleFromText(text: string): string {
     .slice(0, 80) || 'Texto seleccionado';
 }
 
-// ─── Fetch article content via our server ────────────────────────────────────
 export async function fetchArticleContent(url: string): Promise<{ text: string; title: string; type: string }> {
   const contentType = detectContentType(url);
   const endpoint = contentType === 'youtube' ? '/api/youtube' : '/api/fetch-url';
@@ -314,7 +244,6 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
     });
-
     if (!fetchResponse.ok) {
       const err = await fetchResponse.json().catch(() => ({}));
       const errorMsg = err.error || "Failed to fetch content.";
@@ -323,13 +252,10 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
       }
       throw Object.assign(new Error(errorMsg), { status: fetchResponse.status });
     }
-
     const data = await fetchResponse.json();
-
     if (!data.text || data.text.length < 80) {
       throw Object.assign(new Error('empty_response'), { noRetry: false });
     }
-
     return data;
   };
 
@@ -337,36 +263,27 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const data = await fetchWithRetry();
-      return {
-        text: data.text || '',
-        title: data.title || deriveTitleFromUrl(url),
-        type: data.type || contentType,
-      };
+      return { text: data.text || '', title: data.title || deriveTitleFromUrl(url), type: data.type || contentType };
     } catch (err: any) {
       lastError = err;
       if (err.noRetry || attempt === 3) break;
       await sleep(800 * (attempt - 1) || 0);
     }
   }
-
   throw lastError || new Error("Failed to fetch content.");
 }
 
-// ─── Fetch PDF from uploaded file (base64) ───────────────────────────────────
 export async function fetchPdfContent(file: File): Promise<{ text: string; title: string }> {
   const formData = new FormData();
   formData.append('pdf', file);
-
   const response = await fetch('/api/pdf-upload', {
     method: 'POST',
     body: formData,
   });
-
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to process PDF.');
   }
-
   const data = await response.json();
   return { text: data.text || '', title: data.title || file.name };
 }
@@ -374,7 +291,6 @@ export async function fetchPdfContent(file: File): Promise<{ text: string; title
 export async function validateApiKey(provider: Provider, apiKey: string): Promise<boolean> {
   const trimmedKey = apiKey.trim();
   if (!trimmedKey) return false;
-
   try {
     switch (provider) {
       case 'gemini': {
@@ -427,11 +343,9 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
         if (!response.ok) {
           const errorText = await response.text().catch(() => response.statusText);
           const error = new Error(errorText || 'DeepSeek validation failed');
-
           if (response.status === 401 || response.status === 403 || isAuthError(error)) {
             return false;
           }
-
           return true;
         }
         return true;
@@ -445,7 +359,6 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
   }
 }
 
-// ─── Build the prompt ──────────────────────────────────────────────────────────
 function buildSummaryPrompt(
   url: string,
   language: string,
@@ -473,13 +386,10 @@ ${optimizedContent}`;
 }
 
 // ─── Provider call helpers ────────────────────────────────────────────────────
-async function callGemini(
-  apiKey: string,
-  prompt: string
-): Promise<string> {
+
+async function callGemini(apiKey: string, prompt: string): Promise<string> {
   const ai = new GoogleGenAI({ apiKey });
   const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash'];
-
   let lastErr: any = null;
   for (const model of modelsToTry) {
     try {
@@ -501,22 +411,52 @@ async function callGemini(
   throw lastErr;
 }
 
-async function callOpenRouter(
-  apiKey: string,
-  prompt: string
-): Promise<string> {
+// ─── Streaming Gemini call ────────────────────────────────────────────────────
+async function* callGeminiStream(apiKey: string, prompt: string): AsyncGenerator<string> {
+  const ai = new GoogleGenAI({ apiKey });
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  let lastErr: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const stream = await ai.models.generateContentStream({ model, contents: prompt });
+      let fullText = '';
+      for await (const chunk of stream) {
+        const text = chunk.text || '';
+        if (text) {
+          fullText += text;
+          yield text;
+        }
+      }
+      if (fullText.trim() === 'INSUFFICIENT_CONTENT') {
+        throw new Error('insufficient_content');
+      }
+      return;
+    } catch (err: any) {
+      lastErr = err;
+      if (isAuthError(err)) throw err;
+      if (err.message === 'insufficient_content') throw err;
+      if (isQuotaError(err) && model !== modelsToTry[modelsToTry.length - 1]) {
+        await sleep(300);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+async function callOpenRouter(apiKey: string, prompt: string): Promise<string> {
   const openai = new OpenAI({
     apiKey,
     baseURL: "https://openrouter.ai/api/v1",
     dangerouslyAllowBrowser: true
   });
-
   const modelsToTry = [
     'google/gemini-2.5-flash',
     'google/gemini-flash-1.5',
     'mistralai/mistral-small',
   ];
-
   let lastErr: any = null;
   for (const model of modelsToTry) {
     try {
@@ -544,11 +484,83 @@ async function callOpenRouter(
   throw lastErr;
 }
 
-async function callMistral(
-  apiKey: string,
-  prompt: string
-): Promise<string> {
+// ─── Streaming OpenRouter call ────────────────────────────────────────────────
+async function* callOpenRouterStream(apiKey: string, prompt: string): AsyncGenerator<string> {
+  const openai = new OpenAI({
+    apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    dangerouslyAllowBrowser: true
+  });
+  const modelsToTry = [
+    'google/gemini-2.5-flash',
+    'google/gemini-flash-1.5',
+    'mistralai/mistral-small',
+  ];
+  let lastErr: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const stream = await openai.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+        stream: true,
+      });
+
+      let fullText = '';
+      for await (const chunk of stream) {
+        const text = chunk.choices[0]?.delta?.content || '';
+        if (text) {
+          fullText += text;
+          yield text;
+        }
+      }
+      if (fullText.trim() === 'INSUFFICIENT_CONTENT') {
+        throw new Error('insufficient_content');
+      }
+      return;
+    } catch (err: any) {
+      lastErr = err;
+      if (isAuthError(err)) throw err;
+      if (err.message === 'insufficient_content') throw err;
+      if (isQuotaError(err) && model !== modelsToTry[modelsToTry.length - 1]) {
+        await sleep(300);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+async function callMistral(apiKey: string, prompt: string): Promise<string> {
   const response = await fetch('/api/mistral', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey,
+      model: 'mistral-small-latest',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: response.statusText }));
+    throw Object.assign(new Error(err.error || 'Mistral request failed'), { status: response.status });
+  }
+  const data = await response.json();
+  const result = data.choices?.[0]?.message?.content || '';
+  if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
+  return result || 'No summary available.';
+}
+
+// ─── Streaming Mistral via SSE proxy ─────────────────────────────────────────
+async function* callMistralStream(apiKey: string, prompt: string): AsyncGenerator<string> {
+  const response = await fetch('/api/mistral-stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -562,20 +574,53 @@ async function callMistral(
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: response.statusText }));
-    throw Object.assign(new Error(err.error || 'Mistral request failed'), { status: response.status });
+    // Fall back to non-streaming
+    const result = await callMistral(apiKey, prompt);
+    yield result;
+    return;
   }
 
-  const data = await response.json();
-  const result = data.choices?.[0]?.message?.content || '';
-  if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
-  return result || 'No summary available.';
+  if (!response.body) {
+    const result = await callMistral(apiKey, prompt);
+    yield result;
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(data);
+          const text = parsed.choices?.[0]?.delta?.content || '';
+          if (text) {
+            fullText += text;
+            yield text;
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
+  }
+
+  if (fullText.trim() === 'INSUFFICIENT_CONTENT') {
+    throw new Error('insufficient_content');
+  }
 }
 
-async function callDeepSeek(
-  apiKey: string,
-  prompt: string
-): Promise<string> {
+async function callDeepSeek(apiKey: string, prompt: string): Promise<string> {
   const response = await fetch('/api/deepseek', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -588,37 +633,191 @@ async function callDeepSeek(
       ],
     }),
   });
-
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: response.statusText }));
     throw Object.assign(new Error(err.error || 'DeepSeek request failed'), { status: response.status });
   }
-
   const data = await response.json();
   const result = data.choices?.[0]?.message?.content || '';
   if (result.trim() === 'INSUFFICIENT_CONTENT') throw new Error('insufficient_content');
   return result || 'No summary available.';
 }
 
-// ─── callProviderWithPrompt (used for investigation) ─────────────────────────
+// ─── Streaming DeepSeek via SSE proxy ────────────────────────────────────────
+async function* callDeepSeekStream(apiKey: string, prompt: string): AsyncGenerator<string> {
+  const response = await fetch('/api/deepseek-stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey,
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  });
+
+  if (!response.ok || !response.body) {
+    const result = await callDeepSeek(apiKey, prompt);
+    yield result;
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(data);
+          const text = parsed.choices?.[0]?.delta?.content || '';
+          if (text) {
+            fullText += text;
+            yield text;
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
+  }
+
+  if (fullText.trim() === 'INSUFFICIENT_CONTENT') {
+    throw new Error('insufficient_content');
+  }
+}
+
 async function callProviderWithPrompt(
   provider: Provider,
   apiKey: string,
   prompt: string
 ): Promise<string> {
   switch (provider) {
-    case 'gemini':
-      return callGemini(apiKey, prompt);
-    case 'openrouter':
-      return callOpenRouter(apiKey, prompt);
-    case 'mistral':
-      return callMistral(apiKey, prompt);
-    case 'deepseek':
-      return callDeepSeek(apiKey, prompt);
+    case 'gemini': return callGemini(apiKey, prompt);
+    case 'openrouter': return callOpenRouter(apiKey, prompt);
+    case 'mistral': return callMistral(apiKey, prompt);
+    case 'deepseek': return callDeepSeek(apiKey, prompt);
   }
 }
 
-// ─── Orquestador principal con Fallbacks ──────────────────────────────────────
+// ─── Streaming provider selector ─────────────────────────────────────────────
+function getProviderStream(provider: Provider, apiKey: string, prompt: string): AsyncGenerator<string> {
+  switch (provider) {
+    case 'gemini': return callGeminiStream(apiKey, prompt);
+    case 'openrouter': return callOpenRouterStream(apiKey, prompt);
+    case 'mistral': return callMistralStream(apiKey, prompt);
+    case 'deepseek': return callDeepSeekStream(apiKey, prompt);
+  }
+}
+
+// ─── Main streaming summarizeUrl ─────────────────────────────────────────────
+export interface StreamingSummaryResult {
+  title: string;
+  articleLength: number;
+  providerUsed: Provider;
+  attemptedProviders: Provider[];
+}
+
+export async function* summarizeUrlStream(
+  url: string,
+  apiKeys: ApiKeys,
+  provider: Provider,
+  language: string,
+  length: 'short' | 'medium' | 'long' | 'child' = 'medium',
+  prefetchedContent?: { text: string; title: string; type: string },
+  providerPriority?: Provider[],
+  onMeta?: (meta: StreamingSummaryResult) => void
+): AsyncGenerator<string> {
+  const lengthInstruction = `${getLengthInstruction(length)} ${getResponseLengthInstruction(length)}`;
+
+  let content = prefetchedContent;
+  if (!content) {
+    content = await fetchArticleContent(url);
+  }
+
+  if (!content.text || content.text.length < 30) {
+    throw new Error('insufficient_content');
+  }
+
+  const prompt = buildSummaryPrompt(url, language, lengthInstruction, length, content.text, content.type || 'web');
+
+  const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
+  const orderedProviders = providerPriority?.length
+    ? providerPriority
+    : [provider, ...allProviders.filter(p => p !== provider)];
+  const providersToTry = orderedProviders.filter((v, i, a) => a.indexOf(v) === i);
+  const attemptedProviders: Provider[] = [];
+
+  let lastError: any = null;
+  let hadQuotaError = false;
+
+  for (const p of providersToTry) {
+    const key = apiKeys[p as keyof ApiKeys];
+    if (!key) continue;
+    attemptedProviders.push(p);
+
+    try {
+      const stream = getProviderStream(p, key, prompt);
+      let yieldedAny = false;
+
+      for await (const chunk of stream) {
+        if (!yieldedAny) {
+          // Emit metadata on first chunk so caller knows which provider is being used
+          onMeta?.({
+            title: content.title || '',
+            articleLength: content.text.length,
+            providerUsed: p,
+            attemptedProviders,
+          });
+          yieldedAny = true;
+        }
+        yield chunk;
+      }
+
+      if (yieldedAny) return; // Success
+      throw new Error('empty_stream');
+
+    } catch (error: any) {
+      lastError = error;
+      if (isAuthError(error)) throw error;
+      if (error.message === 'insufficient_content') throw error;
+      if (isQuotaError(error)) {
+        hadQuotaError = true;
+        console.warn(`Provider ${p} quota exceeded, trying next provider...`);
+        await sleep(400);
+        continue;
+      }
+      if (isTransientError(error)) {
+        console.warn(`Provider ${p} transient error, trying next provider...`);
+        await sleep(700);
+        continue;
+      }
+      console.warn(`Provider ${p} error, trying next provider...`, error.message);
+      continue;
+    }
+  }
+
+  if (hadQuotaError && attemptedProviders.length === 1) {
+    throw new Error('quota_exceeded_all');
+  }
+  if (isTransientError(lastError)) {
+    throw new Error('provider_temporary_failure');
+  }
+  throw lastError || new Error('quota_exceeded_all');
+}
+
+// ─── Non-streaming fallback (kept for investigations, text content, etc.) ─────
 export async function summarizeUrl(
   url: string,
   apiKeys: ApiKeys,
@@ -645,7 +844,7 @@ export async function summarizeUrl(
   const orderedProviders = providerPriority?.length
     ? providerPriority
     : [provider, ...allProviders.filter(p => p !== provider)];
-  const providersToTry = orderedProviders.filter((value, index, array) => array.indexOf(value) === index);
+  const providersToTry = orderedProviders.filter((v, i, a) => a.indexOf(v) === i);
   const attemptedProviders: Provider[] = [];
 
   let lastError: any = null;
@@ -679,24 +878,20 @@ export async function summarizeUrl(
 
     } catch (error: any) {
       lastError = error;
-
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
-
       if (isQuotaError(error)) {
         hadQuotaError = true;
-        console.warn(`Provider ${p} quota exceeded, trying next provider...`);
+        console.warn(`Provider ${p} quota exceeded, trying next...`);
         await sleep(400);
         continue;
       }
-
       if (isTransientError(error)) {
-        console.warn(`Provider ${p} transient error, trying next provider...`);
+        console.warn(`Provider ${p} transient error, trying next...`);
         await sleep(700);
         continue;
       }
-
-      console.warn(`Provider ${p} unknown error, trying next provider...`, error.message);
+      console.warn(`Provider ${p} unknown error, trying next...`, error.message);
       continue;
     }
   }
@@ -704,11 +899,9 @@ export async function summarizeUrl(
   if (hadQuotaError && attemptedProviders.length === 1) {
     throw new Error('quota_exceeded_all');
   }
-
   if (isTransientError(lastError)) {
     throw new Error('provider_temporary_failure');
   }
-
   throw lastError || new Error('quota_exceeded_all');
 }
 
@@ -724,12 +917,10 @@ export async function investigateClaim(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url, title: articleTitle }),
   });
-
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.error || 'deep_investigation_failed');
   }
-
   const relatedSources = Array.isArray(data.sources) ? data.sources as InvestigationSource[] : [];
   if (relatedSources.length === 0) {
     throw new Error('deep_investigation_failed');
@@ -750,7 +941,7 @@ URL: ${url}
 Resumen: ${articleSummary}
 
 Fuentes de contraste:
-${relatedSources.map((source, index) => `${index + 1}. ${source.source} | ${source.title}\nURL: ${source.url}\nSnippet: ${source.snippet}`).join('\n\n')}
+${relatedSources.map((s, i) => `${i + 1}. ${s.source} | ${s.title}\nURL: ${s.url}\nSnippet: ${s.snippet}`).join('\n\n')}
 
 Evalua si las otras fuentes apoyan, matizan o contradicen la noticia original.`;
 
@@ -788,7 +979,7 @@ Evalua si las otras fuentes apoyan, matizan o contradicen la noticia original.`;
     return {
       verdict: 'Las fuentes externas aportan contexto adicional, pero la verificacion automatica no pudo estructurarse del todo.',
       confidence: 'medium',
-      findings: relatedSources.slice(0, 3).map(source => `${source.source}: ${source.title}`),
+      findings: relatedSources.slice(0, 3).map(s => `${s.source}: ${s.title}`),
       relatedSources,
     };
   }
@@ -823,7 +1014,7 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
   const orderedProviders = providerPriority?.length
     ? providerPriority
     : [provider, ...allProviders.filter(p => p !== provider)];
-  const providersToTry = orderedProviders.filter((value, index, array) => array.indexOf(value) === index);
+  const providersToTry = orderedProviders.filter((v, i, a) => a.indexOf(v) === i);
   const attemptedProviders: Provider[] = [];
   let lastError: any = null;
 
@@ -838,11 +1029,9 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
         2,
         400
       );
-
       if (!summary.trim() || summary.trim() === 'INSUFFICIENT_CONTENT') {
         throw new Error('insufficient_content');
       }
-
       return {
         summary,
         title: deriveTitleFromText(normalizedText),
@@ -862,6 +1051,5 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
   if (isTransientError(lastError)) {
     throw new Error('provider_temporary_failure');
   }
-
   throw lastError || new Error('quota_exceeded_all');
 }

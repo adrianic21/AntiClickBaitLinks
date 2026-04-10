@@ -33,14 +33,10 @@ export interface InvestigationResult {
 }
 
 // ─── Detectar si el error es de cuota/límite ─────────────────────────────────
-// FIX: Ampliado para capturar todos los formatos de error 429 de Gemini/OpenRouter/Mistral/DeepSeek
-// incluyendo casos donde el 429 viene solo sin palabras clave adicionales.
-
 function isQuotaError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
   const status = error?.status || error?.statusCode || 0;
 
-  // HTTP 429 siempre es rate limit, independientemente del mensaje
   if (status === 429) return true;
 
   return (
@@ -51,7 +47,6 @@ function isQuotaError(error: any): boolean {
     msg.includes('too many requests') ||
     msg.includes('rateerror') ||
     msg.includes('429') ||
-    // Gemini specific
     msg.includes('generativelanguage.googleapis.com') && msg.includes('429') ||
     msg.includes('quota') ||
     msg.includes('rate limit')
@@ -59,7 +54,6 @@ function isQuotaError(error: any): boolean {
 }
 
 // ─── Detectar si el error es de autenticación/API key inválida ───────────────
-
 export function isAuthError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
   const status = error?.status || error?.statusCode || 0;
@@ -82,7 +76,6 @@ export function isAuthError(error: any): boolean {
 }
 
 // ─── Detectar si es un error transitorio (reintentable) ──────────────────────
-
 function isTransientError(error: any): boolean {
   const msg = (error?.message || error?.toString() || '').toLowerCase();
   const status = error?.status || error?.statusCode || 0;
@@ -123,20 +116,16 @@ async function retryTransientOperation<T>(
     } catch (error: any) {
       lastError = error;
 
-      // Never retry auth errors or content errors
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
 
-      // Retry transient errors with exponential backoff
       if (isTransientError(error) && attempt < attempts) {
         await sleep(baseDelayMs * attempt);
         continue;
       }
 
-      // For quota errors, don't retry (it won't help immediately)
       if (isQuotaError(error)) throw error;
 
-      // Unknown error on last attempt
       if (attempt === attempts) throw error;
 
       await sleep(baseDelayMs);
@@ -147,7 +136,6 @@ async function retryTransientOperation<T>(
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
-
 const SYSTEM_PROMPT = `Eres un extractor de datos anti-clickbait. Tu única misión es entregar la información que el titular promete, ELIMINANDO todo el relleno descriptivo.
 
 REGLAS DE ORO (OBLIGATORIAS):
@@ -164,7 +152,6 @@ REGLAS DE ORO (OBLIGATORIAS):
 8. COMPLETITUD: Aunque sea una respuesta corta, SIEMPRE incluye el dato/resultado central que el titular promete. Nunca dejes al usuario sin la respuesta principal.`;
 
 // ─── Length instructions ──────────────────────────────────────────────────────
-
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {
     case 'short':
@@ -241,22 +228,69 @@ export function estimateLieScore(title: string, content: string): number {
 }
 
 // ─── Detect content type from URL ────────────────────────────────────────────
-
 export function detectContentType(url: string): 'youtube' | 'pdf' | 'web' {
   if (/(?:youtube\.com\/(?:watch|shorts|embed)|youtu\.be\/)/.test(url)) return 'youtube';
   if (url.toLowerCase().endsWith('.pdf')) return 'pdf';
   return 'web';
 }
 
-function deriveTitleFromUrl(url: string): string {
+// ─── FIX: deriveTitleFromUrl — filter out ID-like segments ───────────────────
+// YouTube video IDs, random hashes, encoded paths etc. look like "UGPa8lXnUvkutRgG8".
+// A human-readable title segment contains mostly letters/words with spaces when decoded.
+function looksLikeId(segment: string): boolean {
+  if (!segment || segment.length < 4) return false;
+  // More than 40% uppercase mixed with lowercase + digits with no spaces → likely an ID
+  const hasDigits = /\d/.test(segment);
+  const hasUpperAndLower = /[A-Z]/.test(segment) && /[a-z]/.test(segment);
+  const noSpaces = !segment.includes(' ') && !segment.includes('-') && !segment.includes('_');
+  const longEnough = segment.length >= 8;
+
+  // Pure alphanumeric with mixed case and digits and no separators → ID
+  if (hasDigits && hasUpperAndLower && noSpaces && longEnough && /^[A-Za-z0-9]+$/.test(segment)) {
+    return true;
+  }
+
+  // All hex-like (common for hashes)
+  if (/^[0-9a-f]{8,}$/i.test(segment)) return true;
+
+  // Very short segments that are likely path params
+  if (segment.length <= 3 && /^[A-Za-z0-9]+$/.test(segment)) return true;
+
+  return false;
+}
+
+export function deriveTitleFromUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname;
-    const decoded = decodeURIComponent(lastSegment)
-      .replace(/\.[a-z0-9]+$/i, '')
-      .replace(/[-_]+/g, ' ')
-      .trim();
-    return decoded || parsed.hostname;
+
+    // For YouTube, return empty string — title will come from page extraction
+    if (/(?:youtube\.com|youtu\.be)/.test(parsed.hostname)) return '';
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+
+    // Try each segment from last to first, pick the first that looks like a readable title
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const raw = segments[i];
+      // Strip common file extensions
+      const withoutExt = raw.replace(/\.[a-z0-9]{1,5}$/i, '');
+      const decoded = decodeURIComponent(withoutExt).trim();
+
+      if (!decoded || looksLikeId(decoded)) continue;
+
+      // Replace separators with spaces and check word count
+      const humanized = decoded.replace(/[-_+]+/g, ' ').trim();
+      const words = humanized.split(/\s+/).filter(w => w.length > 1);
+
+      // Must have at least 2 words or be a clearly meaningful single word (length > 5, no digits)
+      if (words.length >= 2 || (words.length === 1 && words[0].length > 5 && !/\d/.test(words[0]))) {
+        return humanized;
+      }
+    }
+
+    // Fall back to domain name without TLD
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    const domainName = hostname.split('.')[0] || '';
+    return domainName.length > 2 ? domainName : '';
   } catch {
     return '';
   }
@@ -270,10 +304,6 @@ function deriveTitleFromText(text: string): string {
 }
 
 // ─── Fetch article content via our server ────────────────────────────────────
-// FIX: Increased retries (3) with longer delays for intermittent fetch failures.
-// A fresh call to /api/fetch-url already tries multiple strategies server-side,
-// but transient network hiccups between the client and our server need client-side retry too.
-
 export async function fetchArticleContent(url: string): Promise<{ text: string; title: string; type: string }> {
   const contentType = detectContentType(url);
   const endpoint = contentType === 'youtube' ? '/api/youtube' : '/api/fetch-url';
@@ -288,7 +318,6 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
     if (!fetchResponse.ok) {
       const err = await fetchResponse.json().catch(() => ({}));
       const errorMsg = err.error || "Failed to fetch content.";
-      // 4xx errors (except 429) shouldn't be retried
       if (fetchResponse.status >= 400 && fetchResponse.status < 500 && fetchResponse.status !== 429) {
         throw Object.assign(new Error(errorMsg), { status: fetchResponse.status, noRetry: true });
       }
@@ -297,8 +326,6 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
 
     const data = await fetchResponse.json();
 
-    // If the server returned very little content, treat it as a soft failure
-    // so we can retry (sometimes the first fetch is a cached 304 with empty body)
     if (!data.text || data.text.length < 80) {
       throw Object.assign(new Error('empty_response'), { noRetry: false });
     }
@@ -306,15 +333,17 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
     return data;
   };
 
-  // 3 attempts with progressive delay: 0ms, 800ms, 1600ms
   let lastError: any = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const data = await fetchWithRetry();
-      return { text: data.text || '', title: data.title || deriveTitleFromUrl(url), type: data.type || contentType };
+      return {
+        text: data.text || '',
+        title: data.title || deriveTitleFromUrl(url),
+        type: data.type || contentType,
+      };
     } catch (err: any) {
       lastError = err;
-      // Don't retry no-retry errors or on the last attempt
       if (err.noRetry || attempt === 3) break;
       await sleep(800 * (attempt - 1) || 0);
     }
@@ -324,7 +353,6 @@ export async function fetchArticleContent(url: string): Promise<{ text: string; 
 }
 
 // ─── Fetch PDF from uploaded file (base64) ───────────────────────────────────
-
 export async function fetchPdfContent(file: File): Promise<{ text: string; title: string }> {
   const formData = new FormData();
   formData.append('pdf', file);
@@ -350,8 +378,6 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
   try {
     switch (provider) {
       case 'gemini': {
-        // FIX: Use gemini-1.5-flash for validation — it's more available on free tier
-        // and less likely to hit quota on brand new accounts compared to 2.5-flash.
         const ai = new GoogleGenAI({ apiKey: trimmedKey });
         await ai.models.generateContent({
           model: "gemini-1.5-flash",
@@ -406,7 +432,6 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
             return false;
           }
 
-          // DeepSeek may return balance/quota errors even with a valid key
           return true;
         }
         return true;
@@ -414,8 +439,6 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
     }
   } catch (error: any) {
     if (isAuthError(error)) return false;
-    // FIX: Quota errors on a brand new key just mean the free tier is being hit —
-    // the key itself is valid. Return true so the user isn't wrongly told their key is bad.
     if (isQuotaError(error)) return true;
     if (isTransientError(error)) return true;
     return false;
@@ -423,7 +446,6 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
 }
 
 // ─── Build the prompt ──────────────────────────────────────────────────────────
-
 function buildSummaryPrompt(
   url: string,
   language: string,
@@ -451,13 +473,11 @@ ${optimizedContent}`;
 }
 
 // ─── Provider call helpers ────────────────────────────────────────────────────
-
 async function callGemini(
   apiKey: string,
   prompt: string
 ): Promise<string> {
   const ai = new GoogleGenAI({ apiKey });
-  // FIX: Try gemini-2.5-flash first, fall back to 1.5-flash on quota errors.
   const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash'];
 
   let lastErr: any = null;
@@ -471,7 +491,6 @@ async function callGemini(
       lastErr = err;
       if (isAuthError(err)) throw err;
       if (err.message === 'insufficient_content') throw err;
-      // On quota error with the faster model, try the fallback model
       if (isQuotaError(err) && model !== modelsToTry[modelsToTry.length - 1]) {
         await sleep(300);
         continue;
@@ -492,7 +511,6 @@ async function callOpenRouter(
     dangerouslyAllowBrowser: true
   });
 
-  // FIX: Try multiple models in order of preference / availability
   const modelsToTry = [
     'google/gemini-2.5-flash',
     'google/gemini-flash-1.5',
@@ -583,7 +601,6 @@ async function callDeepSeek(
 }
 
 // ─── callProviderWithPrompt (used for investigation) ─────────────────────────
-
 async function callProviderWithPrompt(
   provider: Provider,
   apiKey: string,
@@ -602,10 +619,6 @@ async function callProviderWithPrompt(
 }
 
 // ─── Orquestador principal con Fallbacks ──────────────────────────────────────
-// FIX: Quota errors now properly trigger fallback to the next provider instead of
-// being re-thrown. The old code only caught quota on "continue" branches but the
-// outer throw path still propagated them. Now every quota error = try next provider.
-
 export async function summarizeUrl(
   url: string,
   apiKeys: ApiKeys,
@@ -628,7 +641,6 @@ export async function summarizeUrl(
 
   const prompt = buildSummaryPrompt(url, language, lengthInstruction, length, content.text, content.type || 'web');
 
-  // ─── LLAMADA AL PROVEEDOR CON FALLBACK ──────────────────────────────────
   const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
   const orderedProviders = providerPriority?.length
     ? providerPriority
@@ -668,11 +680,9 @@ export async function summarizeUrl(
     } catch (error: any) {
       lastError = error;
 
-      // Hard errors — stop immediately
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
 
-      // Quota or transient → try next provider
       if (isQuotaError(error)) {
         hadQuotaError = true;
         console.warn(`Provider ${p} quota exceeded, trying next provider...`);
@@ -686,15 +696,12 @@ export async function summarizeUrl(
         continue;
       }
 
-      // Unknown error → try next provider anyway
       console.warn(`Provider ${p} unknown error, trying next provider...`, error.message);
       continue;
     }
   }
 
-  // All providers tried
   if (hadQuotaError && attemptedProviders.length === 1) {
-    // Single provider, quota hit — show quota error
     throw new Error('quota_exceeded_all');
   }
 

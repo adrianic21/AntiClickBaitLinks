@@ -101,15 +101,8 @@ interface AccountResponse {
 // Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
 
-// ─── Format countdown from ms remaining ──────────────────────────────────────
-function formatCountdown(resetAtMs: number): string {
-  const diff = resetAtMs - Date.now();
-  if (diff <= 0) return '';
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
+// FIX Bug 3: The actual free limit (must match server FREE_LIMIT = 10)
+const FREE_LIMIT = 10;
 
 export function useAppState() {
   // Core
@@ -144,6 +137,7 @@ export function useAppState() {
   const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
+  const [isValidatingKeys, setIsValidatingKeys] = useState(false);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
 
@@ -160,6 +154,8 @@ export function useAppState() {
   // Premium / limits
   const [isPremium, setIsPremium] = useState(false);
   const [showLockModal, setShowLockModal] = useState(false);
+  // FIX Bug 3: Use null instead of LIMITS_LOADING sentinel for "not yet loaded"
+  // This way the display logic can cleanly distinguish "loading" from "0 remaining"
   const [serverRemaining, setServerRemaining] = useState<number>(LIMITS_LOADING);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState('');
@@ -187,10 +183,6 @@ export function useAppState() {
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
   const lastAutoSummarizedUrlRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // FIX: Track whether the user has manually dismissed the lock modal this session.
-  // When true, applyLimitData will NOT reopen the modal automatically.
-  const lockModalDismissedRef = useRef(false);
 
   // ─── Derived values (memoised) ──────────────────────────────────────────────
   const t = useMemo(
@@ -273,28 +265,32 @@ export function useAppState() {
 
   const openLockModal = useCallback(() => {
     openPopup('');
-    lockModalDismissedRef.current = false; // reset dismissed flag when explicitly opened
     setShowLockModal(true);
   }, [openPopup]);
 
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
-    const entries = await Promise.all(
-      (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
-        const trimmedKey = keyValue?.trim();
-        if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
-        const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
-        return [providerName, isValid ? trimmedKey : undefined] as const;
-      })
-    );
+    setIsValidatingKeys(true);
+    try {
+      const entries = await Promise.all(
+        (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
+          const trimmedKey = keyValue?.trim();
+          if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
+          const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
+          return [providerName, isValid ? trimmedKey : undefined] as const;
+        })
+      );
 
-    const nextValidatedKeys = entries.reduce<ApiKeys>((acc, [providerName, keyValue]) => {
-      if (keyValue) acc[providerName] = keyValue;
-      return acc;
-    }, {});
+      const nextValidatedKeys = entries.reduce<ApiKeys>((acc, [providerName, keyValue]) => {
+        if (keyValue) acc[providerName] = keyValue;
+        return acc;
+      }, {});
 
-    setValidatedApiKeys(nextValidatedKeys);
-    setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-    return nextValidatedKeys;
+      setValidatedApiKeys(nextValidatedKeys);
+      setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+      return nextValidatedKeys;
+    } finally {
+      setIsValidatingKeys(false);
+    }
   }, []);
 
   const validatePremiumSession = useCallback(async (): Promise<boolean> => {
@@ -333,32 +329,6 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
-  // ─── Apply limit data helper ──────────────────────────────────────────────
-  // FIX: Only open the lock modal automatically when a summarize action is
-  // directly blocked (!data.allowed after record:true). Background polling
-  // (record:false) updates the counters/countdown but NEVER forces the modal
-  // open — and if the user already dismissed it, it stays closed.
-  const applyLimitData = useCallback((
-    data: { allowed: boolean; remaining: number | null; resetAt: number | null },
-    triggeredByAction = false
-  ) => {
-    if (typeof data.remaining === 'number') {
-      setServerRemaining(data.remaining);
-    }
-    if (data.resetAt) {
-      setServerResetAt(data.resetAt);
-      const immediate = formatCountdown(data.resetAt);
-      if (immediate) setTimeLeft(immediate);
-    }
-    // Only pop the modal open when:
-    // 1. The action was directly blocked (!data.allowed AND triggeredByAction), OR
-    // 2. It was explicitly requested by the caller
-    // Never reopen it if the user dismissed it (lockModalDismissedRef.current).
-    if (!data.allowed && triggeredByAction && !lockModalDismissedRef.current) {
-      openLockModal();
-    }
-  }, [openLockModal]);
-
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
     const premiumEnabled = Boolean(data.account?.premium?.isPremium || data.user.isPremium);
@@ -387,16 +357,18 @@ export function useAppState() {
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
 
-    // Background poll — never triggers the modal
     fetch('/api/check-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
-      .then(limitData => applyLimitData(limitData, false))
-      .catch(() => setServerRemaining(10));
-  }, [refreshValidatedApiKeys, applyLimitData]);
+      .then(limitData => {
+        setServerRemaining(limitData.remaining ?? FREE_LIMIT);
+        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
+      })
+      .catch(() => setServerRemaining(FREE_LIMIT));
+  }, [refreshValidatedApiKeys]);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch('/api/account', { credentials: 'include' });
@@ -504,57 +476,47 @@ export function useAppState() {
           if (!savedDontShow) setShowInfo(true);
         } else {
           setCurrentUser(null);
-          // Background poll — never triggers modal
           fetch('/api/check-limit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
-            .then(limitData => applyLimitData(limitData, false))
-            .catch(() => setServerRemaining(10));
+            .then(limitData => {
+              setServerRemaining(limitData.remaining ?? FREE_LIMIT);
+              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
+            })
+            .catch(() => setServerRemaining(FREE_LIMIT));
         }
       })
       .catch(() => {
         setCurrentUser(null);
-        setServerRemaining(10);
+        setServerRemaining(FREE_LIMIT);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
         setIsAuthLoading(false);
       });
-  }, [loadAccount, applyLimitData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer ─────────────────────────────────────────────────────────
+  // ─── Countdown timer ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!serverResetAt) {
-      setTimeLeft('');
-      return;
-    }
-
-    const immediate = formatCountdown(serverResetAt);
-    setTimeLeft(immediate);
-
-    if (!immediate) {
-      setServerResetAt(null);
-      setServerRemaining(10);
-      return;
-    }
-
-    const id = setInterval(() => {
-      const next = formatCountdown(serverResetAt);
-      if (!next) {
+    if (!serverResetAt) return;
+    const update = () => {
+      const diff = serverResetAt - Date.now();
+      if (diff <= 0) {
         setTimeLeft('');
         setServerResetAt(null);
-        setServerRemaining(10);
-        // Reset dismissed flag when the limit refreshes
-        lockModalDismissedRef.current = false;
-        clearInterval(id);
-      } else {
-        setTimeLeft(next);
+        setServerRemaining(FREE_LIMIT);
+        return;
       }
-    }, 1000);
-
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    update();
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [serverResetAt]);
 
@@ -636,23 +598,27 @@ export function useAppState() {
     setIsPremium(false);
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
-    setTimeLeft('');
   }, [openPopup]);
 
-  const saveApiKey = useCallback(async () => {
+  const saveApiKey = useCallback(async (overrideProvider?: Provider, overrideKey?: string) => {
     if (!currentUser) {
       setAuthError('Please sign in to manage your API keys.');
       setShowAuthModal(true);
       return;
     }
-    const trimmedKey = userApiKey.trim();
 
-    if (trimmedKey) {
-      const isValid = await validateApiKey(provider, trimmedKey).catch(() => false);
+    const effectiveProvider: Provider = overrideProvider ?? provider;
+    const effectiveKey = (overrideKey !== undefined ? overrideKey : userApiKey).trim();
+
+    if (overrideProvider && overrideProvider !== provider) setProvider(overrideProvider);
+    if (overrideKey !== undefined && overrideKey !== userApiKey) setUserApiKey(overrideKey);
+
+    if (effectiveKey) {
+      const isValid = await validateApiKey(effectiveProvider, effectiveKey).catch(() => false);
       if (!isValid) {
         setError(t.apiKeyInvalidError);
         const nextValidatedKeys = { ...validatedApiKeys };
-        delete nextValidatedKeys[provider];
+        delete nextValidatedKeys[effectiveProvider];
         setValidatedApiKeys(nextValidatedKeys);
         setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
         return;
@@ -660,21 +626,21 @@ export function useAppState() {
     }
 
     const newKeys = { ...apiKeys };
-    if (trimmedKey) {
-      newKeys[provider] = trimmedKey;
-      localStorage.setItem(`api_key_${provider}`, trimmedKey);
+    if (effectiveKey) {
+      newKeys[effectiveProvider] = effectiveKey;
+      localStorage.setItem(`api_key_${effectiveProvider}`, effectiveKey);
     } else {
-      delete newKeys[provider];
-      localStorage.removeItem(`api_key_${provider}`);
+      delete newKeys[effectiveProvider];
+      localStorage.removeItem(`api_key_${effectiveProvider}`);
     }
     setApiKeys(newKeys);
     const nextValidatedKeys = { ...validatedApiKeys };
-    if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
-    else delete nextValidatedKeys[provider];
+    if (effectiveKey) nextValidatedKeys[effectiveProvider] = effectiveKey;
+    else delete nextValidatedKeys[effectiveProvider];
     setValidatedApiKeys(nextValidatedKeys);
-    localStorage.setItem('api_provider', provider);
+    localStorage.setItem('api_provider', effectiveProvider);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-    await syncAccount({ apiKeys: newKeys, preferences: { provider } });
+    await syncAccount({ apiKeys: newKeys, preferences: { provider: effectiveProvider } });
     setError(null);
     setShowSettings(false);
     setShowProfile(false);
@@ -696,10 +662,7 @@ export function useAppState() {
   const checkUsageLimit = useCallback((): boolean => {
     if (isPremium) return true;
     if (serverRemaining !== LIMITS_LOADING && serverRemaining <= 0) {
-      // Only open the modal if the user hasn't dismissed it already
-      if (!lockModalDismissedRef.current) {
-        if (serverResetAt) openLockModal();
-      }
+      if (serverResetAt) openLockModal();
       return false;
     }
     return true;
@@ -721,7 +684,6 @@ export function useAppState() {
         localStorage.setItem('premium_token', unlockPass.trim());
         syncAccount({ premium: { isPremium: true, token: unlockPass.trim() } }).catch(() => undefined);
         setShowLockModal(false);
-        lockModalDismissedRef.current = false;
         openPopup('');
         setLockError(false);
         setUnlockPass('');
@@ -738,8 +700,14 @@ export function useAppState() {
     }
   }, [unlockPass, openPopup, syncAccount]);
 
+  // FIX Bug 2: handlePaste — guard against isAuthLoading race condition.
+  // When the user presses paste and auth is still being checked, don't show the
+  // auth modal. If auth check completes and user IS logged in, just paste normally.
   const handlePaste = useCallback(async () => {
-    if (!currentUser) {
+    // While auth is loading, we don't know yet if the user is signed in.
+    // Don't block or show modal — just attempt to paste (clipboard API will work
+    // regardless of auth state, and the summarize flow will gate auth separately).
+    if (!currentUser && !isAuthLoading) {
       setAuthError('Crea una cuenta o inicia sesión para pegar un link.');
       setShowAuthModal(true);
       return;
@@ -751,7 +719,7 @@ export function useAppState() {
       setError(t.pasteError);
       setTimeout(() => setError(null), 5000);
     }
-  }, [t.pasteError, currentUser]);
+  }, [t.pasteError, currentUser, isAuthLoading]);
 
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);
@@ -951,10 +919,14 @@ export function useAppState() {
         body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
       })
         .then(r => r.json())
-        .then(data => applyLimitData(data, true))
+        .then(data => {
+          setServerRemaining(data.remaining ?? null);
+          if (data.resetAt) setServerResetAt(data.resetAt);
+          if (!data.allowed) openLockModal();
+        })
         .catch(() => undefined);
     }
-  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, t.genericError, applyLimitData]);
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -988,11 +960,14 @@ export function useAppState() {
   ) => {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
+
     if (!currentUser) {
+      if (isAuthLoading) return;
       setAuthError('Please sign in or create an account to generate summaries.');
       setShowAuthModal(true);
       return;
     }
+
     if (!url && !pdfFile || isLoading) return;
     if (isPremium) {
       const stillValidPremium = await validatePremiumSession();
@@ -1103,7 +1078,6 @@ export function useAppState() {
       setAppInsights(nextInsights);
       syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      // Record usage — triggered by a real action, so modal CAN open if limit hit
       if (!isPremium) {
         fetch('/api/check-limit', {
           method: 'POST',
@@ -1111,7 +1085,11 @@ export function useAppState() {
           body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
         })
           .then(r => r.json())
-          .then(data => applyLimitData(data, true))
+          .then(data => {
+            setServerRemaining(data.remaining ?? null);
+            if (data.resetAt) setServerResetAt(data.resetAt);
+            if (!data.allowed) openLockModal();
+          })
           .catch(() => undefined);
       }
 
@@ -1159,7 +1137,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, isAuthLoading]);
 
   const handleSpeak = useCallback(() => {
     if (!summary) return;
@@ -1195,10 +1173,10 @@ export function useAppState() {
     try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
   }, []);
 
-  // ─── Auto-summarize on shared URLs ─────────────────────────────────────────
   useEffect(() => {
     if (!pendingSharedUrl || isLoading) return;
     if (pendingSharedUrl !== url) return;
+    if (isAuthLoading) return;
     setSummary(null);
     setArticleTitle(null);
     setError(null);
@@ -1206,7 +1184,7 @@ export function useAppState() {
       handleSummarize();
       setPendingSharedUrl(null);
     }, 50);
-  }, [pendingSharedUrl, url, isLoading, handleSummarize]);
+  }, [pendingSharedUrl, url, isLoading, isAuthLoading, handleSummarize]);
 
   useEffect(() => {
     if (!showSharedToast) return;
@@ -1236,26 +1214,17 @@ export function useAppState() {
     syncAccount({ preferences: { dontShowAgain: true } }).catch(() => undefined);
   }, [syncAccount]);
 
-  // Wrap setShowLockModal so dismissal is tracked
-  const handleCloseLockModal = useCallback(() => {
-    setShowLockModal(false);
-    lockModalDismissedRef.current = true; // user explicitly closed it — don't reopen automatically
-  }, []);
-
   return {
     url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, isValidatingKeys, provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
-    showLockModal,
-    // Use handleCloseLockModal instead of raw setShowLockModal so the dismissed flag is set
-    setShowLockModal: handleCloseLockModal,
-    timeLeft,
+    showLockModal, setShowLockModal, timeLeft,
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
@@ -1271,10 +1240,6 @@ export function useAppState() {
     addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem, summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
-    // Also need validatedApiKeysReady for ResultCard
-    validatedApiKeysReady: Object.keys(validatedApiKeys).length > 0 || !Object.values(apiKeys).some(k => k && k !== 'undefined'),
-    passwordResetToken: null as string | null,
-    clearPasswordResetToken: () => {},
     updateDisplayName: (name: string) => {
       setCurrentUser((prev) => (prev ? { ...prev, displayName: name } : prev));
       fetch('/api/account', {

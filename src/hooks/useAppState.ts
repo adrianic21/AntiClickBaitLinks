@@ -337,7 +337,7 @@ export function useAppState() {
     }).catch(() => undefined);
   }, [currentUser]);
 
-  const applyLimitData = useCallback((data: { allowed: boolean; remaining: number | null; resetAt: number | null }) => {
+  const applyLimitData = useCallback((data: { allowed: boolean; remaining: number | null; resetAt: number | null }, openModalOnLimit = true) => {
     if (typeof data.remaining === 'number') {
       setServerRemaining(data.remaining);
     }
@@ -346,7 +346,7 @@ export function useAppState() {
       const immediate = formatCountdown(data.resetAt);
       if (immediate) setTimeLeft(immediate);
     }
-    if (!data.allowed) {
+    if (!data.allowed && openModalOnLimit) {
       openLockModal();
     }
   }, [openLockModal]);
@@ -385,8 +385,8 @@ export function useAppState() {
       body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
-      .then(limitData => applyLimitData(limitData))
-      .catch(() => setServerRemaining(10));
+      .then(limitData => applyLimitData(limitData, false))
+      .catch(() => setServerRemaining(5));
   }, [refreshValidatedApiKeys, applyLimitData]);
 
   const loadAccount = useCallback(async () => {
@@ -510,13 +510,13 @@ export function useAppState() {
             body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
-            .then(limitData => applyLimitData(limitData))
-            .catch(() => setServerRemaining(10));
+            .then(limitData => applyLimitData(limitData, false))
+            .catch(() => setServerRemaining(5));
         }
       })
       .catch(() => {
         setCurrentUser(null);
-        setServerRemaining(10);
+        setServerRemaining(5);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
@@ -534,7 +534,7 @@ export function useAppState() {
     setTimeLeft(immediate);
     if (!immediate) {
       setServerResetAt(null);
-      setServerRemaining(10);
+        setServerRemaining(5);
       return;
     }
     const id = setInterval(() => {
@@ -542,7 +542,7 @@ export function useAppState() {
       if (!next) {
         setTimeLeft('');
         setServerResetAt(null);
-        setServerRemaining(10);
+        setServerRemaining(5);
         clearInterval(id);
       } else {
         setTimeLeft(next);

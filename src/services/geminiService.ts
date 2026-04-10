@@ -38,15 +38,13 @@ function isQuotaError(error: any): boolean {
   const status = error?.status || error?.statusCode || 0;
   if (status === 429) return true;
   return (
+    msg.includes('429') ||
     msg.includes('resource_exhausted') ||
     msg.includes('quota_exceeded') ||
     msg.includes('ratelimitexceeded') ||
     msg.includes('rate_limit_exceeded') ||
     msg.includes('too many requests') ||
-    msg.includes('rateerror') ||
-    msg.includes('429') ||
-    msg.includes('quota') ||
-    msg.includes('rate limit')
+    msg.includes('rateerror')
   );
 }
 

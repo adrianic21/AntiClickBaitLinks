@@ -11,16 +11,16 @@ import { AuthGate } from './components/AuthGate';
 import { ProfilePanel } from './components/ProfilePanel';
 import { FeedModal } from './components/FeedModal';
 
-// Sentinel value — must match useAppState.ts LIMITS_LOADING
-const LIMITS_LOADING = -1;
-
 export default function App() {
   const state = useAppState();
   const {
-    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult, appInsights, summary, articleTitle, isLoading, error,
-    currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
+    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult,
+    appInsights, summary, streamingSummary, isStreaming,
+    articleTitle, isLoading, error,
+    currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail,
+    authPassword, setAuthPassword, authError,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, isValidatingKeys, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved,
     showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
@@ -31,7 +31,7 @@ export default function App() {
     resultsRef, t,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
-    showAuthModal, setShowAuthModal,
+    showAuthModal, setShowAuthModal, passwordResetToken, clearPasswordResetToken,
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
@@ -70,7 +70,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start pt-32 sm:pt-36 p-6 sm:p-12">
+    <div className="min-h-screen flex flex-col items-center justify-start pt-8 sm:pt-10 p-6 sm:p-12">
 
       {/* Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
@@ -85,103 +85,69 @@ export default function App() {
         {showAuthModal && (
           <>
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70]"
               onClick={() => setShowAuthModal(false)}
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
+              initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="fixed top-1/2 left-1/2 z-[71] w-[90%] max-w-md -translate-x-1/2 -translate-y-1/2"
             >
               <AuthGate
-                t={t}
-                mode={authMode}
-                loading={isAuthLoading}
-                error={authError}
-                name={authName}
-                email={authEmail}
-                password={authPassword}
-                onNameChange={setAuthName}
-                onEmailChange={setAuthEmail}
-                onPasswordChange={setAuthPassword}
-                onSubmit={submitAuth}
-                onModeChange={setAuthMode}
-                onOAuthStart={startOAuth}
-                onClose={() => setShowAuthModal(false)}
+                uiLanguage={uiLanguage}
+                t={t} mode={authMode} loading={isAuthLoading} error={authError}
+                name={authName} email={authEmail} password={authPassword}
+                onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword}
+                onSubmit={submitAuth} onModeChange={setAuthMode} onOAuthStart={startOAuth}
+                passwordResetToken={passwordResetToken}
+                onClearResetToken={clearPasswordResetToken}
+                onClose={() => {
+                  setShowAuthModal(false);
+                  clearPasswordResetToken();
+                }}
               />
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
-      {/* Top bar — pass remainingSearches as-is; TopBar handles the loading state */}
+      {/* Top bar */}
       <TopBar
-        t={t}
-        isPremium={isPremium}
-        remainingSearches={remainingSearches}
-        isLimitsLoading={remainingSearches === LIMITS_LOADING}
-        showInfo={showInfo}
-        showLangMenu={showLangMenu}
-        showProfile={showProfile}
-        showFeed={showFeed}
-        showStatusPopover={showStatusPopover}
-        uiLanguage={uiLanguage}
-        timeLeft={timeLeft}
-        nextResetTime={nextResetTime}
+        t={t} isPremium={isPremium}
+        remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+        showInfo={showInfo} showLangMenu={showLangMenu} showProfile={showProfile}
+        showFeed={showFeed} showStatusPopover={showStatusPopover}
+        uiLanguage={uiLanguage} timeLeft={timeLeft} nextResetTime={nextResetTime}
         togglePopup={togglePopup}
         setShowStatusPopover={(v) => openPopup(v ? 'status' : '')}
         setShowLangMenu={(v) => openPopup(v ? 'lang' : '')}
-        openLockModal={openLockModal}
-        changeUiLanguage={changeUiLanguage}
-        currentUser={currentUser}
+        openLockModal={openLockModal} changeUiLanguage={changeUiLanguage} currentUser={currentUser}
       />
 
+      <div className="w-full max-w-5xl h-[1.5px] rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-500/70 shadow-sm shadow-emerald-300/40 my-6" />
+
       <FeedModal
-        t={t}
-        show={showFeed}
-        onClose={() => openPopup('')}
-        sources={feedSources}
-        items={dailyFeedItems}
-        isLoading={isFeedLoading}
-        error={feedError}
-        onAddSource={addFeedSource}
-        onToggleSource={toggleFeedSource}
-        onRemoveSource={removeFeedSource}
-        onRefresh={refreshDailyFeed}
-        onUpdateSourceItemsPerLoad={updateFeedSourceItemsPerLoad}
+        uiLanguage={uiLanguage}
+        t={t} show={showFeed} onClose={() => openPopup('')}
+        sources={feedSources} items={dailyFeedItems} isLoading={isFeedLoading} error={feedError}
+        onAddSource={addFeedSource} onToggleSource={toggleFeedSource} onRemoveSource={removeFeedSource}
+        onRefresh={refreshDailyFeed} onUpdateSourceItemsPerLoad={updateFeedSourceItemsPerLoad}
         onSummarizeMany={summarizeManyFeedItems}
       />
 
       {currentUser && (
         <ProfilePanel
-          t={t}
-          show={showProfile}
-          onClose={() => openPopup('')}
-          currentUser={currentUser}
-          isPremium={isPremium}
-          provider={provider}
-          setProvider={setProvider}
-          userApiKey={userApiKey}
-          setUserApiKey={setUserApiKey}
-          apiKeys={apiKeys}
-          isKeySaved={isKeySaved}
-          onSaveApiKey={saveApiKey}
-          onLogout={logout}
-          appInsights={appInsights}
-          onUpdateName={updateDisplayName}
-          remainingSearches={remainingSearches === LIMITS_LOADING ? 10 : remainingSearches}
-          nextResetTime={nextResetTime}
-          timeLeft={timeLeft}
-          unlockPass={unlockPass}
-          lockError={lockError}
-          deviceMismatchError={deviceMismatchError}
-          isLoading={isLoading}
-          onPassChange={setUnlockPass}
-          onUnlock={handleUnlock}
+          uiLanguage={uiLanguage}
+          t={t} show={showProfile} onClose={() => openPopup('')} currentUser={currentUser}
+          isPremium={isPremium} provider={provider} setProvider={setProvider}
+          userApiKey={userApiKey} setUserApiKey={setUserApiKey} apiKeys={apiKeys}
+          isKeySaved={isKeySaved} onSaveApiKey={saveApiKey} onLogout={logout}
+          appInsights={appInsights} onUpdateName={updateDisplayName}
+          remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+          nextResetTime={nextResetTime} timeLeft={timeLeft}
+          unlockPass={unlockPass} lockError={lockError} deviceMismatchError={deviceMismatchError}
+          isLoading={isLoading} onPassChange={setUnlockPass} onUnlock={handleUnlock}
         />
       )}
 
@@ -219,35 +185,19 @@ export default function App() {
 
       {/* Info panel */}
       <InfoPanel
-        t={t}
-        uiLanguage={uiLanguage}
-        show={showInfo}
-        dontShowAgain={dontShowAgain}
-        showApiPrivacy={showApiPrivacy}
-        setShowApiPrivacy={setShowApiPrivacy}
-        isPremium={isPremium}
-        unlockPass={unlockPass}
-        lockError={lockError}
-        deviceMismatchError={deviceMismatchError}
-        isLoading={isLoading}
-        onClose={closeInfo}
-        onUnlock={handleUnlock}
-        onPassChange={setUnlockPass}
+        t={t} uiLanguage={uiLanguage} show={showInfo} dontShowAgain={dontShowAgain}
+        showApiPrivacy={showApiPrivacy} setShowApiPrivacy={setShowApiPrivacy}
+        isPremium={isPremium} unlockPass={unlockPass} lockError={lockError}
+        deviceMismatchError={deviceMismatchError} isLoading={isLoading}
+        onClose={closeInfo} onUnlock={handleUnlock} onPassChange={setUnlockPass}
         onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
       />
 
       {/* Lock modal */}
       <LockModal
-        t={t}
-        show={showLockModal}
-        timeLeft={timeLeft}
-        nextResetTime={nextResetTime}
-        unlockPass={unlockPass}
-        lockError={lockError}
-        deviceMismatchError={deviceMismatchError}
-        isLoading={isLoading}
-        onClose={() => setShowLockModal(false)}
-        onUnlock={handleUnlock}
+        t={t} show={showLockModal} timeLeft={timeLeft} nextResetTime={nextResetTime}
+        unlockPass={unlockPass} lockError={lockError} deviceMismatchError={deviceMismatchError}
+        isLoading={isLoading} onClose={() => setShowLockModal(false)} onUnlock={handleUnlock}
         onPassChange={setUnlockPass}
         onErrorChange={(v) => { setLockError(v); if (!v) setDeviceMismatchError(false); }}
       />
@@ -255,7 +205,7 @@ export default function App() {
       {/* Main content */}
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-2xl space-y-6 sm:space-y-8"
+        className="w-full max-w-2xl space-y-6 sm:space-y-8 mt-10"
       >
         {/* Logo + title */}
         <div className="text-center space-y-2 sm:space-y-4">
@@ -294,7 +244,7 @@ export default function App() {
                 />
               )}
               <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                {(url || pdfFile) && !isLoading && (
+                {(url || pdfFile) && !isLoading && !isStreaming && (
                   <button type="button" onClick={() => { handleClear(); setPdfFile(null); }}
                     className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all active:scale-90"
                     title={t.clearLink}
@@ -302,7 +252,7 @@ export default function App() {
                     <X size={20} />
                   </button>
                 )}
-                {!url && !pdfFile && !isLoading && (
+                {!url && !pdfFile && !isLoading && !isStreaming && (
                   <button type="button" onClick={handlePaste}
                     className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all active:scale-95 whitespace-nowrap"
                   >
@@ -310,7 +260,7 @@ export default function App() {
                     {t.pasteLink}
                   </button>
                 )}
-                {isLoading && (
+                {(isLoading || isStreaming) && (
                   <div className="p-2">
                     <Loader2 className="animate-spin text-emerald-600" size={24} />
                   </div>
@@ -319,8 +269,8 @@ export default function App() {
             </div>
           </form>
 
-          {/* PDF upload button + Summarize */}
-          {!isLoading && (
+          {/* Bottom bar */}
+          {!isLoading && !isStreaming && (
             <div className="flex items-center gap-2 px-2 pb-1 pt-0.5 border-t border-zinc-100/60 mt-1">
               <input
                 ref={pdfInputRef}
@@ -329,15 +279,17 @@ export default function App() {
                 onChange={handlePdfSelect}
                 className="hidden"
               />
-              {!!url && !pdfFile && (
+
+              {pdfFile && (
                 <button
                   type="button"
                   onClick={() => handleSummarize()}
                   className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
                 >
-                  {t.summarize}
+                  {t.summarizePdf}
                 </button>
               )}
+
               {!pdfFile && (
                 <button
                   type="button"
@@ -348,15 +300,18 @@ export default function App() {
                   {t.uploadPdf}
                 </button>
               )}
+
               {pdfFile && (
                 <button
                   type="button"
-                  onClick={() => handleSummarize()}
-                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl transition-all active:scale-95 shadow-sm"
+                  onClick={() => setPdfFile(null)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
                 >
-                  {t.summarizePdf}
+                  <X size={13} />
+                  {t.clearLink}
                 </button>
               )}
+
               {!pdfFile && (
                 <>
                   <span className="text-zinc-200 text-xs">|</span>
@@ -365,6 +320,12 @@ export default function App() {
                     {t.youtubeSupported}
                   </span>
                 </>
+              )}
+
+              {url && !pdfFile && (
+                <span className="ml-auto text-[10px] text-zinc-400 italic hidden sm:inline">
+                  ↵ auto
+                </span>
               )}
             </div>
           )}
@@ -381,9 +342,7 @@ export default function App() {
                 onClick={() => setPreferredLength(len)}
                 className={cn(
                   "px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
-                  preferredLength === len
-                    ? "bg-white text-emerald-700 shadow-sm"
-                    : "text-zinc-400 hover:text-zinc-600"
+                  preferredLength === len ? "bg-white text-emerald-700 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
                 )}
               >
                 {len === 'short' ? t.presetShort : len === 'medium' ? t.presetMedium : t.presetLong}
@@ -396,6 +355,8 @@ export default function App() {
         <ResultCard
           t={t}
           summary={summary}
+          streamingSummary={streamingSummary}
+          isStreaming={isStreaming}
           articleTitle={articleTitle}
           url={resultCardUrl}
           error={error}
@@ -407,8 +368,9 @@ export default function App() {
           speechRate={speechRate}
           lieScore={lieScore}
           investigationResult={investigationResult}
-          apiKeys={validatedApiKeys}
-          isValidatingKeys={isValidatingKeys}
+          apiKeys={apiKeys}
+          validatedApiKeys={validatedApiKeys}
+          apiKeysValidated={validatedApiKeysReady}
           resultsRef={resultsRef}
           onSpeak={handleSpeak}
           onSpeechRateChange={setSpeechRate}
@@ -416,7 +378,7 @@ export default function App() {
           onShare={handleShare}
         />
 
-        {summary && (
+        {(summary || streamingSummary) && !isStreaming && (
           <div className="flex items-center justify-center">
             <label className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white/80 px-4 py-3 text-sm text-zinc-600 shadow-sm">
               <span className="font-medium">{t.summaryLanguageLabel}</span>
@@ -426,9 +388,7 @@ export default function App() {
                 className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 outline-none focus:border-emerald-400"
               >
                 {LANGUAGES.map((language) => (
-                  <option key={language.code} value={language.code}>
-                    {language.name}
-                  </option>
+                  <option key={language.code} value={language.code}>{language.name}</option>
                 ))}
               </select>
             </label>
@@ -439,9 +399,7 @@ export default function App() {
       <AnimatePresence>
         {showSharedToast && (
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-semibold shadow-xl"
           >
             Link recibido. Generando resumen...

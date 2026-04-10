@@ -115,7 +115,7 @@ export default function App() {
       {/* Top bar */}
       <TopBar
         t={t} isPremium={isPremium}
-        remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+          remainingSearches={remainingSearches === -1 ? 5 : remainingSearches}
         showInfo={showInfo} showLangMenu={showLangMenu} showProfile={showProfile}
         showFeed={showFeed} showStatusPopover={showStatusPopover}
         uiLanguage={uiLanguage} timeLeft={timeLeft} nextResetTime={nextResetTime}
@@ -144,7 +144,7 @@ export default function App() {
           userApiKey={userApiKey} setUserApiKey={setUserApiKey} apiKeys={apiKeys}
           isKeySaved={isKeySaved} onSaveApiKey={saveApiKey} onLogout={logout}
           appInsights={appInsights} onUpdateName={updateDisplayName}
-          remainingSearches={remainingSearches === -1 ? 10 : remainingSearches}
+        remainingSearches={remainingSearches === -1 ? 5 : remainingSearches}
           nextResetTime={nextResetTime} timeLeft={timeLeft}
           unlockPass={unlockPass} lockError={lockError} deviceMismatchError={deviceMismatchError}
           isLoading={isLoading} onPassChange={setUnlockPass} onUnlock={handleUnlock}
@@ -220,7 +220,13 @@ export default function App() {
           >
             <ShieldCheck size={32} />
           </button>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-zinc-900">{t.title}</h1>
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-black"
+            style={{ 
+              fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+              letterSpacing: "-0.03em",
+              textShadow: "0 1px 2px rgba(0,0,0,0.05)"
+            }}
+          >{t.title}</h1>
         </div>
 
         {/* Input form */}
@@ -378,22 +384,7 @@ export default function App() {
           onShare={handleShare}
         />
 
-        {(summary || streamingSummary) && !isStreaming && (
-          <div className="flex items-center justify-center">
-            <label className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white/80 px-4 py-3 text-sm text-zinc-600 shadow-sm">
-              <span className="font-medium">{t.summaryLanguageLabel}</span>
-              <select
-                value={summaryLanguage}
-                onChange={(event) => setSummaryLanguage(event.target.value)}
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 outline-none focus:border-emerald-400"
-              >
-                {LANGUAGES.map((language) => (
-                  <option key={language.code} value={language.code}>{language.name}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
+
       </motion.div>
 
       <AnimatePresence>

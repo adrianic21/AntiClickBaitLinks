@@ -1,4 +1,4 @@
-import { ShieldCheck, Languages, Info, UserRound, X } from 'lucide-react';
+import { ShieldCheck, Languages, Info, UserRound, X, Rss } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
@@ -8,9 +8,13 @@ interface TopBarProps {
   t: Translations;
   isPremium: boolean;
   remainingSearches: number;
+  // FIX Bug 3: explicit loading flag so the counter shows '—/10' instead of
+  // briefly flashing a stale value while the server limit is being fetched.
+  isLimitsLoading: boolean;
   showInfo: boolean;
   showLangMenu: boolean;
   showProfile: boolean;
+  showFeed: boolean;
   showStatusPopover: boolean;
   uiLanguage: string;
   timeLeft: string;
@@ -29,21 +33,29 @@ interface TopBarProps {
 const BACKDROP = "fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]";
 const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
 
+// The server-side free limit — must match server.ts FREE_LIMIT
+const FREE_LIMIT = 10;
+
 export function TopBar({
-  t, isPremium, remainingSearches,
-  showInfo, showLangMenu, showProfile, showStatusPopover,
+  t, isPremium, remainingSearches, isLimitsLoading,
+  showInfo, showLangMenu, showProfile, showFeed, showStatusPopover,
   uiLanguage, timeLeft, nextResetTime,
   togglePopup, setShowStatusPopover, setShowLangMenu,
   openLockModal, changeUiLanguage, currentUser,
 }: TopBarProps) {
-  const isLimitReached = !isPremium && remainingSearches <= 0;
+  const isLimitReached = !isPremium && !isLimitsLoading && remainingSearches <= 0;
   const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
   const guestLabel = uiLanguage === 'Spanish' ? 'Invitado' : 'Guest';
-  const remainingLabel = !isPremium && remainingSearches < 0 ? '--/5' : `${Math.max(0, remainingSearches)}/5`;
+
+  // FIX Bug 3: While limits are loading, show a neutral placeholder instead of a
+  // stale/incorrect value. Once loaded, show the real remaining/total.
+  const remainingLabel = isLimitsLoading
+    ? '—/10'
+    : `${Math.max(0, remainingSearches)}/${FREE_LIMIT}`;
 
   return (
     <>
-      {/* Button bar — centered */}
+      {/* Button bar */}
       <div className="mx-auto flex w-full max-w-5xl items-center justify-center gap-2 px-3 py-3">
         {/* Account status */}
         <button
@@ -64,7 +76,10 @@ export function TopBar({
             </>
           ) : (
             <>
-              <div className={cn("w-2 h-2 rounded-full animate-pulse", isLimitReached ? "bg-red-500" : "bg-amber-400")} />
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                isLimitsLoading ? "bg-zinc-300" : isLimitReached ? "bg-red-500 animate-pulse" : "bg-amber-400 animate-pulse"
+              )} />
               <span className="hidden sm:inline">{t.statusFree}</span>
               <span className="bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded-md text-[10px]">
                 {remainingLabel}
@@ -107,6 +122,18 @@ export function TopBar({
           )}
         >
           <Info size={20} />
+        </button>
+
+        {/* Feed */}
+        <button
+          onClick={() => togglePopup('feed')}
+          className={cn(
+            "p-3 rounded-2xl transition-all shadow-lg",
+            showFeed ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
+          )}
+          title={t.feedTitle}
+        >
+          <Rss size={20} />
         </button>
 
         {/* Profile */}

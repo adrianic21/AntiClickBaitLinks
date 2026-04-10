@@ -1,4 +1,4 @@
-import { Search, Volume2, VolumeX, Loader2, AlertCircle, Share2 } from 'lucide-react';
+import { Search, Volume2, VolumeX, Loader2, AlertCircle, Check, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import type { Translations } from '../translations';
@@ -6,7 +6,9 @@ import type { ApiKeys, InvestigationResult } from '../services/geminiService';
 
 interface ResultCardProps {
   t: Translations;
-  summary: string | null;
+  summary: string | null;           // final completed summary
+  streamingSummary: string | null;  // live streaming buffer
+  isStreaming: boolean;             // true while stream is active
   articleTitle: string | null;
   url: string;
   error: string | null;
@@ -19,7 +21,8 @@ interface ResultCardProps {
   lieScore: number;
   investigationResult: InvestigationResult | null;
   apiKeys: ApiKeys;
-  isValidatingKeys?: boolean;
+  validatedApiKeys: ApiKeys;
+  apiKeysValidated: boolean;
   resultsRef: React.RefObject<HTMLDivElement>;
   onSpeak: () => void;
   onSpeechRateChange: (rate: number) => void;
@@ -44,48 +47,79 @@ function FormattedText({ text }: { text: string }) {
   );
 }
 
+// Blinking cursor for streaming state
+function StreamingCursor() {
+  return (
+    <span
+      className="inline-block w-0.5 h-[1.1em] bg-emerald-500 align-text-bottom ml-0.5 animate-pulse"
+      aria-hidden="true"
+    />
+  );
+}
+
 export function ResultCard({
-  t, summary, articleTitle, url, error, isLoading, loadingMessage, loadingProgress, currentLength,
-  isSpeaking, speechRate, lieScore, investigationResult,
-  resultsRef, onSpeak, onSpeechRateChange, onExpand, onShare,
+  t, summary, streamingSummary, isStreaming,
+  articleTitle, url, error, isLoading, loadingMessage, loadingProgress, currentLength,
+  isSpeaking, speechRate, lieScore, investigationResult, apiKeys, validatedApiKeys, apiKeysValidated, resultsRef,
+  onSpeak, onSpeechRateChange, onExpand, onShare,
 }: ResultCardProps) {
+  // The text to display: streaming buffer takes priority during streaming
+  const displayText = isStreaming ? streamingSummary : summary;
+  const hasDisplayText = Boolean(displayText && displayText.length > 0);
+
+  const hasConfiguredKey = Object.values(apiKeys).some(k => k && k !== 'undefined');
+  const hasAnyKey = Object.values(validatedApiKeys).some(k => k && k !== 'undefined');
+  const isApiKeyValidationPending = !apiKeysValidated && hasConfiguredKey;
+  const configuredProviders = Object.entries(validatedApiKeys)
+    .filter(([, value]) => value && value !== 'undefined')
+    .map(([key]) => key.charAt(0).toUpperCase() + key.slice(1));
+  const hasMultipleKeys = configuredProviders.length > 1;
+
   const isLocalPdf = url.startsWith('pdf:');
   const isYouTube = /(?:youtube\.com\/(?:watch|shorts|embed)|youtu\.be\/)/.test(url);
   const displayUrl = isLocalPdf ? url.replace('pdf:', '') : url;
-
   const lieMeterColor = lieScore < 26
     ? 'from-emerald-500 to-lime-400'
-    : lieScore < 51 ? 'from-yellow-400 to-amber-500'
-    : lieScore < 76 ? 'from-orange-500 to-red-500'
-    : 'from-red-600 to-red-800';
-  const lieMeterLabel = lieScore < 26 ? 'Bajo' : lieScore < 51 ? 'Medio' : lieScore < 76 ? 'Alto' : 'Muy alto';
+    : lieScore < 51
+      ? 'from-yellow-400 to-amber-500'
+      : lieScore < 76
+        ? 'from-orange-500 to-red-500'
+        : 'from-red-600 to-red-800';
+  const lieMeterLabel = lieScore < 26
+    ? 'Low'
+    : lieScore < 51
+      ? 'Medium'
+      : lieScore < 76
+        ? 'High'
+        : 'Very high';
 
   return (
     <div ref={resultsRef}>
       <AnimatePresence mode="wait">
-        {isLoading && !summary && (
+        {/* Loading spinner (only when not yet streaming) */}
+        {isLoading && !hasDisplayText && (
           <motion.div
             key="loading"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="rounded-2xl border border-zinc-200 bg-white p-8 flex flex-col items-center gap-4"
+            className="glass rounded-3xl p-8 flex flex-col items-center gap-4"
           >
-            <Loader2 className="animate-spin text-emerald-600" size={32} />
+            <Loader2 className="animate-spin text-emerald-600" size={36} />
             <AnimatePresence mode="wait">
               <motion.p
                 key={loadingMessage}
-                initial={{ opacity: 0, y: 4 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.25 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.3 }}
                 className="text-sm font-medium text-zinc-500"
               >
                 {loadingMessage}
               </motion.p>
             </AnimatePresence>
-            <div className="w-full max-w-sm space-y-1">
-              <div className="h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+            <div className="w-full max-w-md space-y-1">
+              <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
                 <div
                   className="h-full bg-emerald-500 transition-all duration-300"
                   style={{ width: `${Math.max(4, Math.min(100, loadingProgress))}%` }}
@@ -96,183 +130,212 @@ export function ResultCard({
           </motion.div>
         )}
 
-        {!isLoading && error && (
+        {!isLoading && !isStreaming && !hasDisplayText && error && (
           <motion.div
             key="error"
-            initial={{ opacity: 0, scale: 0.97 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.97 }}
+            exit={{ opacity: 0, scale: 0.95 }}
             className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3"
           >
-            <AlertCircle size={18} className="shrink-0 mt-0.5" />
+            <AlertCircle size={20} className="shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-medium text-sm">{error}</p>
+              <p className="font-medium">{error}</p>
               {isYouTube && (error.includes('subtitles') || error.includes('subtítulos') || error.includes('content') || error.includes('contenido')) && (
-                <p className="text-xs text-red-500">{t.youtubeNoSubtitles}</p>
+                <p className="text-xs text-red-500">
+                  {t.youtubeNoSubtitles || 'This video may not have subtitles enabled. Subtitles are required to generate a summary.'}
+                </p>
               )}
             </div>
           </motion.div>
         )}
 
-        {summary && (
+        {/* Summary card — shown during streaming AND after completion */}
+        {hasDisplayText && (
           <motion.div
             key="summary"
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="rounded-2xl border border-zinc-200 bg-white p-6 space-y-5"
+            exit={{ opacity: 0, y: -10 }}
+            className="glass rounded-3xl p-8 space-y-4 text-zinc-900 dark:text-zinc-100"
           >
-            {/* Action bar */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
+              <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full flex items-center gap-1.5">
+                {isStreaming && (
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                )}
                 {t.realSummary}
               </span>
-              <button
-                onClick={onSpeak}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border',
-                  isSpeaking
-                    ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'
-                    : 'bg-zinc-50 text-zinc-600 border-zinc-200 hover:bg-zinc-100'
-                )}
-              >
-                {isSpeaking ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                {isSpeaking ? t.stop : t.listen}
-              </button>
-              <button
-                onClick={() => onShare(summary, url)}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border bg-zinc-50 text-zinc-600 border-zinc-200 hover:bg-zinc-100"
-              >
-                <Share2 size={13} />{t.share}
-              </button>
-              <div className="flex items-center gap-0.5 rounded-full bg-zinc-100 p-0.5 border border-zinc-200">
-                {[0.85, 1, 1.2].map(rate => (
+              {/* Action buttons — only when streaming is done */}
+              {!isStreaming && (
+                <>
                   <button
-                    key={rate}
-                    onClick={() => onSpeechRateChange(rate)}
+                    onClick={onSpeak}
                     className={cn(
-                      'px-2 py-0.5 rounded-full text-[11px] font-bold transition-colors',
-                      speechRate === rate ? 'bg-white text-emerald-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                      'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all',
+                      isSpeaking ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
                     )}
                   >
-                    {rate}x
+                    {isSpeaking ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    {isSpeaking ? t.stop : t.listen}
                   </button>
-                ))}
-              </div>
+                  <button
+                    onClick={() => onShare(displayText!, url)}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  >
+                    <Share2 size={14} />
+                    {t.share}
+                  </button>
+                  <div className="flex items-center gap-1 rounded-full bg-zinc-100 p-1">
+                    {[0.85, 1, 1.2].map(rate => (
+                      <button
+                        key={rate}
+                        onClick={() => onSpeechRateChange(rate)}
+                        className={cn(
+                          'px-2 py-0.5 rounded-full text-[11px] font-bold transition-colors',
+                          speechRate === rate ? 'bg-white text-emerald-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                        )}
+                      >
+                        {rate}x
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* Original title */}
             {articleTitle && (
-              <div className="pb-4 border-b border-zinc-100 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t.originalTitle}</p>
-                <p className="text-base font-semibold text-zinc-700 leading-snug break-words">{articleTitle}</p>
+              <div className="pb-3 border-b border-zinc-100 space-y-1">
+                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                  {t.originalTitle}
+                </p>
+                <p className="text-base font-semibold text-zinc-700 dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 
-            {/* Lie meter */}
-            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t.lieMeterTitle || 'Medidor clickbait'}</p>
-                <span className="text-xs font-bold text-zinc-600">{lieScore}/100 · {lieMeterLabel}</span>
+            {/* Lie meter — only after streaming complete */}
+            {!isStreaming && (
+              <div className="rounded-2xl border border-zinc-100 bg-white/80 p-4 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                    {t.lieMeterTitle || 'Lie meter'}
+                  </p>
+                  <span className="text-sm font-bold text-zinc-700">{lieScore}/100 · {lieMeterLabel}</span>
+                </div>
+                <div className="h-3 rounded-full bg-zinc-100 overflow-hidden">
+                  <div
+                    className={`h-full bg-gradient-to-r ${lieMeterColor} transition-all duration-500`}
+                    style={{ width: `${lieScore}%` }}
+                  />
+                </div>
+                <p className="text-xs text-zinc-500">{t.lieMeterHelp || 'Estimates how much the headline exaggerates or distorts the actual content.'}</p>
               </div>
-              <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
-                <div
-                  className={`h-full bg-gradient-to-r ${lieMeterColor} transition-all duration-500`}
-                  style={{ width: `${lieScore}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-zinc-500">{t.lieMeterHelp}</p>
-            </div>
+            )}
 
-            {/* Summary text */}
+            {/* Streaming indicator bar */}
+            {isStreaming && (
+              <div className="h-1 rounded-full bg-zinc-100 overflow-hidden">
+                <div className="h-full bg-emerald-400 animate-pulse rounded-full" style={{ width: '60%' }} />
+              </div>
+            )}
+
             <div className="relative">
-              {isLoading && currentLength !== 'short' && (
-                <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
-                  <Loader2 className="animate-spin text-emerald-600" size={28} />
+              {isLoading && !isStreaming && currentLength !== 'short' && (
+                <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-xl">
+                  <Loader2 className="animate-spin text-emerald-600" size={32} />
                 </div>
               )}
-              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 space-y-3">
-                {summary.split('\n').filter(p => p.trim()).map((paragraph, i) => (
-                  <p key={i}><FormattedText text={paragraph} /></p>
+              <div className="text-lg sm:text-xl font-normal leading-relaxed text-zinc-700 dark:text-zinc-200 space-y-3">
+                {displayText!.split('\n').filter(p => p.trim()).map((paragraph, i, arr) => (
+                  <p key={i}>
+                    <FormattedText text={paragraph} />
+                    {/* Show cursor on last paragraph during streaming */}
+                    {isStreaming && i === arr.length - 1 && <StreamingCursor />}
+                  </p>
                 ))}
               </div>
             </div>
 
-            {/* Expand buttons */}
-            <div className="flex flex-wrap gap-2 pt-1">
-              {currentLength !== 'medium' && (
-                <button
-                  onClick={() => onExpand('medium')}
-                  disabled={isLoading}
-                  className="px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50 border border-emerald-100"
-                >
-                  {t.expandMedium}
-                </button>
-              )}
-              {currentLength !== 'long' && (
-                <button
-                  onClick={() => onExpand('long')}
-                  disabled={isLoading}
-                  className="px-3 py-2 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors disabled:opacity-50 border border-blue-100"
-                >
-                  {t.expandLong}
-                </button>
-              )}
-              {currentLength !== 'child' && (
-                <button
-                  onClick={() => onExpand('child')}
-                  disabled={isLoading}
-                  className="px-3 py-2 bg-purple-50 text-purple-700 rounded-xl text-xs font-bold hover:bg-purple-100 transition-colors disabled:opacity-50 border border-purple-100"
-                >
-                  {t.explainChild}
-                </button>
-              )}
-            </div>
+            {/* Expand buttons — only after streaming complete */}
+            {!isStreaming && (
+              <div className="flex flex-wrap gap-2 pt-2">
+                {currentLength !== 'medium' && (
+                  <button
+                    onClick={() => onExpand('medium')}
+                    disabled={isLoading}
+                    className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                  >
+                    {t.expandMedium}
+                  </button>
+                )}
+                {currentLength !== 'long' && (
+                  <button
+                    onClick={() => onExpand('long')}
+                    disabled={isLoading}
+                    className="px-4 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-bold hover:bg-blue-100 transition-colors disabled:opacity-50"
+                  >
+                    {t.expandLong}
+                  </button>
+                )}
+                {currentLength !== 'child' && (
+                  <button
+                    onClick={() => onExpand('child')}
+                    disabled={isLoading}
+                    className="px-4 py-2 bg-purple-50 text-purple-700 rounded-xl text-sm font-bold hover:bg-purple-100 transition-colors disabled:opacity-50"
+                  >
+                    {t.explainChild}
+                  </button>
+                )}
+              </div>
+            )}
 
-            {/* Source link */}
-            <div className="pt-3 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-xs min-w-0">
-              <Search size={12} />
+            <div className="pt-4 border-t border-zinc-100 flex items-center gap-2 text-zinc-400 text-sm min-w-0">
+              <Search size={14} />
               {isLocalPdf ? (
-                <span className="truncate max-w-[280px] sm:max-w-md min-w-0">{displayUrl}</span>
+                <span className="truncate max-w-[250px] sm:max-w-md text-zinc-400 min-w-0">{displayUrl}</span>
               ) : (
                 <a
                   href={url}
-                  target="_blank" rel="noopener noreferrer"
-                  className="truncate max-w-[280px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors min-w-0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="truncate max-w-[250px] sm:max-w-md hover:text-emerald-600 hover:underline transition-colors min-w-0"
                 >
                   {displayUrl}
                 </a>
               )}
             </div>
 
-            {/* Investigation result */}
-            {investigationResult && (
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+            {investigationResult && !isStreaming && (
+              <div className="rounded-2xl border border-zinc-100 bg-white/80 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t.deepResearchTitle || 'Investigación'}</p>
-                  <span className="text-xs font-bold px-2 py-1 rounded-full bg-white text-zinc-700 border border-zinc-200">
-                    {t.confidenceLabel} {investigationResult.confidence}
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                    {t.deepResearchTitle || 'Deep research'}
+                  </p>
+                  <span className="text-xs font-bold px-2 py-1 rounded-full bg-zinc-100 text-zinc-700">
+                    {(t.confidenceLabel || 'Confidence')} {investigationResult.confidence}
                   </span>
                 </div>
-                <p className="text-sm font-semibold text-zinc-800">{investigationResult.verdict}</p>
+                <p className="text-base font-semibold text-zinc-800">{investigationResult.verdict}</p>
                 {investigationResult.findings.length > 0 && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     {investigationResult.findings.map((finding, index) => (
-                      <p key={`${finding}-${index}`} className="text-xs text-zinc-600">{finding}</p>
+                      <p key={`${finding}-${index}`} className="text-sm text-zinc-600">{finding}</p>
                     ))}
                   </div>
                 )}
                 {investigationResult.relatedSources.length > 0 && (
-                  <div className="space-y-2 pt-2 border-t border-zinc-200">
+                  <div className="space-y-2 pt-2 border-t border-zinc-100">
                     {investigationResult.relatedSources.map((source) => (
                       <a
-                        key={source.url} href={source.url}
-                        target="_blank" rel="noopener noreferrer"
-                        className="block rounded-xl bg-white px-3 py-2.5 border border-zinc-200 hover:border-emerald-300 transition-colors"
+                        key={source.url}
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded-xl bg-zinc-50 px-3 py-3 hover:bg-zinc-100 transition-colors"
                       >
-                        <p className="text-xs font-semibold text-zinc-700">{source.source}</p>
-                        <p className="text-xs text-zinc-600">{source.title}</p>
-                        <p className="text-[11px] text-zinc-400 mt-1 line-clamp-2">{source.snippet}</p>
+                        <p className="text-sm font-semibold text-zinc-800">{source.source}</p>
+                        <p className="text-sm text-zinc-700">{source.title}</p>
+                        <p className="text-xs text-zinc-500 mt-1">{source.snippet}</p>
                       </a>
                     ))}
                   </div>
@@ -283,11 +346,51 @@ export function ResultCard({
         )}
       </AnimatePresence>
 
-      {/* YouTube reminder */}
-      {isYouTube && !summary && !error && (
-        <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-600 text-xs border border-blue-100">
-          <AlertCircle size={12} className="shrink-0" />
-          <span>{t.youtubeNoSubtitles}</span>
+      <div
+        className={cn(
+          'flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2 text-center',
+          isApiKeyValidationPending ? 'bg-zinc-100 text-zinc-600' : hasAnyKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+        )}
+      >
+        {isApiKeyValidationPending ? (
+          <div className="w-full flex items-center justify-center gap-2 text-center">
+            <Loader2 size={14} className="animate-spin text-zinc-500 shrink-0" />
+            <span>Validando tu API Key...</span>
+          </div>
+        ) : hasAnyKey ? (
+          <div className="w-full flex items-center justify-center gap-2 text-center">
+            <Check size={14} className="shrink-0" />
+            <span>
+              {configuredProviders.join(' · ')} — {hasMultipleKeys ? (t.apiKeysActive || t.apiKeyActive) : t.apiKeyActive}
+            </span>
+          </div>
+        ) : (
+          <div className="w-full max-w-2xl space-y-2 text-center">
+            <div className="flex items-center justify-center gap-2">
+              <AlertCircle size={14} className="shrink-0" />
+              <span>{t.apiKeyMissing}</span>
+            </div>
+            <div className="mx-auto max-w-xl text-[10px] text-amber-600 space-y-1">
+              <p>
+                1. {t.apiKeyGuide1}{' '}
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold">Gemini</a>
+                {' '}{t.apiKeyOr}{' '}
+                <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">OpenRouter</a>
+                {' '}{t.apiKeyOr}{' '}
+                <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">Mistral</a>
+                {' '}{t.apiKeyOr}{' '}
+                <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="underline font-bold">DeepSeek</a>
+              </p>
+              <p>2. {t.apiKeyGuide2}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {isYouTube && (
+        <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-medium">
+          <AlertCircle size={13} className="shrink-0" />
+          <span>{t.youtubeNoSubtitles || 'YouTube videos require subtitles to be enabled for summarization.'}</span>
         </div>
       )}
     </div>

@@ -156,6 +156,7 @@ export function useAppState() {
   const [validatedApiKeysReady, setValidatedApiKeysReady] = useState(false);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
+  const [apiKeySaveError, setApiKeySaveError] = useState<string | null>(null);
 
   // UI popups
   const [showSettings, setShowSettings] = useState(false);
@@ -362,7 +363,18 @@ export function useAppState() {
       localStorage.removeItem('premium_token');
     }
 
-    const accountKeys = data.account?.apiKeys || {};
+    let accountKeys = data.account?.apiKeys || {};
+    if (Object.keys(accountKeys).length === 0) {
+      try {
+        const backupKeys = localStorage.getItem('api_keys_backup');
+        if (backupKeys) {
+          const parsed = JSON.parse(backupKeys) as ApiKeys;
+          if (parsed && typeof parsed === 'object') {
+            accountKeys = parsed;
+          }
+        }
+      } catch { /* ignore backup parse errors */ }
+    }
     setApiKeys(accountKeys);
     const selectedProvider = (data.account?.preferences?.provider as Provider) || 'gemini';
     setProvider(selectedProvider);
@@ -639,6 +651,7 @@ export function useAppState() {
       setShowAuthModal(true);
       return;
     }
+    setApiKeySaveError(null);
     const trimmedKey = userApiKey.trim();
     if (trimmedKey) {
       const isValid = await validateApiKey(provider, trimmedKey).catch(() => false);
@@ -654,23 +667,30 @@ export function useAppState() {
     const newKeys = { ...apiKeys };
     if (trimmedKey) {
       newKeys[provider] = trimmedKey;
-      localStorage.setItem(`api_key_${provider}`, trimmedKey);
     } else {
       delete newKeys[provider];
-      localStorage.removeItem(`api_key_${provider}`);
     }
     setApiKeys(newKeys);
     const nextValidatedKeys = { ...validatedApiKeys };
     if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
     else delete nextValidatedKeys[provider];
     setValidatedApiKeys(nextValidatedKeys);
+    const hasAnyKey = Object.values(nextValidatedKeys).some(k => k && k !== 'undefined');
+    setIsKeySaved(hasAnyKey);
+    localStorage.setItem('api_keys_backup', JSON.stringify(newKeys));
+    localStorage.setItem(`api_key_${provider}`, trimmedKey);
     localStorage.setItem('api_provider', provider);
-    setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-    await syncAccount({ apiKeys: newKeys, preferences: { provider } });
-    setError(null);
+    try {
+      await syncAccount({ apiKeys: newKeys, preferences: { provider } });
+      setError(null);
+    } catch {
+      setApiKeySaveError(uiLanguage === 'Spanish' 
+        ? 'Error al guardar la clave. Se guardó localmente.' 
+        : 'Failed to save to server. Saved locally.');
+    }
     setShowSettings(false);
     setShowProfile(false);
-  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount, currentUser]);
+  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount, currentUser, uiLanguage]);
 
   const changeUiLanguage = useCallback((lang: string) => {
     setUiLanguage(lang);
@@ -1318,7 +1338,7 @@ export function useAppState() {
     passwordResetToken, clearPasswordResetToken,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady,
-    provider, setProvider, isKeySaved,
+    provider, setProvider, isKeySaved, apiKeySaveError,
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,

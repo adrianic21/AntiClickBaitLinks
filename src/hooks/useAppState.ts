@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
+  summarizeUrlStream,
   summarizeUrl,
   summarizeTextContent,
   fetchPdfContent,
@@ -9,6 +10,7 @@ import {
   type Provider,
   type ApiKeys,
   type InvestigationResult,
+  type StreamingSummaryResult,
 } from '../services/geminiService';
 import { UI_TRANSLATIONS, type TranslationKey } from '../translations';
 import {
@@ -98,17 +100,30 @@ interface AccountResponse {
   };
 }
 
-// Sentinel: limits not yet loaded from server
 const LIMITS_LOADING = -1;
 
-// FIX Bug 3: The actual free limit (must match server FREE_LIMIT = 10)
-const FREE_LIMIT = 10;
+function formatCountdown(resetAtMs: number): string {
+  const diff = resetAtMs - Date.now();
+  if (diff <= 0) return '';
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// ─── Validated API Keys cache ─────────────────────────────────────────────────
+const [validatedApiKeysReady, setValidatedApiKeysReadyGlobal] = [
+  // simple module-level flag, will be in component state
+  false, () => {}
+];
 
 export function useAppState() {
   // Core
   const [url, setUrl] = useState('');
   const [uiLanguage, setUiLanguage] = useState('English');
   const [summary, setSummary] = useState<string | null>(null);
+  const [streamingSummary, setStreamingSummary] = useState<string | null>(null); // live streaming buffer
+  const [isStreaming, setIsStreaming] = useState(false);
   const [articleTitle, setArticleTitle] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,12 +147,13 @@ export function useAppState() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
 
   // API
   const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
-  const [isValidatingKeys, setIsValidatingKeys] = useState(false);
+  const [validatedApiKeysReady, setValidatedApiKeysReady] = useState(false);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [isKeySaved, setIsKeySaved] = useState(false);
 
@@ -154,8 +170,6 @@ export function useAppState() {
   // Premium / limits
   const [isPremium, setIsPremium] = useState(false);
   const [showLockModal, setShowLockModal] = useState(false);
-  // FIX Bug 3: Use null instead of LIMITS_LOADING sentinel for "not yet loaded"
-  // This way the display logic can cleanly distinguish "loading" from "0 remaining"
   const [serverRemaining, setServerRemaining] = useState<number>(LIMITS_LOADING);
   const [serverResetAt, setServerResetAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState('');
@@ -183,8 +197,9 @@ export function useAppState() {
   const summaryCacheRef = useRef<Map<string, { summary: string; title: string }>>(new Map());
   const lastAutoSummarizedUrlRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamAbortRef = useRef<boolean>(false); // flag to abort current stream
 
-  // ─── Derived values (memoised) ──────────────────────────────────────────────
+  // ─── Derived values ──────────────────────────────────────────────────────────
   const t = useMemo(
     () => {
       const merged = {
@@ -205,17 +220,13 @@ export function useAppState() {
     return serverRemaining;
   }, [isPremium, serverRemaining]);
 
-  const nextResetTime = useMemo(
-    () => serverResetAt || null,
-    [serverResetAt]
-  );
+  const nextResetTime = useMemo(() => serverResetAt || null, [serverResetAt]);
 
   const providerPriority = useMemo(() => {
     const allProviders: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
     return [...allProviders].sort((a, b) => {
       const metricA = providerMetrics[a];
       const metricB = providerMetrics[b];
-
       const score = (metric?: ProviderMetrics) => {
         if (!metric) return 0;
         const successRate = metric.attempts > 0 ? metric.successes / metric.attempts : 0.6;
@@ -225,12 +236,14 @@ export function useAppState() {
         const costPenalty = metric.estimatedCostUnits * 0.015;
         return successRate - transientPenalty - authPenalty - fallbackPenalty - costPenalty;
       };
-
       if (a === provider) return -1;
       if (b === provider) return 1;
       return score(metricB) - score(metricA);
     });
   }, [provider, providerMetrics]);
+
+  // The active summary: during streaming show the live buffer, after completion show the final
+  const displaySummary = isStreaming ? streamingSummary : summary;
 
   // ─── Popup helpers ──────────────────────────────────────────────────────────
   const openPopup = useCallback((popup: string) => {
@@ -268,35 +281,31 @@ export function useAppState() {
     setShowLockModal(true);
   }, [openPopup]);
 
+  const clearPasswordResetToken = useCallback(() => setPasswordResetToken(null), []);
+
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
-    setIsValidatingKeys(true);
-    try {
-      const entries = await Promise.all(
-        (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
-          const trimmedKey = keyValue?.trim();
-          if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
-          const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
-          return [providerName, isValid ? trimmedKey : undefined] as const;
-        })
-      );
-
-      const nextValidatedKeys = entries.reduce<ApiKeys>((acc, [providerName, keyValue]) => {
-        if (keyValue) acc[providerName] = keyValue;
-        return acc;
-      }, {});
-
-      setValidatedApiKeys(nextValidatedKeys);
-      setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-      return nextValidatedKeys;
-    } finally {
-      setIsValidatingKeys(false);
-    }
+    setValidatedApiKeysReady(false);
+    const entries = await Promise.all(
+      (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
+        const trimmedKey = keyValue?.trim();
+        if (!trimmedKey || trimmedKey === 'undefined') return [providerName, undefined] as const;
+        const isValid = await validateApiKey(providerName, trimmedKey).catch(() => false);
+        return [providerName, isValid ? trimmedKey : undefined] as const;
+      })
+    );
+    const nextValidatedKeys = entries.reduce<ApiKeys>((acc, [providerName, keyValue]) => {
+      if (keyValue) acc[providerName] = keyValue;
+      return acc;
+    }, {});
+    setValidatedApiKeys(nextValidatedKeys);
+    setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    setValidatedApiKeysReady(true);
+    return nextValidatedKeys;
   }, []);
 
   const validatePremiumSession = useCallback(async (): Promise<boolean> => {
     const savedToken = localStorage.getItem('premium_token');
     if (!savedToken) return isPremium;
-
     try {
       const res = await fetch('/api/validate-token', {
         method: 'POST',
@@ -305,7 +314,6 @@ export function useAppState() {
       });
       const data = await res.json();
       if (data.valid) return true;
-
       setIsPremium(false);
       localStorage.removeItem('is_premium');
       localStorage.removeItem('premium_token');
@@ -328,6 +336,20 @@ export function useAppState() {
       body: JSON.stringify(payload),
     }).catch(() => undefined);
   }, [currentUser]);
+
+  const applyLimitData = useCallback((data: { allowed: boolean; remaining: number | null; resetAt: number | null }) => {
+    if (typeof data.remaining === 'number') {
+      setServerRemaining(data.remaining);
+    }
+    if (data.resetAt) {
+      setServerResetAt(data.resetAt);
+      const immediate = formatCountdown(data.resetAt);
+      if (immediate) setTimeLeft(immediate);
+    }
+    if (!data.allowed) {
+      openLockModal();
+    }
+  }, [openLockModal]);
 
   const applyAccountData = useCallback((data: AccountResponse) => {
     setCurrentUser(data.user);
@@ -363,12 +385,9 @@ export function useAppState() {
       body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
     })
       .then(r => r.json())
-      .then(limitData => {
-        setServerRemaining(limitData.remaining ?? FREE_LIMIT);
-        if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-      })
-      .catch(() => setServerRemaining(FREE_LIMIT));
-  }, [refreshValidatedApiKeys]);
+      .then(limitData => applyLimitData(limitData))
+      .catch(() => setServerRemaining(10));
+  }, [refreshValidatedApiKeys, applyLimitData]);
 
   const loadAccount = useCallback(async () => {
     const response = await fetch('/api/account', { credentials: 'include' });
@@ -392,6 +411,7 @@ export function useAppState() {
     return () => {
       window.speechSynthesis.cancel();
       abortControllerRef.current?.abort();
+      streamAbortRef.current = true;
     };
   }, []);
 
@@ -417,6 +437,15 @@ export function useAppState() {
       || extractUrlFromText(params.get('text') || '')
       || (currentUrl.pathname === '/share-target' ? extractUrlFromText(params.get('title') || '') : '');
     const sharedTextCandidate = params.get('sharedText') || '';
+
+    // Handle password reset token from URL
+    const resetToken = params.get('reset_token') || '';
+    if (resetToken) {
+      setPasswordResetToken(resetToken);
+      setShowAuthModal(true);
+      window.history.replaceState({}, '', '/');
+      return;
+    }
 
     if (authErrorParam) {
       let message = 'We could not complete that sign-in. Please try again.';
@@ -464,7 +493,6 @@ export function useAppState() {
       setUiLanguage(savedLang);
       setSummaryLanguageState(savedLang);
     }
-
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
 
@@ -482,41 +510,44 @@ export function useAppState() {
             body: JSON.stringify({ record: false, isPremium: false }),
           })
             .then(r => r.json())
-            .then(limitData => {
-              setServerRemaining(limitData.remaining ?? FREE_LIMIT);
-              if (limitData.resetAt) setServerResetAt(limitData.resetAt);
-            })
-            .catch(() => setServerRemaining(FREE_LIMIT));
+            .then(limitData => applyLimitData(limitData))
+            .catch(() => setServerRemaining(10));
         }
       })
       .catch(() => {
         setCurrentUser(null);
-        setServerRemaining(FREE_LIMIT);
+        setServerRemaining(10);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
         setIsAuthLoading(false);
       });
-  }, [loadAccount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAccount, applyLimitData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Countdown timer ────────────────────────────────────────────────────────
+  // ─── Countdown timer ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!serverResetAt) return;
-    const update = () => {
-      const diff = serverResetAt - Date.now();
-      if (diff <= 0) {
+    if (!serverResetAt) {
+      setTimeLeft('');
+      return;
+    }
+    const immediate = formatCountdown(serverResetAt);
+    setTimeLeft(immediate);
+    if (!immediate) {
+      setServerResetAt(null);
+      setServerRemaining(10);
+      return;
+    }
+    const id = setInterval(() => {
+      const next = formatCountdown(serverResetAt);
+      if (!next) {
         setTimeLeft('');
         setServerResetAt(null);
-        setServerRemaining(FREE_LIMIT);
-        return;
+        setServerRemaining(10);
+        clearInterval(id);
+      } else {
+        setTimeLeft(next);
       }
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setTimeLeft(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
-    };
-    update();
-    const id = setInterval(update, 1000);
+    }, 1000);
     return () => clearInterval(id);
   }, [serverResetAt]);
 
@@ -546,10 +577,10 @@ export function useAppState() {
 
   // ─── Scroll to results ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (summary && resultsRef.current) {
+    if ((summary || streamingSummary) && resultsRef.current) {
       resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [summary]);
+  }, [summary, streamingSummary]);
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
   const submitAuth = useCallback(async () => {
@@ -591,6 +622,7 @@ export function useAppState() {
     setValidatedApiKeys({});
     setUserApiKey('');
     setSummary(null);
+    setStreamingSummary(null);
     setArticleTitle(null);
     setAppInsights({ savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources([]);
@@ -598,49 +630,43 @@ export function useAppState() {
     setIsPremium(false);
     setServerRemaining(LIMITS_LOADING);
     setServerResetAt(null);
+    setTimeLeft('');
   }, [openPopup]);
 
-  const saveApiKey = useCallback(async (overrideProvider?: Provider, overrideKey?: string) => {
+  const saveApiKey = useCallback(async () => {
     if (!currentUser) {
       setAuthError('Please sign in to manage your API keys.');
       setShowAuthModal(true);
       return;
     }
-
-    const effectiveProvider: Provider = overrideProvider ?? provider;
-    const effectiveKey = (overrideKey !== undefined ? overrideKey : userApiKey).trim();
-
-    if (overrideProvider && overrideProvider !== provider) setProvider(overrideProvider);
-    if (overrideKey !== undefined && overrideKey !== userApiKey) setUserApiKey(overrideKey);
-
-    if (effectiveKey) {
-      const isValid = await validateApiKey(effectiveProvider, effectiveKey).catch(() => false);
+    const trimmedKey = userApiKey.trim();
+    if (trimmedKey) {
+      const isValid = await validateApiKey(provider, trimmedKey).catch(() => false);
       if (!isValid) {
         setError(t.apiKeyInvalidError);
         const nextValidatedKeys = { ...validatedApiKeys };
-        delete nextValidatedKeys[effectiveProvider];
+        delete nextValidatedKeys[provider];
         setValidatedApiKeys(nextValidatedKeys);
         setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
         return;
       }
     }
-
     const newKeys = { ...apiKeys };
-    if (effectiveKey) {
-      newKeys[effectiveProvider] = effectiveKey;
-      localStorage.setItem(`api_key_${effectiveProvider}`, effectiveKey);
+    if (trimmedKey) {
+      newKeys[provider] = trimmedKey;
+      localStorage.setItem(`api_key_${provider}`, trimmedKey);
     } else {
-      delete newKeys[effectiveProvider];
-      localStorage.removeItem(`api_key_${effectiveProvider}`);
+      delete newKeys[provider];
+      localStorage.removeItem(`api_key_${provider}`);
     }
     setApiKeys(newKeys);
     const nextValidatedKeys = { ...validatedApiKeys };
-    if (effectiveKey) nextValidatedKeys[effectiveProvider] = effectiveKey;
-    else delete nextValidatedKeys[effectiveProvider];
+    if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
+    else delete nextValidatedKeys[provider];
     setValidatedApiKeys(nextValidatedKeys);
-    localStorage.setItem('api_provider', effectiveProvider);
+    localStorage.setItem('api_provider', provider);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-    await syncAccount({ apiKeys: newKeys, preferences: { provider: effectiveProvider } });
+    await syncAccount({ apiKeys: newKeys, preferences: { provider } });
     setError(null);
     setShowSettings(false);
     setShowProfile(false);
@@ -700,14 +726,8 @@ export function useAppState() {
     }
   }, [unlockPass, openPopup, syncAccount]);
 
-  // FIX Bug 2: handlePaste — guard against isAuthLoading race condition.
-  // When the user presses paste and auth is still being checked, don't show the
-  // auth modal. If auth check completes and user IS logged in, just paste normally.
   const handlePaste = useCallback(async () => {
-    // While auth is loading, we don't know yet if the user is signed in.
-    // Don't block or show modal — just attempt to paste (clipboard API will work
-    // regardless of auth state, and the summarize flow will gate auth separately).
-    if (!currentUser && !isAuthLoading) {
+    if (!currentUser) {
       setAuthError('Crea una cuenta o inicia sesión para pegar un link.');
       setShowAuthModal(true);
       return;
@@ -719,7 +739,7 @@ export function useAppState() {
       setError(t.pasteError);
       setTimeout(() => setError(null), 5000);
     }
-  }, [t.pasteError, currentUser, isAuthLoading]);
+  }, [t.pasteError, currentUser]);
 
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);
@@ -778,10 +798,8 @@ export function useAppState() {
       setFeedError(null);
       return;
     }
-
     setIsFeedLoading(true);
     setFeedError(null);
-
     try {
       const responses = await Promise.all(
         enabledSources.map(async (source) => {
@@ -790,12 +808,10 @@ export function useAppState() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: source.url }),
           });
-
           if (!response.ok) {
             const errorBody = await response.json().catch(() => ({}));
             throw new Error(errorBody.error || `Could not load ${source.name}`);
           }
-
           const data = await response.json() as RssPreviewResponse;
           const perSourceLimit = Math.max(1, Math.min(25, Number(source.itemsPerLoad || 6)));
           return data.items
@@ -810,12 +826,10 @@ export function useAppState() {
             }));
         })
       );
-
       const deduped = new Map<string, DailyFeedItem>();
       for (const items of responses.flat()) {
         if (!deduped.has(items.url)) deduped.set(items.url, items);
       }
-
       const nextItems = Array.from(deduped.values())
         .sort((a, b) => {
           const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
@@ -823,7 +837,6 @@ export function useAppState() {
           return timeB - timeA;
         })
         .slice(0, 60);
-
       setDailyFeedItems(nextItems);
     } catch (err: any) {
       setFeedError(err?.message || 'Could not load the selected feed.');
@@ -865,6 +878,7 @@ export function useAppState() {
     setIsMultiFeedSummarizing(true);
     setFeedSummaryResults([]);
     setSummary(null);
+    setStreamingSummary(null);
     setArticleTitle(null);
     setError(null);
     setIsLoading(true);
@@ -875,22 +889,9 @@ export function useAppState() {
     for (let i = 0; i < unique.length; i++) {
       const feedUrl = unique[i];
       setLoadingProgress(Math.round(5 + (i / unique.length) * 90));
-
       try {
-        const result = await summarizeUrl(
-          feedUrl,
-          apiKeys,
-          provider,
-          summaryLanguage,
-          'short',
-          undefined,
-          providerPriority
-        );
-        results.push({
-          url: feedUrl,
-          title: result.title || feedUrl,
-          summary: result.summary,
-        });
+        const result = await summarizeUrl(feedUrl, apiKeys, provider, summaryLanguage, 'short', undefined, providerPriority);
+        results.push({ url: feedUrl, title: result.title || feedUrl, summary: result.summary });
       } catch {
         // Skip failed URLs silently
       }
@@ -902,9 +903,7 @@ export function useAppState() {
     setFeedSummaryResults(results);
 
     if (results.length > 0) {
-      const combined = results
-        .map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`)
-        .join('\n\n---\n\n');
+      const combined = results.map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`).join('\n\n---\n\n');
       setSummary(combined);
       setArticleTitle(`${results.length} artículos resumidos`);
       setLieScore(0);
@@ -919,14 +918,10 @@ export function useAppState() {
         body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
       })
         .then(r => r.json())
-        .then(data => {
-          setServerRemaining(data.remaining ?? null);
-          if (data.resetAt) setServerResetAt(data.resetAt);
-          if (!data.allowed) openLockModal();
-        })
+        .then(data => applyLimitData(data))
         .catch(() => undefined);
     }
-  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, openLockModal, t.genericError]);
+  }, [apiKeys, provider, summaryLanguage, providerPriority, isPremium, openPopup, t.genericError, applyLimitData]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -942,39 +937,42 @@ export function useAppState() {
   }, [feedSummaryQueue, isLoading, currentUser, summarizeFeedItem]);
 
   const handleClear = useCallback(() => {
+    streamAbortRef.current = true;
     abortControllerRef.current?.abort();
     setUrl('');
     setSummary(null);
+    setStreamingSummary(null);
     setArticleTitle(null);
     setLieScore(0);
     setInvestigationResult(null);
     setError(null);
     setFeedSummaryResults([]);
+    setIsStreaming(false);
     lastAutoSummarizedUrlRef.current = '';
     summaryCacheRef.current.clear();
   }, []);
 
+  // ─── Main handleSummarize with streaming ─────────────────────────────────────
   const handleSummarize = useCallback(async (
     e?: React.FormEvent,
     length?: 'short' | 'medium' | 'long' | 'child'
   ) => {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
-
     if (!currentUser) {
-      if (isAuthLoading) return;
       setAuthError('Please sign in or create an account to generate summaries.');
       setShowAuthModal(true);
       return;
     }
-
-    if (!url && !pdfFile || isLoading) return;
+    if ((!url && !pdfFile) || isLoading) return;
     if (isPremium) {
       const stillValidPremium = await validatePremiumSession();
       if (!stillValidPremium) return;
     }
     if (!checkUsageLimit()) return;
 
+    // Abort any ongoing stream
+    streamAbortRef.current = true;
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
 
@@ -995,14 +993,19 @@ export function useAppState() {
     }
 
     setIsLoading(true);
+    setIsStreaming(false);
     setLoadingProgress(8);
     setError(null);
     setInvestigationResult(null);
     setFeedSummaryResults([]);
     setCurrentLength(resolvedLength);
-    if (resolvedLength === 'short') { setSummary(null); setArticleTitle(null); }
+    setSummary(null);
+    setStreamingSummary(null);
+    setArticleTitle(null);
 
     const cacheKey = `${isTextInput ? `text:${finalUrl.slice(0, 120)}` : finalUrl}|${summaryLanguage}|${resolvedLength}`;
+
+    // Check caches
     const cached = summaryCacheRef.current.get(cacheKey);
     if (cached) {
       setSummary(cached.summary);
@@ -1030,6 +1033,7 @@ export function useAppState() {
       return;
     }
 
+    // Loading messages cycle
     const loadingMessages = t.loadingMessages;
     let msgIndex = 0;
     setLoadingMessage(loadingMessages[0]);
@@ -1044,68 +1048,155 @@ export function useAppState() {
       });
     }, 400);
 
+    // Mark this streaming session
+    streamAbortRef.current = false;
+    const thisSessionAborted = () => streamAbortRef.current;
+
     try {
       let prefetchedContent: { text: string; title: string; type: string } | undefined;
       if (pdfFile) {
         prefetchedContent = await fetchPdfContent(pdfFile).then(r => ({ ...r, type: 'pdf' }));
       }
 
-      const summaryResult = isTextInput
-        ? await summarizeTextContent(finalUrl, apiKeys, provider, summaryLanguage, resolvedLength, providerPriority)
-        : await summarizeUrl(finalUrl, apiKeys, provider, summaryLanguage, resolvedLength, prefetchedContent, providerPriority);
+      // For text input, use non-streaming path
+      if (isTextInput) {
+        const summaryResult = await summarizeTextContent(finalUrl, apiKeys, provider, summaryLanguage, resolvedLength, providerPriority);
+        if (thisSessionAborted()) return;
 
-      if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
-      setLoadingMessage('');
-      if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
-      setLoadingProgress(100);
-      setSummary(summaryResult.summary);
+        if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
+        if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+        setLoadingMessage('');
+        setLoadingProgress(100);
+        setSummary(summaryResult.summary);
 
-      const resolvedTitle = summaryResult.title || prefetchedContent?.title || '';
-      if (resolvedTitle) setArticleTitle(resolvedTitle);
-      setLieScore(estimateLieScore(resolvedTitle || finalUrl, summaryResult.summary));
-      summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
-      saveCachedSummary({ key: cacheKey, summary: summaryResult.summary, title: resolvedTitle, createdAt: Date.now() });
+        const resolvedTitle = summaryResult.title || '';
+        if (resolvedTitle) setArticleTitle(resolvedTitle);
+        setLieScore(estimateLieScore(resolvedTitle || finalUrl, summaryResult.summary));
+        summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
+        saveCachedSummary({ key: cacheKey, summary: summaryResult.summary, title: resolvedTitle, createdAt: Date.now() });
 
-      for (const attemptedProvider of summaryResult.attemptedProviders) {
-        recordProviderMetric(attemptedProvider, 'attempt');
-      }
-      if (summaryResult.providerUsed !== provider) recordProviderMetric(provider, 'fallback');
-      recordProviderMetric(summaryResult.providerUsed, 'success');
-      setProviderMetrics(getProviderMetrics());
+        for (const p of summaryResult.attemptedProviders) recordProviderMetric(p, 'attempt');
+        if (summaryResult.providerUsed !== provider) recordProviderMetric(provider, 'fallback');
+        recordProviderMetric(summaryResult.providerUsed, 'success');
+        setProviderMetrics(getProviderMetrics());
 
-      const minutesSaved = estimateMinutesSaved(summaryResult.articleLength, summaryResult.summary.length);
-      const nextInsights = recordSavedSummary(minutesSaved);
-      setAppInsights(nextInsights);
-      syncAccount({ appInsights: nextInsights }).catch(() => undefined);
+        const minutesSaved = estimateMinutesSaved(summaryResult.articleLength, summaryResult.summary.length);
+        const nextInsights = recordSavedSummary(minutesSaved);
+        setAppInsights(nextInsights);
+        syncAccount({ appInsights: nextInsights }).catch(() => undefined);
 
-      if (!isPremium) {
-        fetch('/api/check-limit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
-        })
-          .then(r => r.json())
-          .then(data => {
-            setServerRemaining(data.remaining ?? null);
-            if (data.resetAt) setServerResetAt(data.resetAt);
-            if (!data.allowed) openLockModal();
-          })
-          .catch(() => undefined);
-      }
+        if (!isPremium) {
+          fetch('/api/check-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
+          }).then(r => r.json()).then(data => applyLimitData(data)).catch(() => undefined);
+        }
 
-      if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
-        try {
-          const investigation = await investigateClaim(finalUrl, resolvedTitle || finalUrl, summaryResult.summary, apiKeys, providerPriority);
-          setInvestigationResult(investigation);
-        } catch {
-          setInvestigationResult(null);
+      } else {
+        // ─── STREAMING PATH ──────────────────────────────────────────────────
+        let streamedText = '';
+        let resolvedTitle = prefetchedContent?.title || '';
+        let articleLen = 0;
+        let usedProvider: Provider = provider;
+        let metaReceived = false;
+
+        const stream = summarizeUrlStream(
+          finalUrl,
+          apiKeys,
+          provider,
+          summaryLanguage,
+          resolvedLength,
+          prefetchedContent,
+          providerPriority,
+          (meta: StreamingSummaryResult) => {
+            resolvedTitle = resolvedTitle || meta.title;
+            articleLen = meta.articleLength;
+            usedProvider = meta.providerUsed;
+            metaReceived = true;
+
+            // As soon as we have first chunk meta, clear loading state and show streaming UI
+            if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
+            if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+            setLoadingMessage('');
+            setLoadingProgress(100);
+            setIsLoading(false);
+            setIsStreaming(true);
+            if (resolvedTitle) setArticleTitle(resolvedTitle);
+          }
+        );
+
+        for await (const chunk of stream) {
+          if (thisSessionAborted()) {
+            // Stop reading but don't throw
+            break;
+          }
+          streamedText += chunk;
+          setStreamingSummary(streamedText);
+
+          // If meta hasn't fired yet (shouldn't happen but safety)
+          if (!metaReceived) {
+            if (msgInterval) { clearInterval(msgInterval); msgInterval = null; }
+            if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+            setLoadingMessage('');
+            setLoadingProgress(100);
+            setIsLoading(false);
+            setIsStreaming(true);
+          }
+        }
+
+        if (thisSessionAborted()) return;
+
+        // Streaming complete — finalize
+        setIsStreaming(false);
+        setSummary(streamedText);
+        setStreamingSummary(null);
+
+        if (streamedText.trim() === 'INSUFFICIENT_CONTENT') {
+          throw new Error('insufficient_content');
+        }
+
+        if (resolvedTitle) setArticleTitle(resolvedTitle);
+        setLieScore(estimateLieScore(resolvedTitle || finalUrl, streamedText));
+        summaryCacheRef.current.set(cacheKey, { summary: streamedText, title: resolvedTitle });
+        saveCachedSummary({ key: cacheKey, summary: streamedText, title: resolvedTitle, createdAt: Date.now() });
+
+        recordProviderMetric(usedProvider, 'attempt');
+        recordProviderMetric(usedProvider, 'success');
+        if (usedProvider !== provider) recordProviderMetric(provider, 'fallback');
+        setProviderMetrics(getProviderMetrics());
+
+        const minutesSaved = estimateMinutesSaved(articleLen || streamedText.length * 5, streamedText.length);
+        const nextInsights = recordSavedSummary(minutesSaved);
+        setAppInsights(nextInsights);
+        syncAccount({ appInsights: nextInsights }).catch(() => undefined);
+
+        if (!isPremium) {
+          fetch('/api/check-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ record: true, isPremium: false, deviceId: getDeviceId() }),
+          }).then(r => r.json()).then(data => applyLimitData(data)).catch(() => undefined);
+        }
+
+        if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
+          try {
+            const investigation = await investigateClaim(finalUrl, resolvedTitle || finalUrl, streamedText, apiKeys, providerPriority);
+            if (!thisSessionAborted()) setInvestigationResult(investigation);
+          } catch {
+            if (!thisSessionAborted()) setInvestigationResult(null);
+          }
         }
       }
+
     } catch (err: any) {
       if (msgInterval) clearInterval(msgInterval);
       if (progressInterval) clearInterval(progressInterval);
       setLoadingMessage('');
-      if (err?.name === 'AbortError') return;
+      setIsStreaming(false);
+      setStreamingSummary(null);
+
+      if (err?.name === 'AbortError' || thisSessionAborted()) return;
 
       let message = t.genericError;
       if (err.message === 'quota_exceeded_all' || err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
@@ -1137,12 +1228,13 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, isAuthLoading]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData]);
 
   const handleSpeak = useCallback(() => {
-    if (!summary) return;
+    const textToSpeak = summary || streamingSummary;
+    if (!textToSpeak) return;
     if (isSpeaking) { window.speechSynthesis.cancel(); setIsSpeaking(false); return; }
-    const speechText = summary
+    const speechText = textToSpeak
       .replace(/\*\*([^*]+)\*\*/g, '$1')
       .replace(/\*([^*]+)\*/g, '$1')
       .replace(/[`#>-]/g, ' ')
@@ -1164,7 +1256,7 @@ export function useAppState() {
     utterance.onerror = () => setIsSpeaking(false);
     setIsSpeaking(true);
     window.speechSynthesis.speak(utterance);
-  }, [summary, isSpeaking, summaryLanguage, speechRate]);
+  }, [summary, streamingSummary, isSpeaking, summaryLanguage, speechRate]);
 
   const handleShare = useCallback(async (shareSummary: string, shareUrl?: string) => {
     const text = shareUrl && !shareUrl.startsWith('pdf:')
@@ -1173,18 +1265,19 @@ export function useAppState() {
     try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
   }, []);
 
+  // ─── Auto-summarize on shared URLs ─────────────────────────────────────────
   useEffect(() => {
     if (!pendingSharedUrl || isLoading) return;
     if (pendingSharedUrl !== url) return;
-    if (isAuthLoading) return;
     setSummary(null);
+    setStreamingSummary(null);
     setArticleTitle(null);
     setError(null);
     setTimeout(() => {
       handleSummarize();
       setPendingSharedUrl(null);
     }, 50);
-  }, [pendingSharedUrl, url, isLoading, isAuthLoading, handleSummarize]);
+  }, [pendingSharedUrl, url, isLoading, handleSummarize]);
 
   useEffect(() => {
     if (!showSharedToast) return;
@@ -1215,12 +1308,17 @@ export function useAppState() {
   }, [syncAccount]);
 
   return {
-    url, setUrl, uiLanguage, summary, articleTitle, isLoading, error,
+    url, setUrl, uiLanguage, summary, streamingSummary, isStreaming, displaySummary,
+    articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
     deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
-    currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
+    appInsights, providerMetrics,
+    currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName,
+    authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
+    passwordResetToken, clearPasswordResetToken,
     feedSources, dailyFeedItems, isFeedLoading, feedError,
-    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, isValidatingKeys, provider, setProvider, isKeySaved,
+    userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady,
+    provider, setProvider, isKeySaved,
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
@@ -1228,7 +1326,7 @@ export function useAppState() {
     unlockPass, setUnlockPass, lockError, setLockError, deviceMismatchError, setDeviceMismatchError,
     dontShowAgain, isSpeaking, currentLength,
     speechRate, setSpeechRate,
-    showInstallButton, resultsRef, appInsights, providerMetrics,
+    showInstallButton, resultsRef,
     loadingMessage, loadingProgress, pdfFile, setPdfFile,
     showSharedToast,
     showAuthModal, setShowAuthModal,
@@ -1237,7 +1335,8 @@ export function useAppState() {
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
-    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem, summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
+    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed,
+    useFeedItem, summarizeFeedItem, summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleInstall, handleShare,
     updateDisplayName: (name: string) => {

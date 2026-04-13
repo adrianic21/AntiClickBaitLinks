@@ -289,9 +289,9 @@ export function useAppState() {
       Object.entries(keys).filter(([, v]) => v && v !== 'undefined')
     );
     setValidatedApiKeys(validKeys as ApiKeys);
-    setIsKeySaved(Object.values(validKeys).some(k => k && k !== 'undefined'));
     setValidatedApiKeysReady(true);
     if (skipValidation) {
+      setIsKeySaved(Object.values(validKeys).some(k => k && k !== 'undefined'));
       return validKeys;
     }
     const entries = await Promise.all(
@@ -307,7 +307,10 @@ export function useAppState() {
       return acc;
     }, {});
     setValidatedApiKeys(nextValidatedKeys);
-    setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
+    const hasAnyValidKey = Object.values(nextValidatedKeys).some(k => k && k !== 'undefined');
+    if (hasAnyValidKey) {
+      setIsKeySaved(true);
+    }
     return nextValidatedKeys;
   }, []);
 

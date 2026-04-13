@@ -9,7 +9,6 @@ import { LockModal } from './components/LockModal';
 import { ResultCard } from './components/ResultCard';
 import { AuthGate } from './components/AuthGate';
 import { ProfilePanel } from './components/ProfilePanel';
-import { FeedModal } from './components/FeedModal';
 
 export default function App() {
   const state = useAppState();
@@ -19,9 +18,8 @@ export default function App() {
     articleTitle, isLoading, error,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail,
     authPassword, setAuthPassword, authError,
-    feedSources, dailyFeedItems, isFeedLoading, feedError,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady, provider, setProvider, isKeySaved, apiKeySaveError,
-    showInfo, showLangMenu, showStatusPopover, showProfile, showFeed,
+    showInfo, showLangMenu, showStatusPopover, showProfile,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
     showLockModal, setShowLockModal, timeLeft,
@@ -35,8 +33,6 @@ export default function App() {
     openPopup, togglePopup, openLockModal, closeInfo,
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
-    addFeedSource, removeFeedSource, toggleFeedSource, refreshDailyFeed, useFeedItem, summarizeFeedItem,
-    summarizeManyFeedItems, updateFeedSourceItemsPerLoad,
     preferredLength, setPreferredLength, setSummaryLanguage,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleShare,
@@ -117,7 +113,7 @@ export default function App() {
         t={t} isPremium={isPremium}
           remainingSearches={remainingSearches === -1 ? 5 : remainingSearches}
         showInfo={showInfo} showLangMenu={showLangMenu} showProfile={showProfile}
-        showFeed={showFeed} showStatusPopover={showStatusPopover}
+        showStatusPopover={showStatusPopover}
         uiLanguage={uiLanguage} timeLeft={timeLeft} nextResetTime={nextResetTime}
         togglePopup={togglePopup}
         setShowStatusPopover={(v) => openPopup(v ? 'status' : '')}
@@ -126,15 +122,6 @@ export default function App() {
       />
 
       <div className="w-full max-w-5xl h-[1.5px] rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-500/70 shadow-sm shadow-emerald-300/40 my-6" />
-
-      <FeedModal
-        uiLanguage={uiLanguage}
-        t={t} show={showFeed} onClose={() => openPopup('')}
-        sources={feedSources} items={dailyFeedItems} isLoading={isFeedLoading} error={feedError}
-        onAddSource={addFeedSource} onToggleSource={toggleFeedSource} onRemoveSource={removeFeedSource}
-        onRefresh={refreshDailyFeed} onUpdateSourceItemsPerLoad={updateFeedSourceItemsPerLoad}
-        onSummarizeMany={summarizeManyFeedItems}
-      />
 
       {currentUser && (
         <ProfilePanel

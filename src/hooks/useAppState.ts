@@ -284,8 +284,16 @@ export function useAppState() {
 
   const clearPasswordResetToken = useCallback(() => setPasswordResetToken(null), []);
 
-  const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys) => {
-    setValidatedApiKeysReady(false);
+  const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys, skipValidation = false) => {
+    const validKeys = Object.fromEntries(
+      Object.entries(keys).filter(([, v]) => v && v !== 'undefined')
+    );
+    setValidatedApiKeys(validKeys as ApiKeys);
+    setIsKeySaved(Object.values(validKeys).some(k => k && k !== 'undefined'));
+    setValidatedApiKeysReady(true);
+    if (skipValidation) {
+      return validKeys;
+    }
     const entries = await Promise.all(
       (Object.entries(keys) as Array<[Provider, string | undefined]>).map(async ([providerName, keyValue]) => {
         const trimmedKey = keyValue?.trim();
@@ -300,7 +308,6 @@ export function useAppState() {
     }, {});
     setValidatedApiKeys(nextValidatedKeys);
     setIsKeySaved(Object.values(nextValidatedKeys).some(k => k && k !== 'undefined'));
-    setValidatedApiKeysReady(true);
     return nextValidatedKeys;
   }, []);
 
@@ -747,6 +754,7 @@ export function useAppState() {
   }, [unlockPass, openPopup, syncAccount]);
 
   const handlePaste = useCallback(async () => {
+    if (isAuthLoading) return;
     if (!currentUser) {
       setAuthError('Crea una cuenta o inicia sesión para pegar un link.');
       setShowAuthModal(true);
@@ -759,7 +767,7 @@ export function useAppState() {
       setError(t.pasteError);
       setTimeout(() => setError(null), 5000);
     }
-  }, [t.pasteError, currentUser]);
+  }, [t.pasteError, currentUser, isAuthLoading]);
 
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);
@@ -979,6 +987,7 @@ export function useAppState() {
   ) => {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
+    if (isAuthLoading) return;
     if (!currentUser) {
       setAuthError('Please sign in or create an account to generate summaries.');
       setShowAuthModal(true);
@@ -1219,9 +1228,9 @@ export function useAppState() {
       if (err?.name === 'AbortError' || thisSessionAborted()) return;
 
       let message = t.genericError;
-      if (err.message === 'quota_exceeded_all' || err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
+      if (err.message === 'quota_exceeded_all' || err.message === 'quota_exceeded') {
         message = t.quotaError;
-      } else if (err.message === 'insufficient_content' || err.message?.includes('INSUFFICIENT_CONTENT')) {
+      } else if (err.message === 'insufficient_content' || err.message === 'INSUFFICIENT_CONTENT') {
         message = t.insufficientContentError;
       } else if (err.message === 'provider_temporary_failure') {
         message = t.providerTemporaryError;

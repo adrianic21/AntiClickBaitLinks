@@ -350,9 +350,20 @@ export function useAppState() {
       setServerRemaining(data.remaining);
     }
     if (data.resetAt) {
-      setServerResetAt(data.resetAt);
-      const immediate = formatCountdown(data.resetAt);
-      if (immediate) setTimeLeft(immediate);
+      const now = Date.now();
+      if (data.resetAt > now) {
+        setServerResetAt(data.resetAt);
+        const immediate = formatCountdown(data.resetAt);
+        if (immediate) setTimeLeft(immediate);
+      } else if (data.remaining !== null && data.remaining <= 0) {
+        const resetIn24h = now + (24 * 60 * 60 * 1000);
+        setServerResetAt(resetIn24h);
+        setTimeLeft("23:59:59");
+      }
+    } else if (data.remaining !== null && data.remaining <= 0) {
+      const resetIn24h = Date.now() + (24 * 60 * 60 * 1000);
+      setServerResetAt(resetIn24h);
+      setTimeLeft("23:59:59");
     }
     if (!data.allowed && openModalOnLimit) {
       openLockModal();

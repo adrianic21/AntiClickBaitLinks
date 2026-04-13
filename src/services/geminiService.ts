@@ -38,13 +38,14 @@ function isQuotaError(error: any): boolean {
   const status = error?.status || error?.statusCode || 0;
   if (status === 429) return true;
   return (
-    msg.includes('429') ||
     msg.includes('resource_exhausted') ||
     msg.includes('quota_exceeded') ||
-    msg.includes('ratelimitexceeded') ||
+    msg.includes('quota exceeded') ||
     msg.includes('rate_limit_exceeded') ||
-    msg.includes('too many requests') ||
-    msg.includes('rateerror')
+    msg.includes('rate limit exceeded') ||
+    msg.includes('rate_limit') ||
+    msg.includes('daily limit') ||
+    msg.includes('user quota')
   );
 }
 
@@ -806,13 +807,13 @@ export async function* summarizeUrlStream(
     }
   }
 
-  if (hadQuotaError && attemptedProviders.length === 1) {
-    throw new Error('quota_exceeded_all');
-  }
   if (isTransientError(lastError)) {
     throw new Error('provider_temporary_failure');
   }
-  throw lastError || new Error('quota_exceeded_all');
+  if (isQuotaError(lastError) && hadQuotaError) {
+    throw new Error('quota_exceeded_all');
+  }
+  throw lastError || new Error('provider_failed');
 }
 
 // ─── Non-streaming fallback (kept for investigations, text content, etc.) ─────
@@ -894,13 +895,13 @@ export async function summarizeUrl(
     }
   }
 
-  if (hadQuotaError && attemptedProviders.length === 1) {
-    throw new Error('quota_exceeded_all');
-  }
   if (isTransientError(lastError)) {
     throw new Error('provider_temporary_failure');
   }
-  throw lastError || new Error('quota_exceeded_all');
+  if (isQuotaError(lastError) && hadQuotaError) {
+    throw new Error('quota_exceeded_all');
+  }
+  throw lastError || new Error('provider_failed');
 }
 
 export async function investigateClaim(
@@ -1015,6 +1016,7 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
   const providersToTry = orderedProviders.filter((v, i, a) => a.indexOf(v) === i);
   const attemptedProviders: Provider[] = [];
   let lastError: any = null;
+  let hadQuotaError = false;
 
   for (const currentProvider of providersToTry) {
     const key = apiKeys[currentProvider];
@@ -1041,7 +1043,11 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
       lastError = error;
       if (isAuthError(error)) throw error;
       if (error.message === 'insufficient_content') throw error;
-      if (isQuotaError(error) || isTransientError(error)) continue;
+      if (isQuotaError(error)) {
+        hadQuotaError = true;
+        continue;
+      }
+      if (isTransientError(error)) continue;
       continue;
     }
   }
@@ -1049,5 +1055,8 @@ ${normalizeContentForSpeed(normalizedText, length)}`;
   if (isTransientError(lastError)) {
     throw new Error('provider_temporary_failure');
   }
-  throw lastError || new Error('quota_exceeded_all');
+  if (isQuotaError(lastError) && hadQuotaError) {
+    throw new Error('quota_exceeded_all');
+  }
+  throw lastError || new Error('provider_failed');
 }

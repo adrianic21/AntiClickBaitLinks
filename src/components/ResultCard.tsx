@@ -209,7 +209,7 @@ export function ResultCard({
                 <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                   {t.originalTitle}
                 </p>
-                <p className="text-base font-semibold text-zinc-700 dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
+                <p className="text-base font-semibold text-black dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 
@@ -346,26 +346,7 @@ export function ResultCard({
         )}
       </AnimatePresence>
 
-      <div
-        className={cn(
-          'flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-2 text-center',
-          isApiKeyValidationPending ? 'bg-zinc-100 text-zinc-600' : hasAnyKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-        )}
-      >
-        {isApiKeyValidationPending ? (
-          <div className="w-full flex items-center justify-center gap-2 text-center">
-            <Loader2 size={14} className="animate-spin text-zinc-500 shrink-0" />
-            <span>Validando tu API Key...</span>
-          </div>
-        ) : hasAnyKey ? (
-          <div className="w-full flex items-center justify-center gap-2 text-center">
-            <Check size={14} className="shrink-0" />
-            <span>
-              {configuredProviders.join(' · ')} — {hasMultipleKeys ? (t.apiKeysActive || t.apiKeyActive) : t.apiKeyActive}
-            </span>
-          </div>
-        ) : null}
-      </div>
+
 
       {isYouTube && (
         <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-medium">

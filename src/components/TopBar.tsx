@@ -1,4 +1,4 @@
-import { ShieldCheck, Languages, Info, UserRound, X, Rss } from 'lucide-react';
+import { ShieldCheck, Languages, Info, UserRound, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
@@ -8,13 +8,10 @@ interface TopBarProps {
   t: Translations;
   isPremium: boolean;
   remainingSearches: number;
-  // FIX Bug 3: explicit loading flag so the counter shows '—/10' instead of
-  // briefly flashing a stale value while the server limit is being fetched.
   isLimitsLoading: boolean;
   showInfo: boolean;
   showLangMenu: boolean;
   showProfile: boolean;
-  showFeed: boolean;
   showStatusPopover: boolean;
   uiLanguage: string;
   timeLeft: string;
@@ -38,7 +35,7 @@ const FREE_LIMIT = 5;
 
 export function TopBar({
   t, isPremium, remainingSearches, isLimitsLoading,
-  showInfo, showLangMenu, showProfile, showFeed, showStatusPopover,
+  showInfo, showLangMenu, showProfile, showStatusPopover,
   uiLanguage, timeLeft, nextResetTime,
   togglePopup, setShowStatusPopover, setShowLangMenu,
   openLockModal, changeUiLanguage, currentUser,
@@ -122,18 +119,6 @@ export function TopBar({
           )}
         >
           <Info size={20} />
-        </button>
-
-        {/* Feed */}
-        <button
-          onClick={() => togglePopup('feed')}
-          className={cn(
-            "p-3 rounded-2xl transition-all shadow-lg",
-            showFeed ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
-          )}
-          title={t.feedTitle}
-        >
-          <Rss size={20} />
         </button>
 
         {/* Profile */}

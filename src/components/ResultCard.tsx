@@ -209,7 +209,7 @@ export function ResultCard({
                 <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
                   {t.originalTitle}
                 </p>
-                <p className="text-base font-semibold text-black dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
+                <p className="text-base font-bold text-black dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 

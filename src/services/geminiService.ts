@@ -134,7 +134,20 @@ REGLAS DE ORO (OBLIGATORIAS):
 7. CALIDAD: Si el contenido es basura, acceso bloqueado, o error 403/paywall, responde SOLO: "INSUFFICIENT_CONTENT".
 8. COMPLETITUD: Aunque sea una respuesta corta, SIEMPRE incluye el dato/resultado central que el titular promete. Nunca dejes al usuario sin la respuesta principal.`;
 
+let customPrompts: Record<string, string> = {};
+
+export function setCustomPrompts(prompts: Record<string, string>) {
+  customPrompts = prompts;
+}
+
+export function getCustomPrompts(): Record<string, string> {
+  return { ...customPrompts };
+}
+
 function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
+  if (customPrompts[length]) {
+    return customPrompts[length];
+  }
   switch (length) {
     case 'short':
       return `RESPUESTA CORTA Y DIRECTA (máximo 3-4 oraciones o 1 lista + 1 oración de contexto).
@@ -147,9 +160,16 @@ function getLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): st
     case 'long':
       return `Resumen exhaustivo de varios párrafos. Estructura: (1) Respuesta directa y completa a la promesa del titular, (2) Lista detallada de todos los puntos o herramientas con sus pros y contras según el texto, (3) Evidencia, limitaciones y advertencias importantes. No omitas ningún detalle técnico o matiz que el artículo proporcione.`;
     case 'child':
-      return `Explica el núcleo del artículo a un niño de 10 años. Usa un lenguaje muy sencillo pero mantén la precisión sobre las limitaciones (ej. "esto aún es un experimento"). Si es una lista, explica brevemente qué son esas cosas y para qué sirven de forma divertida.`;
+      return `Explica el núcleo del artículo a un niño de 10 años. Usa un lenguaje muy sencilla pero mantén la precisión sobre las limitaciones (ej. "esto aún es un experimento"). Si es una lista, explica brevemente qué son esas cosas y para qué sirven de forma divertida.`;
   }
 }
+
+export const DEFAULT_PROMPTS = {
+  short: getLengthInstruction('short'),
+  medium: getLengthInstruction('medium'),
+  long: getLengthInstruction('long'),
+  child: getLengthInstruction('child'),
+};
 
 function getResponseLengthInstruction(length: 'short' | 'medium' | 'long' | 'child'): string {
   switch (length) {

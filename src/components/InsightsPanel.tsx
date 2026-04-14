@@ -15,7 +15,7 @@ export function InsightsPanel({
   t,
   insights,
 }: InsightsPanelProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
 
   return (
     <section className="glass rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">

@@ -6,7 +6,9 @@ import {
   fetchPdfContent,
   validateApiKey,
   investigateClaim,
-  estimateLieScore,
+  setCustomPrompts,
+  getCustomPrompts,
+  DEFAULT_PROMPTS,
   type Provider,
   type ApiKeys,
   type InvestigationResult,
@@ -90,6 +92,7 @@ interface AccountResponse {
       provider?: Provider;
       deepResearchEnabled?: boolean;
       dontShowAgain?: boolean;
+      customPrompts?: Record<string, string>;
     };
     appInsights?: AppInsights;
     feedSources?: FeedSource[];
@@ -131,8 +134,8 @@ export function useAppState() {
   const [currentLength, setCurrentLength] = useState<'short' | 'medium' | 'long' | 'child'>('short');
   const [preferredLength, setPreferredLengthState] = useState<'short' | 'medium' | 'long'>('short');
   const [summaryLanguage, setSummaryLanguageState] = useState('English');
+  const [customPrompts, setCustomPromptsState] = useState<Record<string, string>>({});
   const [deepResearchEnabled, setDeepResearchEnabled] = useState(false);
-  const [lieScore, setLieScore] = useState(0);
   const [investigationResult, setInvestigationResult] = useState<InvestigationResult | null>(null);
   const [appInsights, setAppInsights] = useState<AppInsights>({ savedSummaries: 0, totalMinutesSaved: 0 });
   const [providerMetrics, setProviderMetrics] = useState<Record<Provider, ProviderMetrics>>(getProviderMetrics());
@@ -409,6 +412,10 @@ export function useAppState() {
     if (typeof data.account?.preferences?.speechRate === 'number') setSpeechRateState(data.account.preferences.speechRate);
     if (typeof data.account?.preferences?.deepResearchEnabled === 'boolean') setDeepResearchEnabled(data.account.preferences.deepResearchEnabled);
     if (typeof data.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(data.account.preferences.dontShowAgain);
+    if (data.account?.preferences?.customPrompts && typeof data.account.preferences.customPrompts === 'object') {
+      setCustomPromptsState(data.account.preferences.customPrompts as Record<string, string>);
+      setCustomPrompts(data.account.preferences.customPrompts as Record<string, string>);
+    }
 
     setAppInsights(data.account?.appInsights || { savedSummaries: 0, totalMinutesSaved: 0 });
     setFeedSources(data.account?.feedSources || []);
@@ -529,6 +536,15 @@ export function useAppState() {
     }
     const savedDontShow = localStorage.getItem('dont_show_onboarding') === 'true';
     setDontShowAgain(savedDontShow);
+
+    const savedPrompts = localStorage.getItem('custom_prompts');
+    if (savedPrompts) {
+      try {
+        const parsed = JSON.parse(savedPrompts);
+        setCustomPromptsState(parsed);
+        setCustomPrompts(parsed);
+      } catch { /* ignore */ }
+    }
 
     fetch('/api/auth/me', { credentials: 'include' })
       .then(r => r.json())
@@ -796,6 +812,24 @@ export function useAppState() {
     syncAccount({ preferences: { summaryLanguage: lang } }).catch(() => undefined);
   }, [syncAccount]);
 
+  const setCustomPromptsHandler = useCallback((prompts: Record<string, string>) => {
+    setCustomPromptsState(prompts);
+    setCustomPrompts(prompts);
+    localStorage.setItem('custom_prompts', JSON.stringify(prompts));
+    syncAccount({ preferences: { customPrompts: prompts } }).catch(() => undefined);
+  }, [syncAccount]);
+
+  const restoreDefaultPrompts = useCallback(() => {
+    const defaultPrompts: Record<string, string> = {};
+    for (const key of ['short', 'medium', 'long', 'child']) {
+      defaultPrompts[key] = DEFAULT_PROMPTS[key as keyof typeof DEFAULT_PROMPTS];
+    }
+    setCustomPromptsState(defaultPrompts);
+    setCustomPrompts(defaultPrompts);
+    localStorage.setItem('custom_prompts', JSON.stringify(defaultPrompts));
+    syncAccount({ preferences: { customPrompts: defaultPrompts } }).catch(() => undefined);
+  }, [syncAccount]);
+
   const setDeepResearchMode = useCallback((enabled: boolean) => {
     setDeepResearchEnabled(enabled);
     localStorage.setItem('deep_research_enabled', enabled ? 'true' : 'false');
@@ -949,7 +983,7 @@ export function useAppState() {
       const combined = results.map((r, idx) => `**${idx + 1}. ${r.title}**\n${r.summary}`).join('\n\n---\n\n');
       setSummary(combined);
       setArticleTitle(`${results.length} artículos resumidos`);
-      setLieScore(0);
+      
     } else {
       setError(t.genericError);
     }
@@ -986,7 +1020,7 @@ export function useAppState() {
     setSummary(null);
     setStreamingSummary(null);
     setArticleTitle(null);
-    setLieScore(0);
+    
     setInvestigationResult(null);
     setError(null);
     setFeedSummaryResults([]);
@@ -1054,7 +1088,6 @@ export function useAppState() {
     if (cached) {
       setSummary(cached.summary);
       setArticleTitle(cached.title || null);
-      setLieScore(estimateLieScore(cached.title || finalUrl, cached.summary));
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         investigateClaim(finalUrl, cached.title || finalUrl, cached.summary, apiKeys, providerPriority)
           .then(setInvestigationResult).catch(() => setInvestigationResult(null));
@@ -1068,7 +1101,6 @@ export function useAppState() {
       summaryCacheRef.current.set(cacheKey, { summary: persistedCached.summary, title: persistedCached.title });
       setSummary(persistedCached.summary);
       setArticleTitle(persistedCached.title || null);
-      setLieScore(estimateLieScore(persistedCached.title || finalUrl, persistedCached.summary));
       if (deepResearchEnabled && !isTextInput && !finalUrl.startsWith('pdf:')) {
         investigateClaim(finalUrl, persistedCached.title || finalUrl, persistedCached.summary, apiKeys, providerPriority)
           .then(setInvestigationResult).catch(() => setInvestigationResult(null));
@@ -1115,7 +1147,6 @@ export function useAppState() {
 
         const resolvedTitle = summaryResult.title || '';
         if (resolvedTitle) setArticleTitle(resolvedTitle);
-        setLieScore(estimateLieScore(resolvedTitle || finalUrl, summaryResult.summary));
         summaryCacheRef.current.set(cacheKey, { summary: summaryResult.summary, title: resolvedTitle });
         saveCachedSummary({ key: cacheKey, summary: summaryResult.summary, title: resolvedTitle, createdAt: Date.now() });
 
@@ -1201,7 +1232,6 @@ export function useAppState() {
         }
 
         if (resolvedTitle) setArticleTitle(resolvedTitle);
-        setLieScore(estimateLieScore(resolvedTitle || finalUrl, streamedText));
         summaryCacheRef.current.set(cacheKey, { summary: streamedText, title: resolvedTitle });
         saveCachedSummary({ key: cacheKey, summary: streamedText, title: resolvedTitle, createdAt: Date.now() });
 
@@ -1355,7 +1385,8 @@ export function useAppState() {
     url, setUrl, uiLanguage, summary, streamingSummary, isStreaming, displaySummary,
     articleTitle, isLoading, error,
     preferredLength, setPreferredLength, summaryLanguage, setSummaryLanguage,
-    deepResearchEnabled, setDeepResearchMode, lieScore, investigationResult,
+    customPrompts, setCustomPromptsHandler, restoreDefaultPrompts,
+    deepResearchEnabled, setDeepResearchMode, investigationResult,
     appInsights, providerMetrics,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName,
     authEmail, setAuthEmail, authPassword, setAuthPassword, authError,

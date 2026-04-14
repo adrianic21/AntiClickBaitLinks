@@ -101,6 +101,7 @@ interface AccountResponse {
 }
 
 const LIMITS_LOADING = -1;
+export { LIMITS_LOADING };
 
 function formatCountdown(resetAtMs: number): string {
   const diff = resetAtMs - Date.now();

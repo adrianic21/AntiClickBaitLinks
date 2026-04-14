@@ -13,7 +13,7 @@ import { ProfilePanel } from './components/ProfilePanel';
 export default function App() {
   const state = useAppState();
   const {
-    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, lieScore, investigationResult,
+    url, setUrl, uiLanguage, summaryLanguage, deepResearchEnabled, investigationResult,
     appInsights, summary, streamingSummary, isStreaming,
     articleTitle, isLoading, error,
     currentUser, isAuthLoading, authMode, setAuthMode, authName, setAuthName, authEmail, setAuthEmail,
@@ -34,6 +34,7 @@ export default function App() {
     submitAuth, startOAuth, logout,
     saveApiKey, changeUiLanguage,
     preferredLength, setPreferredLength, setSummaryLanguage,
+    customPrompts, setCustomPromptsHandler, restoreDefaultPrompts,
     handleUnlock, handlePaste, handleClear, handleSummarize,
     handleSpeak, handleShare,
     updateDisplayName,
@@ -135,6 +136,7 @@ export default function App() {
           nextResetTime={nextResetTime} timeLeft={timeLeft}
           unlockPass={unlockPass} lockError={lockError} deviceMismatchError={deviceMismatchError}
           isLoading={isLoading} onPassChange={setUnlockPass} onUnlock={handleUnlock}
+          customPrompts={customPrompts} setCustomPrompts={setCustomPromptsHandler} restoreDefaultPrompts={restoreDefaultPrompts}
         />
       )}
 
@@ -363,7 +365,6 @@ export default function App() {
           currentLength={currentLength}
           isSpeaking={isSpeaking}
           speechRate={speechRate}
-          lieScore={lieScore}
           investigationResult={investigationResult}
           apiKeys={apiKeys}
           validatedApiKeys={validatedApiKeys}

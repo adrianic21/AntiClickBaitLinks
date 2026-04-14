@@ -71,7 +71,7 @@ function PremiumSection({
   onPassChange: (v: string) => void;
   onUnlock: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const copy = uiLanguage === 'Spanish'
     ? {
         title: 'Hazte Premium',
@@ -195,7 +195,7 @@ export function ProfilePanel({
   unlockPass, lockError, deviceMismatchError, isLoading, onPassChange, onUnlock,
 }: ProfilePanelProps) {
   const [isEditingName, setIsEditingName] = useState(false);
-  const [showApiSettings, setShowApiSettings] = useState(false);
+  const [showApiSettings, setShowApiSettings] = useState(true);
   const [tempName, setTempName] = useState(currentUser.displayName);
 
   const isLimitReached = !isPremium && remainingSearches <= 0;

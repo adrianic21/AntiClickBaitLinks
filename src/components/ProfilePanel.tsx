@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { ArrowRight, Check, ChevronDown, ChevronUp, Key, LogOut, Sparkles, UserRound, Wrench, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, ChevronUp, Key, LogOut, RotateCcw, Sparkles, UserRound, Wrench, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../hooks/useAppState';
 import { InsightsPanel } from './InsightsPanel';
 import type { Translations } from '../translations';
-import type { ApiKeys, Provider } from '../services/geminiService';
+import type { ApiKeys, Provider, DEFAULT_PROMPTS } from '../services/geminiService';
 import type { AppInsights } from '../lib/appInsights';
 
 interface ProfilePanelProps {
@@ -34,6 +34,9 @@ interface ProfilePanelProps {
   isLoading: boolean;
   onPassChange: (v: string) => void;
   onUnlock: () => void;
+  customPrompts: Record<string, string>;
+  setCustomPrompts: (prompts: Record<string, string>) => void;
+  restoreDefaultPrompts: () => void;
 }
 
 const PROVIDERS: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
@@ -193,10 +196,26 @@ export function ProfilePanel({
   onLogout, appInsights, onUpdateName,
   remainingSearches, nextResetTime, timeLeft,
   unlockPass, lockError, deviceMismatchError, isLoading, onPassChange, onUnlock,
+  customPrompts, setCustomPrompts, restoreDefaultPrompts,
 }: ProfilePanelProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(true);
+  const [showPromptSettings, setShowPromptSettings] = useState(false);
   const [tempName, setTempName] = useState(currentUser.displayName);
+  const [tempPrompts, setTempPrompts] = useState(customPrompts);
+
+  React.useEffect(() => {
+    setTempPrompts(customPrompts);
+  }, [customPrompts]);
+
+  const handleSavePrompts = () => {
+    setCustomPrompts(tempPrompts);
+  };
+
+  const handleRestorePrompts = () => {
+    restoreDefaultPrompts();
+    setTempPrompts(customPrompts);
+  };
 
   const isLimitReached = !isPremium && remainingSearches <= 0;
   const remainingLabel = remainingSearches < 0
@@ -420,6 +439,66 @@ export function ProfilePanel({
                       )}
                     </div>
                   </>
+                )}
+              </section>
+
+              {/* Prompt Settings */}
+              <section className="rounded-3xl bg-white/80 p-5 sm:p-6 shadow-sm space-y-4 border border-white/70">
+                <button
+                  type="button"
+                  onClick={() => setShowPromptSettings((current) => !current)}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400 flex items-center gap-2">
+                      <Wrench size={14} />
+                      {uiLanguage === 'Spanish' ? 'Configuración de Prompts' : 'Prompt Settings'}
+                    </p>
+                    <p className="text-sm text-zinc-500 mt-1">
+                      {uiLanguage === 'Spanish'
+                        ? 'Personaliza las instrucciones para cada tipo de resumen.'
+                        : 'Customize instructions for each summary type.'}
+                    </p>
+                  </div>
+                  {showPromptSettings ? <ChevronUp size={18} className="text-zinc-500" /> : <ChevronDown size={18} className="text-zinc-500" />}
+                </button>
+
+                {showPromptSettings && (
+                  <div className="space-y-4">
+                    {(['short', 'medium', 'long'] as const).map((len) => (
+                      <div key={len}>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
+                          {len === 'short' ? (uiLanguage === 'Spanish' ? 'Corto' : 'Short') 
+                            : len === 'medium' ? (uiLanguage === 'Spanish' ? 'Medio' : 'Medium') 
+                            : (uiLanguage === 'Spanish' ? 'Largo' : 'Long')}
+                        </label>
+                        <textarea
+                          value={tempPrompts[len] || ''}
+                          onChange={(e) => setTempPrompts((prev) => ({ ...prev, [len]: e.target.value }))}
+                          rows={4}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 outline-none focus:border-emerald-400 resize-none font-mono"
+                          placeholder={uiLanguage === 'Spanish' ? `Instrucciones para resumen ${len}...` : `Instructions for ${len} summary...`}
+                        />
+                      </div>
+                    ))}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSavePrompts}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-emerald-700"
+                      >
+                        {uiLanguage === 'Spanish' ? 'Guardar' : 'Save'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRestorePrompts}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-700 transition-all hover:bg-zinc-50"
+                      >
+                        <RotateCcw size={16} />
+                        {uiLanguage === 'Spanish' ? 'Restaurar valores por defecto' : 'Restore defaults'}
+                      </button>
+                    </div>
+                  </div>
                 )}
               </section>
 

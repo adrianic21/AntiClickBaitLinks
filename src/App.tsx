@@ -207,11 +207,15 @@ export default function App() {
           >
             <ShieldCheck size={32} />
           </button>
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-black"
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight"
             style={{ 
               fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
-              letterSpacing: "-0.03em",
-              textShadow: "0 1px 2px rgba(0,0,0,0.05)"
+              letterSpacing: "-0.04em",
+              background: "linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              textShadow: "none",
+              filter: "drop-shadow(0 2px 4px rgba(16, 185, 129, 0.15))"
             }}
           >{t.title}</h1>
         </div>

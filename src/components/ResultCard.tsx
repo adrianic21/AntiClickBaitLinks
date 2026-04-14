@@ -206,10 +206,10 @@ export function ResultCard({
 
             {articleTitle && (
               <div className="pb-3 border-b border-zinc-100 space-y-1">
-                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-400">
+                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-500">
                   {t.originalTitle}
                 </p>
-                <p className="text-base font-bold text-black dark:text-zinc-200 leading-snug break-words">{articleTitle}</p>
+                <p className="text-base font-bold text-black leading-snug break-words">{articleTitle}</p>
               </div>
             )}
 

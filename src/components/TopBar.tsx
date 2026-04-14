@@ -1,6 +1,6 @@
 import { ShieldCheck, Languages, Info, UserRound, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../hooks/useAppState';
+import { cn, LIMITS_LOADING } from '../hooks/useAppState';
 import { LANGUAGES } from '../translations';
 import type { Translations } from '../translations';
 
@@ -8,7 +8,6 @@ interface TopBarProps {
   t: Translations;
   isPremium: boolean;
   remainingSearches: number;
-  isLimitsLoading: boolean;
   showInfo: boolean;
   showLangMenu: boolean;
   showProfile: boolean;
@@ -34,15 +33,16 @@ const MODAL = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[46]";
 const FREE_LIMIT = 5;
 
 export function TopBar({
-  t, isPremium, remainingSearches, isLimitsLoading,
+  t, isPremium, remainingSearches,
   showInfo, showLangMenu, showProfile, showStatusPopover,
   uiLanguage, timeLeft, nextResetTime,
   togglePopup, setShowStatusPopover, setShowLangMenu,
   openLockModal, changeUiLanguage, currentUser,
 }: TopBarProps) {
-  const isLimitReached = !isPremium && !isLimitsLoading && remainingSearches <= 0;
+  const isLimitReached = !isPremium && remainingSearches !== LIMITS_LOADING && remainingSearches <= 0;
   const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
   const guestLabel = uiLanguage === 'Spanish' ? 'Invitado' : 'Guest';
+  const isLimitsLoading = remainingSearches === LIMITS_LOADING;
 
   // FIX Bug 3: While limits are loading, show a neutral placeholder instead of a
   // stale/incorrect value. Once loaded, show the real remaining/total.

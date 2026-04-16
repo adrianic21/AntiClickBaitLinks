@@ -824,6 +824,16 @@ export function useAppState() {
       setShowAuthModal(true);
       return;
     }
+    const hasConfiguredKey = Object.values(apiKeys).some((value) => {
+      const trimmedValue = typeof value === 'string' ? value.trim() : '';
+      return Boolean(trimmedValue && trimmedValue !== 'undefined');
+    });
+    if (!hasConfiguredKey) {
+      setError(t.noKeyError);
+      openPopup('profile');
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
     try {
       const text = await navigator.clipboard.readText();
       if (text) { setUrl(extractUrlFromText(text)); setError(null); }
@@ -831,7 +841,7 @@ export function useAppState() {
       setError(t.pasteError);
       setTimeout(() => setError(null), 5000);
     }
-  }, [t.pasteError, currentUser, isAuthLoading, restoreAuthenticatedSession]);
+  }, [t.pasteError, t.noKeyError, currentUser, isAuthLoading, restoreAuthenticatedSession, apiKeys, openPopup]);
 
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);

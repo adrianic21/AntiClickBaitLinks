@@ -105,6 +105,19 @@ interface AccountResponse {
 
 const LIMITS_LOADING = -1;
 export { LIMITS_LOADING };
+const API_PROVIDERS: Provider[] = ['gemini', 'openrouter', 'mistral', 'deepseek'];
+
+function normalizeApiKeys(input?: ApiKeys | null): ApiKeys {
+  if (!input || typeof input !== 'object') return {};
+  return API_PROVIDERS.reduce<ApiKeys>((acc, providerName) => {
+    const rawValue = input[providerName];
+    const trimmedValue = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (trimmedValue && trimmedValue !== 'undefined') {
+      acc[providerName] = trimmedValue;
+    }
+    return acc;
+  }, {});
+}
 
 function formatCountdown(resetAtMs: number): string {
   const diff = resetAtMs - Date.now();
@@ -154,8 +167,8 @@ export function useAppState() {
   const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
 
   // API
-  const [userApiKey, setUserApiKey] = useState('');
   const [apiKeys, setApiKeys] = useState<ApiKeys>({});
+  const [apiKeyDrafts, setApiKeyDrafts] = useState<ApiKeys>({});
   const [validatedApiKeys, setValidatedApiKeys] = useState<ApiKeys>({});
   const [validatedApiKeysReady, setValidatedApiKeysReady] = useState(false);
   const [provider, setProvider] = useState<Provider>('gemini');
@@ -249,10 +262,7 @@ export function useAppState() {
 
   // The active summary: during streaming show the live buffer, after completion show the final
   const displaySummary = isStreaming ? streamingSummary : summary;
-
-  useEffect(() => {
-    setUserApiKey(apiKeys[provider] || '');
-  }, [provider, apiKeys]);
+  const userApiKey = apiKeyDrafts[provider] || '';
 
   // ─── Popup helpers ──────────────────────────────────────────────────────────
   const openPopup = useCallback((popup: string) => {
@@ -293,9 +303,7 @@ export function useAppState() {
   const clearPasswordResetToken = useCallback(() => setPasswordResetToken(null), []);
 
   const refreshValidatedApiKeys = useCallback(async (keys: ApiKeys, skipValidation = false) => {
-    const validKeys = Object.fromEntries(
-      Object.entries(keys).filter(([, v]) => v && v !== 'undefined')
-    );
+    const validKeys = normalizeApiKeys(keys);
     setValidatedApiKeys(validKeys as ApiKeys);
     setValidatedApiKeysReady(true);
     if (skipValidation) {
@@ -316,9 +324,7 @@ export function useAppState() {
     }, {});
     setValidatedApiKeys(nextValidatedKeys);
     const hasAnyValidKey = Object.values(nextValidatedKeys).some(k => k && k !== 'undefined');
-    if (hasAnyValidKey) {
-      setIsKeySaved(true);
-    }
+    setIsKeySaved(hasAnyValidKey);
     return nextValidatedKeys;
   }, []);
 
@@ -383,12 +389,12 @@ export function useAppState() {
       localStorage.removeItem('premium_token');
     }
 
-    let accountKeys = data.account?.apiKeys || {};
+    let accountKeys = normalizeApiKeys(data.account?.apiKeys || {});
     if (Object.keys(accountKeys).length === 0) {
       try {
         const backupKeys = localStorage.getItem('api_keys_backup');
         if (backupKeys) {
-          const parsed = JSON.parse(backupKeys) as ApiKeys;
+          const parsed = normalizeApiKeys(JSON.parse(backupKeys) as ApiKeys);
           if (parsed && typeof parsed === 'object') {
             accountKeys = parsed;
           }
@@ -396,8 +402,14 @@ export function useAppState() {
       } catch { /* ignore backup parse errors */ }
     }
     setApiKeys(accountKeys);
+    setApiKeyDrafts(accountKeys);
     const savedProvider = localStorage.getItem('api_provider') as Provider | null;
-    const selectedProvider = (data.account?.preferences?.provider as Provider) || savedProvider || 'gemini';
+    const preferredProvider = data.account?.preferences?.provider as Provider | undefined;
+    const selectedProvider = API_PROVIDERS.includes(preferredProvider as Provider)
+      ? (preferredProvider as Provider)
+      : API_PROVIDERS.includes(savedProvider as Provider)
+        ? (savedProvider as Provider)
+        : 'gemini';
     setProvider(selectedProvider);
     refreshValidatedApiKeys(accountKeys).catch(() => undefined);
 
@@ -677,8 +689,8 @@ export function useAppState() {
     setShowAuthModal(false);
     setCurrentUser(null);
     setApiKeys({});
+    setApiKeyDrafts({});
     setValidatedApiKeys({});
-    setUserApiKey('');
     setSummary(null);
     setStreamingSummary(null);
     setArticleTitle(null);
@@ -705,9 +717,17 @@ export function useAppState() {
   }, [currentUser, loadAccount]);
 
   const setActiveProvider = useCallback((nextProvider: Provider) => {
+    if (!API_PROVIDERS.includes(nextProvider)) return;
     setProvider(nextProvider);
     localStorage.setItem('api_provider', nextProvider);
   }, []);
+
+  const setUserApiKey = useCallback((value: string) => {
+    setApiKeyDrafts((prev) => ({
+      ...prev,
+      [provider]: value,
+    }));
+  }, [provider]);
 
   const saveApiKey = useCallback(async () => {
     const hasActiveSession = currentUser || await restoreAuthenticatedSession();
@@ -717,7 +737,7 @@ export function useAppState() {
       return;
     }
     setApiKeySaveError(null);
-    const trimmedKey = userApiKey.trim();
+    const trimmedKey = (apiKeyDrafts[provider] || '').trim();
     if (trimmedKey) {
       const isValid = await validateApiKey(provider, trimmedKey).catch(() => false);
       if (!isValid) {
@@ -729,13 +749,18 @@ export function useAppState() {
         return;
       }
     }
-    const newKeys = { ...apiKeys };
+    const newKeys = normalizeApiKeys({ ...apiKeys });
     if (trimmedKey) {
       newKeys[provider] = trimmedKey;
     } else {
       delete newKeys[provider];
     }
+    const nextDrafts = normalizeApiKeys({ ...apiKeyDrafts, [provider]: trimmedKey });
+    if (!trimmedKey) {
+      delete nextDrafts[provider];
+    }
     setApiKeys(newKeys);
+    setApiKeyDrafts(nextDrafts);
     const nextValidatedKeys = { ...validatedApiKeys };
     if (trimmedKey) nextValidatedKeys[provider] = trimmedKey;
     else delete nextValidatedKeys[provider];
@@ -750,7 +775,13 @@ export function useAppState() {
     }
     localStorage.setItem('api_provider', provider);
     try {
-      await syncAccount({ apiKeys: newKeys, preferences: { provider } });
+      const response = await fetch('/api/account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ apiKeys: newKeys, preferences: { provider } }),
+      });
+      if (!response.ok) throw new Error('account_save_failed');
       setError(null);
     } catch {
       setApiKeySaveError(uiLanguage === 'Spanish' 
@@ -759,7 +790,7 @@ export function useAppState() {
     }
     setShowSettings(false);
     setShowProfile(false);
-  }, [apiKeys, provider, userApiKey, t.apiKeyInvalidError, validatedApiKeys, syncAccount, currentUser, uiLanguage]);
+  }, [apiKeys, apiKeyDrafts, provider, t.apiKeyInvalidError, validatedApiKeys, currentUser, restoreAuthenticatedSession, uiLanguage]);
 
   const changeUiLanguage = useCallback((lang: string) => {
     setUiLanguage(lang);

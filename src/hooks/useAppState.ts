@@ -403,7 +403,6 @@ export function useAppState() {
 
     if (data.account?.preferences?.uiLanguage) setUiLanguage(data.account.preferences.uiLanguage);
     if (data.account?.preferences?.summaryLanguage) setSummaryLanguageState(data.account.preferences.summaryLanguage);
-    if (data.account?.preferences?.preferredLength) setPreferredLengthState(data.account.preferences.preferredLength);
     if (typeof data.account?.preferences?.speechRate === 'number') setSpeechRateState(data.account.preferences.speechRate);
     if (typeof data.account?.preferences?.deepResearchEnabled === 'boolean') setDeepResearchEnabled(data.account.preferences.deepResearchEnabled);
     if (typeof data.account?.preferences?.dontShowAgain === 'boolean') setDontShowAgain(data.account.preferences.dontShowAgain);

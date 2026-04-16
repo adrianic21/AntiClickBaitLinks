@@ -250,6 +250,10 @@ export function useAppState() {
   // The active summary: during streaming show the live buffer, after completion show the final
   const displaySummary = isStreaming ? streamingSummary : summary;
 
+  useEffect(() => {
+    setUserApiKey(apiKeys[provider] || '');
+  }, [provider, apiKeys]);
+
   // ─── Popup helpers ──────────────────────────────────────────────────────────
   const openPopup = useCallback((popup: string) => {
     setShowStatusPopover(popup === 'status');
@@ -392,9 +396,9 @@ export function useAppState() {
       } catch { /* ignore backup parse errors */ }
     }
     setApiKeys(accountKeys);
-    const selectedProvider = (data.account?.preferences?.provider as Provider) || 'gemini';
+    const savedProvider = localStorage.getItem('api_provider') as Provider | null;
+    const selectedProvider = (data.account?.preferences?.provider as Provider) || savedProvider || 'gemini';
     setProvider(selectedProvider);
-    setUserApiKey(accountKeys[selectedProvider] || '');
     refreshValidatedApiKeys(accountKeys).catch(() => undefined);
 
     if (data.account?.preferences?.uiLanguage) setUiLanguage(data.account.preferences.uiLanguage);
@@ -703,9 +707,8 @@ export function useAppState() {
 
   const setActiveProvider = useCallback((nextProvider: Provider) => {
     setProvider(nextProvider);
-    setUserApiKey(apiKeys[nextProvider] || '');
     localStorage.setItem('api_provider', nextProvider);
-  }, [apiKeys]);
+  }, []);
 
   const saveApiKey = useCallback(async () => {
     const hasActiveSession = currentUser || await restoreAuthenticatedSession();

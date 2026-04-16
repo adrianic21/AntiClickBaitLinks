@@ -344,8 +344,12 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
           }),
         });
         if (!response.ok) {
-          const err = await response.json().catch(() => ({ error: response.statusText }));
-          throw new Error(err.error || 'Mistral validation failed');
+          const errorText = await response.text().catch(() => response.statusText);
+          const error = new Error(errorText || 'Mistral validation failed');
+          if (response.status === 401 || response.status === 403 || isAuthError(error)) {
+            return false;
+          }
+          return true;
         }
         return true;
       }

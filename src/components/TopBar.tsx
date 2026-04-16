@@ -23,6 +23,7 @@ interface TopBarProps {
   currentUser: {
     email: string;
     displayName: string;
+    avatarUrl?: string | null;
   } | null;
 }
 
@@ -43,6 +44,7 @@ export function TopBar({
   const shouldShowCountdown = !isPremium && Boolean(nextResetTime);
   const guestLabel = uiLanguage === 'Spanish' ? 'Invitado' : 'Guest';
   const isLimitsLoading = remainingSearches === LIMITS_LOADING;
+  const userInitial = currentUser?.displayName?.trim()?.charAt(0)?.toUpperCase() || 'U';
 
   // FIX Bug 3: While limits are loading, show a neutral placeholder instead of a
   // stale/incorrect value. Once loaded, show the real remaining/total.
@@ -125,11 +127,23 @@ export function TopBar({
         <button
           onClick={() => togglePopup('profile')}
           className={cn(
-            "p-3 rounded-2xl transition-all shadow-lg flex items-center gap-2",
+            "p-2 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2",
             showProfile ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"
           )}
         >
-          <UserRound size={20} />
+          {currentUser?.avatarUrl ? (
+            <img
+              src={currentUser.avatarUrl}
+              alt={currentUser.displayName}
+              className="h-8 w-8 rounded-xl object-cover"
+            />
+          ) : currentUser ? (
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-sm font-extrabold text-emerald-700">
+              {userInitial}
+            </span>
+          ) : (
+            <UserRound size={20} />
+          )}
         </button>
       </div>
 

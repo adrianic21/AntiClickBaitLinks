@@ -392,7 +392,7 @@ export function ProfilePanel({
                           <button
                             key={providerName}
                             type="button"
-                            onClick={() => { setProvider(providerName); setUserApiKey(apiKeys[providerName] || ''); }}
+                            onClick={() => setProvider(providerName)}
                             className={cn(
                               'px-3 py-2 text-xs font-bold rounded-xl border transition-all',
                               provider === providerName

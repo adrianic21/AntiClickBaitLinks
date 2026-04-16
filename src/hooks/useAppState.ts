@@ -356,21 +356,12 @@ export function useAppState() {
     if (typeof data.remaining === 'number') {
       setServerRemaining(data.remaining);
     }
-    if (data.resetAt) {
-      const now = Date.now();
-      if (data.resetAt > now) {
-        setServerResetAt(data.resetAt);
-        const immediate = formatCountdown(data.resetAt);
-        if (immediate) setTimeLeft(immediate);
-      } else if (data.remaining !== null && data.remaining <= 0) {
-        const resetIn24h = now + (24 * 60 * 60 * 1000);
-        setServerResetAt(resetIn24h);
-        setTimeLeft("23:59:59");
-      }
-    } else if (data.remaining !== null && data.remaining <= 0) {
-      const resetIn24h = Date.now() + (24 * 60 * 60 * 1000);
-      setServerResetAt(resetIn24h);
-      setTimeLeft("23:59:59");
+    if (typeof data.resetAt === 'number' && data.resetAt > Date.now()) {
+      setServerResetAt(data.resetAt);
+      setTimeLeft(formatCountdown(data.resetAt));
+    } else {
+      setServerResetAt(null);
+      setTimeLeft('');
     }
     if (!data.allowed && openModalOnLimit) {
       openLockModal();
@@ -423,11 +414,18 @@ export function useAppState() {
     fetch('/api/check-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ record: false, isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium) }),
+      body: JSON.stringify({
+        record: false,
+        isPremium: Boolean(data.account?.premium?.isPremium || data.user.isPremium),
+        deviceId: getDeviceId(),
+      }),
     })
       .then(r => r.json())
       .then(limitData => applyLimitData(limitData, false))
-      .catch(() => setServerRemaining(5));
+      .catch(() => {
+        setServerRemaining(5);
+        setServerResetAt(null);
+      });
   }, [refreshValidatedApiKeys, applyLimitData]);
 
   const loadAccount = useCallback(async () => {
@@ -557,16 +555,20 @@ export function useAppState() {
           fetch('/api/check-limit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ record: false, isPremium: false }),
+            body: JSON.stringify({ record: false, isPremium: false, deviceId: getDeviceId() }),
           })
             .then(r => r.json())
             .then(limitData => applyLimitData(limitData, false))
-            .catch(() => setServerRemaining(5));
+            .catch(() => {
+              setServerRemaining(5);
+              setServerResetAt(null);
+            });
         }
       })
       .catch(() => {
         setCurrentUser(null);
         setServerRemaining(5);
+        setServerResetAt(null);
       })
       .finally(() => {
         setProviderMetrics(getProviderMetrics());
@@ -683,8 +685,22 @@ export function useAppState() {
     setTimeLeft('');
   }, [openPopup]);
 
+  const restoreAuthenticatedSession = useCallback(async (): Promise<boolean> => {
+    if (currentUser) return true;
+    try {
+      const response = await fetch('/api/auth/me', { credentials: 'include' });
+      const data = await response.json().catch(() => ({}));
+      if (!data.user) return false;
+      await loadAccount();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [currentUser, loadAccount]);
+
   const saveApiKey = useCallback(async () => {
-    if (!currentUser) {
+    const hasActiveSession = currentUser || await restoreAuthenticatedSession();
+    if (!hasActiveSession) {
       setAuthError('Please sign in to manage your API keys.');
       setShowAuthModal(true);
       return;
@@ -786,7 +802,8 @@ export function useAppState() {
 
   const handlePaste = useCallback(async () => {
     if (isAuthLoading) return;
-    if (!currentUser) {
+    const hasActiveSession = currentUser || await restoreAuthenticatedSession();
+    if (!hasActiveSession) {
       setAuthError('Crea una cuenta o inicia sesión para pegar un link.');
       setShowAuthModal(true);
       return;
@@ -798,7 +815,7 @@ export function useAppState() {
       setError(t.pasteError);
       setTimeout(() => setError(null), 5000);
     }
-  }, [t.pasteError, currentUser, isAuthLoading]);
+  }, [t.pasteError, currentUser, isAuthLoading, restoreAuthenticatedSession]);
 
   const setPreferredLength = useCallback((len: 'short' | 'medium' | 'long') => {
     setPreferredLengthState(len);
@@ -1037,7 +1054,8 @@ export function useAppState() {
     const resolvedLength = length ?? preferredLength;
     if (e) e.preventDefault();
     if (isAuthLoading) return;
-    if (!currentUser) {
+    const hasActiveSession = currentUser || await restoreAuthenticatedSession();
+    if (!hasActiveSession) {
       setAuthError('Please sign in or create an account to generate summaries.');
       setShowAuthModal(true);
       return;
@@ -1302,7 +1320,7 @@ export function useAppState() {
       setLoadingProgress(0);
       setIsLoading(false);
     }
-  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData]);
+  }, [url, pdfFile, isLoading, preferredLength, checkUsageLimit, summaryLanguage, apiKeys, provider, providerPriority, isPremium, t, openPopup, openLockModal, validatePremiumSession, deepResearchEnabled, currentUser, syncAccount, applyLimitData, restoreAuthenticatedSession]);
 
   const handleSpeak = useCallback(() => {
     const textToSpeak = summary || streamingSummary;

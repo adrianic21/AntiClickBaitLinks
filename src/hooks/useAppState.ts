@@ -788,8 +788,7 @@ export function useAppState() {
         ? 'Error al guardar la clave. Se guardó localmente.' 
         : 'Failed to save to server. Saved locally.');
     }
-    setShowSettings(false);
-    setShowProfile(false);
+
   }, [apiKeys, apiKeyDrafts, provider, t.apiKeyInvalidError, validatedApiKeys, currentUser, restoreAuthenticatedSession, uiLanguage]);
 
   const changeUiLanguage = useCallback((lang: string) => {

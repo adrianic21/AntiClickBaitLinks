@@ -48,6 +48,7 @@ interface TokenData {
 interface UsageData {
   count: number;
   windowStart: number;
+  limitReachedAt?: number;
 }
 
 interface DeviceData {
@@ -610,8 +611,9 @@ async function getUsageIdForRequest(req: express.Request): Promise<string> {
 async function getUsageCount(ip: string): Promise<number> {
   const data = await redisGet<UsageData>(`usage_window:${ip}`);
   if (!data) return 0;
-  // If the 24h window has expired, treat as fresh start
-  if (Date.now() - data.windowStart >= USAGE_WINDOW_MS) return 0;
+  const now = Date.now();
+  if (data.limitReachedAt && now - data.limitReachedAt >= USAGE_WINDOW_MS) return 0;
+  if (!data.limitReachedAt && now - data.windowStart >= USAGE_WINDOW_MS) return 0;
   return typeof data.count === 'number' ? data.count : 0;
 }
 
@@ -626,19 +628,27 @@ async function incrementUsage(ip: string): Promise<{ count: number; windowStart:
 
   let windowStart: number;
   let count: number;
+  let limitReachedAt: number | undefined;
 
-  if (!existing || now - existing.windowStart >= USAGE_WINDOW_MS) {
-    // Start a fresh 24h window from NOW
+  const hasCooldownExpired = existing?.limitReachedAt && now - existing.limitReachedAt >= USAGE_WINDOW_MS;
+  const hasWindowExpired = existing && !existing.limitReachedAt && now - existing.windowStart >= USAGE_WINDOW_MS;
+
+  if (!existing || hasCooldownExpired || hasWindowExpired) {
     windowStart = now;
     count = 1;
   } else {
-    // Continue existing window
     windowStart = existing.windowStart;
     count = (existing.count || 0) + 1;
+    limitReachedAt = existing.limitReachedAt;
   }
 
-  const ttl = Math.ceil(USAGE_WINDOW_MS / 1000); // 86400 seconds
-  await redisSet(key, { count, windowStart }, ttl);
+  if (count >= FREE_LIMIT) {
+    limitReachedAt = limitReachedAt || now;
+  }
+
+  const expiresAt = limitReachedAt ? limitReachedAt + USAGE_WINDOW_MS : windowStart + USAGE_WINDOW_MS;
+  const ttl = Math.max(1, Math.ceil((expiresAt - now) / 1000));
+  await redisSet(key, { count, windowStart, limitReachedAt }, ttl);
   return { count, windowStart };
 }
 
@@ -649,7 +659,9 @@ async function incrementUsage(ip: string): Promise<{ count: number; windowStart:
 async function getUsageResetTime(ip: string): Promise<number | null> {
   const data = await redisGet<UsageData>(`usage_window:${ip}`);
   if (!data?.windowStart) return null;
-  const resetAt = data.windowStart + USAGE_WINDOW_MS;
+  const resetAt = data.limitReachedAt
+    ? data.limitReachedAt + USAGE_WINDOW_MS
+    : data.windowStart + USAGE_WINDOW_MS;
   if (Date.now() > resetAt) return null;
   return resetAt;
 }
@@ -1814,9 +1826,9 @@ async function startServer() {
         const resetAt = await getUsageResetTime(usageId);
         return res.json({ allowed: false, remaining: 0, resetAt });
       }
-      const { count: newCount, windowStart } = await incrementUsage(usageId);
+      const { count: newCount } = await incrementUsage(usageId);
       const remaining = FREE_LIMIT - newCount;
-      const resetAt = remaining <= 0 ? windowStart + USAGE_WINDOW_MS : null;
+      const resetAt = remaining <= 0 ? await getUsageResetTime(usageId) : null;
       return res.json({ allowed: true, remaining: Math.max(0, remaining), resetAt });
     } else {
       const remaining = Math.max(0, FREE_LIMIT - count);

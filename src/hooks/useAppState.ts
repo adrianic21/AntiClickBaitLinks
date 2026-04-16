@@ -654,6 +654,9 @@ export function useAppState() {
       } else {
         await loadAccount();
       }
+      setShowAuthModal(false);
+      setShowProfile(false);
+      setAuthPassword('');
     } catch (error: any) {
       setAuthError(error?.message || 'Authentication failed');
     } finally {
@@ -698,6 +701,12 @@ export function useAppState() {
     }
   }, [currentUser, loadAccount]);
 
+  const setActiveProvider = useCallback((nextProvider: Provider) => {
+    setProvider(nextProvider);
+    setUserApiKey(apiKeys[nextProvider] || '');
+    localStorage.setItem('api_provider', nextProvider);
+  }, [apiKeys]);
+
   const saveApiKey = useCallback(async () => {
     const hasActiveSession = currentUser || await restoreAuthenticatedSession();
     if (!hasActiveSession) {
@@ -732,7 +741,11 @@ export function useAppState() {
     const hasAnyKey = Object.values(nextValidatedKeys).some(k => k && k !== 'undefined');
     setIsKeySaved(hasAnyKey);
     localStorage.setItem('api_keys_backup', JSON.stringify(newKeys));
-    localStorage.setItem(`api_key_${provider}`, trimmedKey);
+    if (trimmedKey) {
+      localStorage.setItem(`api_key_${provider}`, trimmedKey);
+    } else {
+      localStorage.removeItem(`api_key_${provider}`);
+    }
     localStorage.setItem('api_provider', provider);
     try {
       await syncAccount({ apiKeys: newKeys, preferences: { provider } });
@@ -1410,7 +1423,7 @@ export function useAppState() {
     authEmail, setAuthEmail, authPassword, setAuthPassword, authError,
     passwordResetToken, clearPasswordResetToken,
     userApiKey, setUserApiKey, apiKeys, validatedApiKeys, validatedApiKeysReady,
-    provider, setProvider, isKeySaved, apiKeySaveError,
+    provider, setProvider: setActiveProvider, isKeySaved, apiKeySaveError,
     showSettings, showInfo, showLangMenu, showStatusPopover, showProfile,
     showOnboardingLang, showApiPrivacy, setShowApiPrivacy,
     isPremium, remainingSearches, nextResetTime,
